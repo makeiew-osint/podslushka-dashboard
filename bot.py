@@ -118,11 +118,73 @@ def _admin_kb(post_id: int, user_id: int, lang: str, public_id: Optional[int] = 
             InlineKeyboardButton(text=a("admin_queue"), callback_data="admin:queue"),
             InlineKeyboardButton(text=a("admin_stats"), callback_data="admin:stats"),
         ],
+        [
+            InlineKeyboardButton(text="✅ Опубликовать все", callback_data="admin:bulk:publish:confirm"),
+            InlineKeyboardButton(text="❌ Отклонить все", callback_data="admin:bulk:reject:confirm"),
+        ],
     ]
     if public_id:
         ch = str(cfg.channel_id).replace("@", "")
         btns.append([InlineKeyboardButton(text=a("admin_post_link").format(public_id=public_id), url=f"https://t.me/{ch}/{public_id}")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
+
+
+async def _publish_pending_post(post: Any, admin_id: int) -> int:
+    """Publish one pending post and write the same audit data as manual approval."""
+    post_id = int(post["id"])
+    public_id = await db.next_public_id()
+    channel_id = cfg.channel_id
+    if not str(channel_id).startswith(("@", "-100")):
+        channel_id = "@" + str(channel_id)
+    text = post["text"] or ""
+    pub_text = f"#{public_id}" + chr(10) + chr(10) + text if text else f"#{public_id}"
+    fid = post["file_id"]
+    kind = post["kind"]
+    msg = None
+    if kind == "text":
+        msg = await bot.send_message(channel_id, pub_text)
+    elif kind == "photo":
+        msg = await bot.send_photo(channel_id, fid, caption=pub_text)
+    elif kind == "video":
+        msg = await bot.send_video(channel_id, fid, caption=pub_text)
+    elif kind == "voice":
+        msg = await bot.send_voice(channel_id, fid, caption=pub_text)
+    elif kind == "audio":
+        msg = await bot.send_audio(channel_id, fid, caption=pub_text)
+    elif kind == "document":
+        msg = await bot.send_document(channel_id, fid, caption=pub_text)
+    elif kind == "animation":
+        msg = await bot.send_animation(channel_id, fid, caption=pub_text)
+    elif kind == "media_group":
+        items = await db.get_media_group_items(post_id)
+        media = []
+        for index, item in enumerate(items):
+            caption = pub_text if index == 0 else None
+            media_kind = item["kind"]
+            if media_kind == "photo":
+                media.append(InputMediaPhoto(media=item["file_id"], caption=caption))
+            elif media_kind == "video":
+                media.append(InputMediaVideo(media=item["file_id"], caption=caption))
+            elif media_kind == "audio":
+                media.append(InputMediaAudio(media=item["file_id"], caption=caption))
+            elif media_kind == "document":
+                media.append(InputMediaDocument(media=item["file_id"], caption=caption))
+        messages = await bot.send_media_group(channel_id, media=media)
+        msg = messages[0] if messages else None
+    else:
+        msg = await bot.send_message(channel_id, pub_text)
+    if not msg:
+        raise RuntimeError(f"Telegram did not return a message for post {post_id}")
+    await db.approve(post_id, public_id)
+    await db.set_channel_message_id(post_id, msg.message_id)
+    await db.log_admin_action(admin_id, "approve", post_id)
+    await _audit(admin_id, "Bot approve", post_id)
+    try:
+        user_lang = await db.get_ui_lang(post["user_id"]) or "ru"
+        await bot.send_message(post["user_id"], t(user_lang, "published", public_id=public_id))
+    except Exception:
+        logging.exception("Could not notify published post owner: %s", post_id)
+    return public_id
 
 
 @dp.startup()
@@ -780,56 +842,8 @@ async def cb_approve(callback: CallbackQuery):
         await callback.answer(t(lang, "admin_not_found"))
         return
 
-    public_id = await db.next_public_id()
     try:
-        channel_id = cfg.channel_id
-        if not str(channel_id).startswith(("@", "-100")):
-            channel_id = "@" + str(channel_id)
-        text = post["text"] or ""
-        pub_text = f"#{public_id}" + chr(10) + chr(10) + text if text else f"#{public_id}"
-        fid = post["file_id"]
-        kind = post["kind"]
-        msg = None
-
-        if kind == "text":
-            msg = await bot.send_message(channel_id, pub_text)
-        elif kind == "photo":
-            msg = await bot.send_photo(channel_id, fid, caption=pub_text)
-        elif kind == "video":
-            msg = await bot.send_video(channel_id, fid, caption=pub_text)
-        elif kind == "voice":
-            msg = await bot.send_voice(channel_id, fid, caption=pub_text)
-        elif kind == "audio":
-            msg = await bot.send_audio(channel_id, fid, caption=pub_text)
-        elif kind == "document":
-            msg = await bot.send_document(channel_id, fid, caption=pub_text)
-        elif kind == "animation":
-            msg = await bot.send_animation(channel_id, fid, caption=pub_text)
-        elif kind == "media_group":
-            items = await db.get_media_group_items(post_id)
-            media = []
-            for i, it in enumerate(items):
-                cap = pub_text if i == 0 else None
-                k = it["kind"]
-                if k == "photo":
-                    media.append(InputMediaPhoto(media=it["file_id"], caption=cap))
-                elif k == "video":
-                    media.append(InputMediaVideo(media=it["file_id"], caption=cap))
-                elif k == "audio":
-                    media.append(InputMediaAudio(media=it["file_id"], caption=cap))
-                elif k == "document":
-                    media.append(InputMediaDocument(media=it["file_id"], caption=cap))
-            msgs = await bot.send_media_group(channel_id, media=media)
-            msg = msgs[0] if msgs else None
-        else:
-            msg = await bot.send_message(channel_id, pub_text)
-
-        if msg:
-            await db.approve(post_id, public_id)
-            await db.set_channel_message_id(post_id, msg.message_id)
-
-        await db.log_admin_action(admin_id, "approve", post_id)
-        await _audit(admin_id, "Bot approve", post_id)
+        public_id = await _publish_pending_post(post, admin_id)
         await callback.answer(t(lang, "admin_approve_ok"))
 
         old_text = callback.message.text or callback.message.caption or ""
@@ -838,11 +852,6 @@ async def cb_approve(callback: CallbackQuery):
             reply_markup=None, parse_mode="HTML"
         )
 
-        try:
-            ul = await db.get_ui_lang(post["user_id"]) or "ru"
-            await bot.send_message(post["user_id"], t(ul, "published", public_id=public_id))
-        except Exception:
-            pass
     except Exception as e:
         logging.error(f"Publish error: {e}")
         target = cfg.channel_id
@@ -962,8 +971,98 @@ async def cb_queue(callback: CallbackQuery):
         un = p["user_name"] or "?"
         um = f"@{p['username']}" if p["username"] else "—"
         lines_list.append(f"#{p['id']} | {_esc(un)} ({um}) | {p['kind']} | {_ts(datetime.fromtimestamp(p['created_at']))}")
-    await callback.message.answer(chr(10).join(lines_list), parse_mode="HTML")
+    await callback.message.answer(
+        chr(10).join(lines_list),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Опубликовать все", callback_data="admin:bulk:publish:confirm"),
+            InlineKeyboardButton(text="❌ Отклонить все", callback_data="admin:bulk:reject:confirm"),
+        ]]),
+    )
     await callback.answer()
+
+
+@dp.callback_query(F.data.in_({"admin:bulk:publish:confirm", "admin:bulk:reject:confirm"}))
+async def cb_bulk_confirm(callback: CallbackQuery):
+    admin_id = callback.from_user.id
+    lang = await _lang(admin_id)
+    if admin_id not in cfg.admin_ids:
+        await callback.answer(t(lang, "admin_no_access"), show_alert=True)
+        return
+    action = "publish" if callback.data.endswith("publish:confirm") else "reject"
+    pending = await db.list_pending()
+    if not pending:
+        await callback.answer("Очередь уже пуста.", show_alert=True)
+        return
+    label = "опубликовать" if action == "publish" else "отклонить"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=f"Да, {label} {len(pending)}", callback_data=f"admin:bulk:{action}:run"),
+        InlineKeyboardButton(text="Отмена", callback_data="admin:bulk:cancel"),
+    ]])
+    await callback.message.answer(
+        f"⚠️ Подтвердите действие: {label} все заявки из очереди ({len(pending)} шт.)?",
+        reply_markup=keyboard,
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "admin:bulk:cancel")
+async def cb_bulk_cancel(callback: CallbackQuery):
+    if callback.from_user.id not in cfg.admin_ids:
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    await callback.message.edit_text("Массовое действие отменено.")
+    await callback.answer()
+
+
+@dp.callback_query(F.data.in_({"admin:bulk:publish:run", "admin:bulk:reject:run"}))
+async def cb_bulk_run(callback: CallbackQuery):
+    admin_id = callback.from_user.id
+    lang = await _lang(admin_id)
+    if admin_id not in cfg.admin_ids:
+        await callback.answer(t(lang, "admin_no_access"), show_alert=True)
+        return
+    action = "publish" if callback.data.endswith("publish:run") else "reject"
+    pending = await db.list_pending()
+    if not pending:
+        await callback.message.edit_text("Очередь уже пуста.")
+        await callback.answer()
+        return
+    await callback.message.edit_text(
+        f"⏳ Выполняю массовое действие для {len(pending)} заявок..."
+    )
+    completed = 0
+    failed = 0
+    for post in pending:
+        try:
+            if action == "publish":
+                await _publish_pending_post(post, admin_id)
+            else:
+                post_id = int(post["id"])
+                await db.reject(post_id, "Массовое отклонение", admin_id)
+                await db.log_admin_action(admin_id, "reject", post_id, "Массовое отклонение")
+                await _audit(admin_id, "Bot reject", f"{post_id}:Массовое отклонение")
+                try:
+                    user_lang = await db.get_ui_lang(post["user_id"]) or "ru"
+                    await bot.send_message(post["user_id"], t(user_lang, "rejected_reason", reason="Массовое отклонение"))
+                except Exception:
+                    logging.exception("Could not notify rejected post owner: %s", post_id)
+            completed += 1
+        except Exception:
+            failed += 1
+            logging.exception("Bulk %s failed for post %s", action, post["id"])
+    await _audit(
+        admin_id,
+        "Bot bulk publish" if action == "publish" else "Bot bulk reject",
+        f"completed={completed},failed={failed}",
+        admin_log=True,
+    )
+    result = "опубликовано" if action == "publish" else "отклонено"
+    await callback.message.edit_text(
+        f"✅ Готово: {result} {completed} из {len(pending)}."
+        + (f"\n⚠️ Ошибок: {failed}." if failed else "")
+    )
+    await callback.answer("Готово")
 
 
 @dp.callback_query(F.data == "admin:stats")
@@ -1007,7 +1106,14 @@ async def cmd_queue(message: Message):
         un = p["user_name"] or "?"
         um = f"@{p['username']}" if p["username"] else "—"
         lines_list.append(f"#{p['id']} | {_esc(un)} ({um}) | {p['kind']} | {_ts(datetime.fromtimestamp(p['created_at']))}")
-    await message.answer(chr(10).join(lines_list), parse_mode="HTML")
+    await message.answer(
+        chr(10).join(lines_list),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Опубликовать все", callback_data="admin:bulk:publish:confirm"),
+            InlineKeyboardButton(text="❌ Отклонить все", callback_data="admin:bulk:reject:confirm"),
+        ]]),
+    )
 
 
 @dp.message(Command("stats"))
