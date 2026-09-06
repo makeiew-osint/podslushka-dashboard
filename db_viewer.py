@@ -12,14 +12,23 @@ import subprocess
 import sys
 import threading
 import webbrowser
+from contextlib import contextmanager
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # PostgreSQL is optional for local SQLite development.
+    psycopg = None
+    dict_row = None
+
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "podslushka.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 HOST = os.getenv("HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1")
 PORT = int(os.getenv("PORT", "8765"))
 SESSIONS: dict[str, str] = {}
@@ -28,6 +37,53 @@ OWNER_PASSWORD = os.getenv("OWNER_PASSWORD", "")
 SYNC_SECRET = os.getenv("DASHBOARD_SYNC_SECRET", "")
 BOT_STATUS = {"state": "disabled", "error": ""}
 BOT_PROCESS = None
+
+
+def adapt_sql(query: str) -> str:
+    if DATABASE_URL:
+        return query.replace("?", "%s").replace(
+            "INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY"
+        )
+    return query
+
+
+class DatabaseConnection:
+    def __init__(self, connection):
+        self._connection = connection
+
+    def execute(self, query, params=()):
+        return self._connection.execute(adapt_sql(query), params)
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+
+@contextmanager
+def db_connect(readonly: bool = False):
+    if DATABASE_URL:
+        if psycopg is None:
+            raise RuntimeError("psycopg is required when DATABASE_URL is set")
+        connection = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+    else:
+        uri = f"file:{DB_PATH}?mode=ro" if readonly else str(DB_PATH)
+        connection = sqlite3.connect(uri, uri=readonly)
+        connection.row_factory = sqlite3.Row
+    wrapped = DatabaseConnection(connection)
+    try:
+        yield wrapped
+    except Exception:
+        connection.rollback()
+        raise
+    else:
+        connection.commit()
+    finally:
+        connection.close()
+
+
+DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError,) + (
+    (psycopg.errors.UniqueViolation,) if psycopg is not None else ()
+)
+DB_ERRORS = (sqlite3.Error,) + ((psycopg.Error,) if psycopg is not None else ())
 
 
 def start_embedded_bot() -> None:
@@ -53,18 +109,20 @@ def esc(value) -> str:
 
 
 def db_rows(query: str, params=()):
-    with sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True) as conn:
-        conn.row_factory = sqlite3.Row
+    with db_connect(readonly=True) as conn:
         return conn.execute(query, params).fetchall()
 
 
 def scalar(query: str):
     rows = db_rows(query)
-    return rows[0][0] if rows else 0
+    if not rows:
+        return 0
+    row = rows[0]
+    return next(iter(row.values())) if isinstance(row, dict) else row[0]
 
 
 def init_auth() -> None:
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connect() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS dashboard_users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,7 +133,16 @@ def init_auth() -> None:
                 created_at INTEGER NOT NULL
             )
         """)
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(dashboard_users)")}
+        if DATABASE_URL:
+            columns = {
+                row["column_name"]
+                for row in conn.execute(
+                    """SELECT column_name FROM information_schema.columns
+                       WHERE table_schema='public' AND table_name='dashboard_users'"""
+                )
+            }
+        else:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(dashboard_users)")}
         if "status" not in columns:
             conn.execute("ALTER TABLE dashboard_users ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'")
         if "role" not in columns:
@@ -120,7 +187,7 @@ def is_owner(username: str | None) -> bool:
         return False
     if OWNER_USERNAME and username == OWNER_USERNAME:
         return True
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connect(readonly=True) as conn:
         row = conn.execute(
             "SELECT role, status FROM dashboard_users WHERE username=?", (username,)
         ).fetchone()
@@ -128,7 +195,7 @@ def is_owner(username: str | None) -> bool:
 
 
 def log_action(actor: str, action: str, target: str = "") -> None:
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connect() as conn:
         conn.execute(
             "INSERT INTO dashboard_actions (actor, action, target, created_at) VALUES (?, ?, ?, ?)",
             (actor, action, target, int(datetime.now().timestamp())),
@@ -459,11 +526,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
         elif path == "/backup":
-            backup = ROOT / "backups"
-            backup.mkdir(exist_ok=True)
-            target = backup / f"podslushka_{datetime.now():%Y%m%d_%H%M%S}.db"
-            shutil.copy2(DB_PATH, target)
-            body = f"Резервная копия создана: {target.name}".encode("utf-8")
+            if DATABASE_URL:
+                body = (
+                    "PostgreSQL is persistent and backed up by the managed database service."
+                ).encode("utf-8")
+            else:
+                backup = ROOT / "backups"
+                backup.mkdir(exist_ok=True)
+                target = backup / f"podslushka_{datetime.now():%Y%m%d_%H%M%S}.db"
+                shutil.copy2(DB_PATH, target)
+                body = f"Резервная копия создана: {target.name}".encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
         else:
@@ -485,7 +557,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 payload = json.loads(raw_body.decode("utf-8"))
-                with sqlite3.connect(DB_PATH) as conn:
+                with db_connect() as conn:
                     for user in payload.get("users", []):
                         conn.execute(
                             """INSERT INTO users
@@ -519,9 +591,17 @@ class Handler(BaseHTTPRequestHandler):
                                 post.get("public_id"), post.get("created_at"),
                             ),
                         )
+                    if DATABASE_URL and payload.get("posts"):
+                        conn.execute(
+                            """SELECT setval(
+                                pg_get_serial_sequence('posts', 'id'),
+                                COALESCE((SELECT MAX(id) FROM posts), 1),
+                                true
+                            )"""
+                        )
                     conn.commit()
                 body = b'{"ok":true}'
-            except (ValueError, KeyError, TypeError, sqlite3.Error):
+            except (ValueError, KeyError, TypeError) + DB_ERRORS:
                 self.send_error(400, "Invalid sync payload")
                 return
             self.send_response(200)
@@ -539,13 +619,13 @@ class Handler(BaseHTTPRequestHandler):
                 error = "Логин от 3 символов, пароль минимум 8 символов."
             else:
                 try:
-                    with sqlite3.connect(DB_PATH) as conn:
+                    with db_connect() as conn:
                         conn.execute(
                             "INSERT INTO dashboard_users (username, password_hash, status, created_at) VALUES (?, ?, 'pending', ?)",
                             (username, password_hash(password), int(datetime.now().timestamp())),
                         )
                         conn.commit()
-                except sqlite3.IntegrityError:
+                except DB_INTEGRITY_ERRORS:
                     error = "Такой логин уже зарегистрирован."
             if not error:
                 body = auth_page("Заявка отправлена. Владелец должен одобрить доступ перед входом.").encode("utf-8")
@@ -559,7 +639,7 @@ class Handler(BaseHTTPRequestHandler):
             if not is_owner(auth_user(self)):
                 self.send_error(403)
                 return
-            with sqlite3.connect(DB_PATH) as conn:
+            with db_connect() as conn:
                 conn.execute("UPDATE dashboard_users SET status='approved' WHERE username=?", (username,))
                 conn.commit()
             log_action(auth_user(self) or "owner", "Одобрил доступ", username)
@@ -571,7 +651,7 @@ class Handler(BaseHTTPRequestHandler):
             if not is_owner(auth_user(self)):
                 self.send_error(403)
                 return
-            with sqlite3.connect(DB_PATH) as conn:
+            with db_connect() as conn:
                 conn.execute("UPDATE dashboard_users SET status='rejected' WHERE username=?", (username,))
                 conn.commit()
             log_action(auth_user(self) or "owner", "Отклонил доступ", username)
@@ -588,14 +668,14 @@ class Handler(BaseHTTPRequestHandler):
                 error = "Логин владельца от 3 символов, пароль минимум 8 символов."
             else:
                 try:
-                    with sqlite3.connect(DB_PATH) as conn:
+                    with db_connect() as conn:
                         conn.execute(
                             "INSERT INTO dashboard_users (username, password_hash, status, role, created_at) VALUES (?, ?, 'approved', 'owner', ?)",
                             (username, password_hash(password), int(datetime.now().timestamp())),
                         )
                         conn.commit()
                     log_action(actor or "owner", "Добавил владельца", username)
-                except sqlite3.IntegrityError:
+                except DB_INTEGRITY_ERRORS:
                     error = "Такой логин уже существует."
             if not error:
                 self.send_response(302)
@@ -603,7 +683,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
         elif path == "/login":
-            with sqlite3.connect(DB_PATH) as conn:
+            with db_connect(readonly=True) as conn:
                 row = conn.execute(
                     "SELECT password_hash, status FROM dashboard_users WHERE username = ?", (username,)
                 ).fetchone()

@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     admin_ids: Set[int]
     channel_id: str
     db_path: str = "podslushka.db"
+    database_url: Optional[str] = None
     min_text_len: int = 10
     cooldown_seconds: int = 300
     max_posts_per_hour: int = 5

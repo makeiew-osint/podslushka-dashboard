@@ -2,32 +2,60 @@ from __future__ import annotations
 
 import aiosqlite
 import hashlib
+import os
 import time
 from typing import Optional, Any
 
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # PostgreSQL is optional for local SQLite development.
+    psycopg = None
+    dict_row = None
+
 
 class Database:
-    def __init__(self, path: str = "podslushka.db"):
+    def __init__(self, path: str = "podslushka.db", database_url: str | None = None):
         self.path = path
-        self._conn: Optional[aiosqlite.Connection] = None
+        self.database_url = (database_url or os.getenv("DATABASE_URL", "")).strip()
+        self._conn = None
 
     async def connect(self):
-        self._conn = await aiosqlite.connect(self.path)
-        self._conn.row_factory = aiosqlite.Row
+        if self.database_url:
+            if psycopg is None:
+                raise RuntimeError("psycopg is required when DATABASE_URL is set")
+            self._conn = await psycopg.AsyncConnection.connect(
+                self.database_url, row_factory=dict_row
+            )
+        else:
+            self._conn = await aiosqlite.connect(self.path)
+            self._conn.row_factory = aiosqlite.Row
         await self._create_tables()
 
     async def close(self):
         if self._conn:
             await self._conn.close()
 
-    async def _execute(self, sql: str, params: tuple = ()) -> aiosqlite.Cursor:
+    def _adapt_sql(self, sql: str) -> str:
+        if not self.database_url:
+            return sql
+        sql = sql.replace("?", "%s")
+        return sql.replace(
+            "INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY"
+        )
+
+    async def _execute(self, sql: str, params: tuple = ()):
         if not self._conn:
             raise RuntimeError("DB not connected")
-        return await self._conn.execute(sql, params)
+        return await self._conn.execute(self._adapt_sql(sql), params)
 
     async def _commit(self):
         if self._conn:
             await self._conn.commit()
+
+    async def _fetchall(self, sql: str, params: tuple = ()):
+        cursor = await self._execute(sql, params)
+        return await cursor.fetchall()
 
     async def _create_tables(self):
         tables = [
@@ -178,8 +206,16 @@ class Database:
             },
         }
         for table, columns in migrations.items():
-            cursor = await self._execute(f"PRAGMA table_info({table})")
-            existing = {row[1] for row in await cursor.fetchall()}
+            if self.database_url:
+                cursor = await self._execute(
+                    """SELECT column_name FROM information_schema.columns
+                       WHERE table_schema = 'public' AND table_name = %s""",
+                    (table,),
+                )
+                existing = {row["column_name"] for row in await cursor.fetchall()}
+            else:
+                cursor = await self._execute(f"PRAGMA table_info({table})")
+                existing = {row[1] for row in await cursor.fetchall()}
             for name, definition in columns.items():
                 if name not in existing:
                     await self._execute(
@@ -216,8 +252,18 @@ class Database:
     # ── Bans ──
     async def ban(self, user_id: int, reason: str = ""):
         now = int(time.time())
-        await self._execute("INSERT OR REPLACE INTO bans (user_id, reason, created_at) VALUES (?, ?, ?)",
-                            (user_id, reason, now))
+        if self.database_url:
+            await self._execute(
+                """INSERT INTO bans (user_id, reason, created_at) VALUES (?, ?, ?)
+                   ON CONFLICT(user_id) DO UPDATE SET
+                   reason=excluded.reason, created_at=excluded.created_at""",
+                (user_id, reason, now),
+            )
+        else:
+            await self._execute(
+                "INSERT OR REPLACE INTO bans (user_id, reason, created_at) VALUES (?, ?, ?)",
+                (user_id, reason, now),
+            )
         await self._commit()
 
     async def unban(self, user_id: int) -> bool:
@@ -301,8 +347,12 @@ class Database:
         cur = await self._execute("""
             INSERT INTO posts (user_id, kind, text, file_id, media_group_id, created_at, hash, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-        """, (user_id, kind, text, file_id, media_group_id, now, h))
+        """ + (" RETURNING id" if self.database_url else ""),
+            (user_id, kind, text, file_id, media_group_id, now, h))
         await self._commit()
+        if self.database_url:
+            row = await cur.fetchone()
+            return row["id"]
         return cur.lastrowid
 
     async def add_media_group_item(self, post_id: int, kind: str, file_id: str, caption: str | None = None):

@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 
 cfg = load_settings()
-db = Database(cfg.db_path)
+db = Database(cfg.db_path, cfg.database_url)
 
 bot = Bot(token=cfg.bot_token)
 storage = MemoryStorage()
@@ -1053,11 +1053,11 @@ async def _sync_dashboard():
         return
     while True:
         try:
-            users = await db._conn.execute_fetchall(
+            users = await db._fetchall(
                 "SELECT user_id, first_name, last_name, username, language_code, "
                 "is_premium, ui_lang, first_seen, last_seen FROM users"
             )
-            posts = await db._conn.execute_fetchall(
+            posts = await db._fetchall(
                 "SELECT id, user_id, kind, text, status, public_id, created_at FROM posts"
             )
             user_payload = [
