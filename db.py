@@ -47,7 +47,14 @@ class Database:
     async def _execute(self, sql: str, params: tuple = ()):
         if not self._conn:
             raise RuntimeError("DB not connected")
-        return await self._conn.execute(self._adapt_sql(sql), params)
+        try:
+            return await self._conn.execute(self._adapt_sql(sql), params)
+        except Exception:
+            # PostgreSQL marks the whole transaction failed after one SQL error.
+            # Roll it back here so one bad update cannot brick every later command.
+            if self.database_url:
+                await self._conn.rollback()
+            raise
 
     async def _commit(self):
         if self._conn:

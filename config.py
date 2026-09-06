@@ -11,7 +11,9 @@ class Settings(BaseSettings):
     channel_id: str
     db_path: str = "podslushka.db"
     database_url: Optional[str] = None
-    min_text_len: int = 10
+    # Telegram itself limits individual text messages; the bot does not impose
+    # an additional minimum so users may submit even a single character.
+    min_text_len: int = 0
     cooldown_seconds: int = 300
     max_posts_per_hour: int = 5
     media_group_timeout: float = 3.0

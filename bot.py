@@ -330,7 +330,7 @@ async def cmd_start(message: Message, state: FSMContext):
     if not ui_lang:
         await message.answer("Выбери язык / Choose language / Обери мову:", reply_markup=_lang_kb())
         return
-    await message.answer(t(ui_lang, "welcome", min_len=cfg.min_text_len))
+    await message.answer(t(ui_lang, "welcome", min_len=cfg.min_text_len or "без ограничений"))
 
 
 @dp.callback_query(F.data.startswith("lang:"))
@@ -339,7 +339,7 @@ async def cb_lang(callback: CallbackQuery):
     await _audit(callback.from_user.id, "Bot language change", lang)
     await db.set_ui_lang(callback.from_user.id, lang)
     await callback.message.delete()
-    await callback.message.answer(t(lang, "welcome", min_len=cfg.min_text_len))
+    await callback.message.answer(t(lang, "welcome", min_len=cfg.min_text_len or "без ограничений"))
 
 
 @dp.message(Command("language"))
@@ -401,7 +401,7 @@ async def handle_incoming(message: Message, state: FSMContext):
         return
 
     txt = message.text or message.caption
-    if message.content_type.value == "text" and (not txt or len(txt) < cfg.min_text_len):
+    if message.content_type.value == "text" and cfg.min_text_len > 0 and (not txt or len(txt) < cfg.min_text_len):
         await message.answer(t(lang, "too_short", min_len=cfg.min_text_len))
         return
 
