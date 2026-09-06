@@ -160,11 +160,21 @@ class Database:
                 "moderated_at": "INTEGER",
                 "scheduled_at": "INTEGER",
                 "hash": "TEXT",
+                "public_id": "INTEGER",
                 "channel_message_id": "INTEGER",
                 "is_pinned": "INTEGER DEFAULT 0",
             },
             "users": {
                 "ui_lang": "TEXT",
+            },
+            "reports": {
+                "public_id": "INTEGER",
+                "reporter_id": "INTEGER",
+            },
+            "comments": {
+                "public_id": "INTEGER",
+                "user_id": "INTEGER",
+                "text": "TEXT",
             },
         }
         for table, columns in migrations.items():
