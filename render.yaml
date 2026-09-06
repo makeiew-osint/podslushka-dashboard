@@ -21,13 +21,13 @@ services:
       - key: DASHBOARD_SYNC_URL
         value: https://podslushka-dashboard.onrender.com
       - key: TELEGRAM_BOT_USERNAME
-        sync: false
+        value: schoolmboy202648_bot_bot
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
       - key: OAUTH_BASE_URL
-        sync: false
+        value: https://podslushka-dashboard.onrender.com
       - key: OAUTH_SIGNING_SECRET
         sync: false
       - key: RUN_BOT_IN_WEB
