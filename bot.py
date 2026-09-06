@@ -1060,9 +1060,15 @@ async def _sync_dashboard():
             posts = await db._conn.execute_fetchall(
                 "SELECT id, user_id, kind, text, status, public_id, created_at FROM posts"
             )
+            user_payload = [
+                {key: row[key] for key in row.keys()} for row in users
+            ]
+            post_payload = [
+                {key: row[key] for key in row.keys()} for row in posts
+            ]
             payload = json.dumps({
-                "users": [dict(row) for row in users],
-                "posts": [dict(row) for row in posts],
+                "users": user_payload,
+                "posts": post_payload,
             }).encode("utf-8")
             request = urllib.request.Request(
                 cfg.dashboard_sync_url.rstrip("/") + "/api/sync",
