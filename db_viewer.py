@@ -208,7 +208,7 @@ def page(current_user: str = "", section: str = "overview") -> str:
     users = db_rows("""
         SELECT u.*, COUNT(p.id) AS posts_count
         FROM users u LEFT JOIN posts p ON p.user_id = u.user_id
-        GROUP BY u.user_id ORDER BY u.last_seen DESC LIMIT 100
+        GROUP BY u.user_id ORDER BY u.last_seen DESC LIMIT 500
     """)
     posts = db_rows("""
         SELECT p.id, p.user_id, p.kind, p.status, p.public_id, p.text, p.created_at,
@@ -245,6 +245,21 @@ def page(current_user: str = "", section: str = "overview") -> str:
         "</tr>"
         for row in posts
     )
+    user_details = db_rows("""
+        SELECT u.*, COUNT(p.id) AS posts_count,
+               MAX(p.created_at) AS last_post_at
+        FROM users u LEFT JOIN posts p ON p.user_id = u.user_id
+        GROUP BY u.user_id ORDER BY u.last_seen DESC LIMIT 500
+    """)
+    user_detail_rows = "".join(
+        f"<tr class='detail-user-row'><td><code>{esc(row['user_id'])}</code></td>"
+        f"<td>{esc(row['first_name'])} {esc(row['last_name'])}</td>"
+        f"<td>{('@' + row['username']) if row['username'] else '—'}</td>"
+        f"<td>{esc(row['language_code'])}</td><td>{esc(row['ui_lang'])}</td>"
+        f"<td>{'Да' if row['is_premium'] else 'Нет'}</td><td>{esc(row['posts_count'])}</td>"
+        f"<td>{datetime.fromtimestamp(row['last_seen']).strftime('%d.%m.%Y %H:%M:%S') if row['last_seen'] else '—'}</td></tr>"
+        for row in user_details
+    )
     approval = ""
     if is_owner(current_user):
         pending = db_rows("SELECT username, created_at FROM dashboard_users WHERE status='pending' ORDER BY created_at")
@@ -273,7 +288,7 @@ def page(current_user: str = "", section: str = "overview") -> str:
             "actions": actions_section,
         }.get(section, "")
     return f"""<!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta http-equiv="refresh" content="30">
+<html lang="ru"><head><meta charset="utf-8">
 <title>Podslushka DB</title><style>
 :root{{--bg:#0b1220;--sidebar:#111c2e;--panel:#162238;--panel2:#1b2940;--line:#2b405f;--text:#edf5ff;--muted:#91a4bf;--blue:#4f8cff;--blue2:#6ca0ff;--danger:#d14d5a}}
 *{{box-sizing:border-box}}html{{scroll-behavior:smooth}}body{{margin:0;background:radial-gradient(circle at 80% 0,#1b376022,transparent 36%),var(--bg);color:var(--text);font:14px Inter,Segoe UI,Arial,sans-serif}}
@@ -288,21 +303,27 @@ def page(current_user: str = "", section: str = "overview") -> str:
 @media(max-width:1150px){{.cards{{grid-template-columns:repeat(3,1fr)}}}}@media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:25px 16px 45px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:17px}}.nav{{grid-template-columns:repeat(2,1fr)}}.nav a{{padding:10px;font-size:12px}}.topbar{{display:block}}.cards{{grid-template-columns:repeat(2,1fr);gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}h1{{font-size:25px}}}}
 </style></head><body><div class="layout">
 <aside class="sidebar"><div class="brand"><span class="logo">◈</span><span>Podslushka DB</span></div><div class="menu-title">Навигация</div><nav class="nav">
-<a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a href="/#users"><span class="icon">♙</span>Пользователи</a><a href="/#posts"><span class="icon">▤</span>Заявки</a>
+<a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a>
+<a class="{'active' if section == 'user-search' else ''}" href="/?view=user-search"><span class="icon">⌕</span>Поиск пользователей</a>
 {('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else '')}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
 <main class="content"><div class="topbar"><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации</div></div><a href="/logout"><button class="danger">Выйти</button></a></div>
 {('<section id="overview"><div class="cards">' + cards + '</div></section>' if section == 'overview' else '')}
 {('<div class="toolbar"><input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off"><select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select><button onclick="location.reload()">↻ Обновить</button><a href="/backup"><button>↓ Резервная копия</button></a></div>' if section == 'overview' else '')}
 {('<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_rows + '</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section><section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th></tr>' + post_rows + '</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>' if section == 'overview' else '')}
+{('<section id="users"><h2>Все пользователи</h2><div class="toolbar"><input id="detail-search" placeholder="Поиск по ID, имени, username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'users' else '')}
+{('<section id="posts"><h2>Все заявки</h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th></tr>' + post_rows + '</table></div></section>' if section == 'posts' else '')}
+{('<section id="user-search"><h2>Поиск пользователя</h2><div class="toolbar"><input id="detail-search" placeholder="Введите ID, имя или username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'user-search' else '')}
 {approval}
 </main></div><script>
 const search = document.getElementById('search');
 const status = document.getElementById('status');
-if (search && status) {{
+const detailSearch = document.getElementById('detail-search');
 function filterRows() {{
-  const q = search.value.toLowerCase().trim();
-  const selected = status.value;
+  const liveSearch = document.getElementById('search');
+  const liveStatus = document.getElementById('status');
+  const q = liveSearch.value.toLowerCase().trim();
+  const selected = liveStatus.value;
   let users = 0, posts = 0;
   document.querySelectorAll('.user-row').forEach(row => {{
     const visible = !q || row.innerText.toLowerCase().includes(q);
@@ -320,9 +341,54 @@ function filterRows() {{
   document.getElementById('users-empty').style.display = users ? 'none' : 'block';
   document.getElementById('posts-empty').style.display = posts ? 'none' : 'block';
 }}
-search.addEventListener('input', filterRows);
-status.addEventListener('change', filterRows);
-filterRows();
+function filterDetails() {{
+  const liveDetailSearch = document.getElementById('detail-search');
+  const q = liveDetailSearch.value.toLowerCase().trim();
+  let count = 0;
+  document.querySelectorAll('.detail-user-row').forEach(row => {{
+    const visible = !q || row.innerText.toLowerCase().includes(q);
+    row.style.display = visible ? '' : 'none';
+    if (visible) count++;
+  }});
+  document.getElementById('detail-empty').style.display = count ? 'none' : 'block';
+}}
+function bindControls() {{
+  const liveSearch = document.getElementById('search');
+  const liveStatus = document.getElementById('status');
+  const liveDetailSearch = document.getElementById('detail-search');
+  if (liveSearch && liveStatus) {{
+    liveSearch.addEventListener('input', filterRows);
+    liveStatus.addEventListener('change', filterRows);
+    filterRows();
+  }}
+  if (liveDetailSearch) {{
+    liveDetailSearch.addEventListener('input', filterDetails);
+    filterDetails();
+  }}
+}}
+bindControls();
+async function refreshPage() {{
+  const scrollY = window.scrollY;
+  const oldSearch = search ? search.value : '';
+  const oldStatus = status ? status.value : '';
+  try {{
+    const response = await fetch(location.href, {{cache: 'no-store'}});
+    if (!response.ok) return;
+    const html = await response.text();
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    const next = parsed.querySelector('.content');
+    const current = document.querySelector('.content');
+    if (next && current) {{
+      current.replaceWith(next);
+      const nextSearch = document.getElementById('search');
+      const nextStatus = document.getElementById('status');
+      if (nextSearch) nextSearch.value = oldSearch;
+      if (nextStatus) nextStatus.value = oldStatus;
+      window.scrollTo(0, scrollY);
+      location.hash = '';
+      bindControls();
+    }}
+  }} catch (_) {{}}
 }}
 async function watchForUpdates() {{
   try {{
@@ -330,7 +396,7 @@ async function watchForUpdates() {{
     if (!response.ok) return;
     const state = await response.json();
     const current = document.body.dataset.lastUpdate || '';
-    if (current && state.updated !== current) location.reload();
+    if (current && state.updated !== current) await refreshPage();
     document.body.dataset.lastUpdate = state.updated || '';
   }} catch (_) {{
     // A temporary network failure is retried on the next poll.
