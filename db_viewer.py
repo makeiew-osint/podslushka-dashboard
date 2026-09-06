@@ -66,11 +66,11 @@ SESSION_TTL = 60 * 60 * 12
 LOGIN_WINDOW = 15 * 60
 LOGIN_MAX_ATTEMPTS = 8
 ROLE_PERMISSIONS = {
-    "owner": {"overview", "users", "posts", "user-search", "access", "owners", "actions", "export"},
-    "admin": {"overview", "users", "posts", "user-search", "actions", "export"},
-    "moderator": {"overview", "users", "posts", "user-search", "export"},
-    "read-only": {"overview", "users", "posts", "user-search", "export"},
-    "user": {"overview", "users", "posts", "user-search"},
+    "owner": {"overview", "users", "posts", "user-search", "access", "owners", "actions", "health", "monitoring", "export"},
+    "admin": {"overview", "users", "posts", "user-search", "actions", "health", "monitoring", "export"},
+    "moderator": {"overview", "users", "posts", "user-search", "actions", "health", "monitoring", "export"},
+    "read-only": {"overview", "users", "posts", "user-search", "health", "monitoring", "export"},
+    "user": {"overview", "users", "posts", "user-search", "health", "monitoring"},
 }
 BOT_STATUS = {"state": "disabled", "error": ""}
 BOT_PROCESS = None
@@ -1110,7 +1110,7 @@ border-radius:99px;background:#304664;color:#d7e8ff}}@media(max-width:700px){{bo
 </div></section></main></body></html>"""
 
 
-def page(current_user: str = "", section: str = "overview") -> str:
+def page(current_user: str = "", section: str = "overview", history_post_id: str = "") -> str:
     role = dashboard_role(current_user)
     owner = role == "owner"
     if not can_access(current_user, section):
@@ -1145,6 +1145,30 @@ def page(current_user: str = "", section: str = "overview") -> str:
         "SELECT actor, action, target, created_at FROM dashboard_actions "
         "ORDER BY created_at DESC LIMIT 8"
     )
+    health_started = time.perf_counter()
+    database_state = "online"
+    database_error = ""
+    try:
+        scalar("SELECT 1")
+    except DB_ERRORS as exc:
+        database_state = "error"
+        database_error = type(exc).__name__
+    database_ms = round((time.perf_counter() - health_started) * 1000, 1)
+    last_error_row = optional_rows(
+        "SELECT action, target, created_at FROM dashboard_actions "
+        "WHERE lower(action) LIKE '%error%' OR lower(action) LIKE '%failed%' "
+        "ORDER BY created_at DESC LIMIT 1"
+    )
+    last_error = (
+        f"{last_error_row[0]['action']}: {last_error_row[0]['target']}"
+        if last_error_row else (BOT_STATUS.get("error") or database_error or "Нет ошибок")
+    )
+    monitoring_items = [
+        ("Бот", BOT_STATUS.get("state", "unknown"), BOT_STATUS.get("error", "")),
+        ("База данных", database_state, f"{database_ms} мс"),
+        ("Синхронизация", "настроена" if SYNC_SECRET and os.getenv("DASHBOARD_SYNC_URL") else "не настроена", ""),
+        ("ИИ Gemini", "настроен" if GEMINI_API_KEY else "не настроен", GEMINI_MODEL),
+    ]
     users = db_rows("""
         SELECT u.*, COUNT(p.id) AS posts_count
         FROM users u LEFT JOIN posts p ON p.user_id = u.user_id
@@ -1220,10 +1244,26 @@ def page(current_user: str = "", section: str = "overview") -> str:
     if owner or can_access(current_user, "actions"):
         actions = db_rows("SELECT actor, action, target, created_at FROM dashboard_actions ORDER BY created_at DESC LIMIT 100")
         action_rows = "".join(
-            f"<tr><td>{datetime.fromtimestamp(row['created_at']).strftime('%d.%m.%Y %H:%M:%S')}</td><td>{esc(row['actor'])}</td><td>{esc(row['action'])}</td><td>{esc(row['target'])}</td></tr>"
+            f"<tr><td>{datetime.fromtimestamp(row['created_at']).strftime('%d.%m.%Y %H:%M:%S')}</td><td>{esc(row['actor'])}</td><td>{esc(row['action'])}</td><td>{esc(row['target'])}</td><td>{('<a class=\"button-link history-link\" href=\"/?view=actions&post_id=' + esc(str(row['target']).split(':', 1)[-1]) + '\">История</a>') if str(row['target']).split(':', 1)[-1].isdigit() else '—'}</td></tr>"
             for row in actions
         )
-        actions_section = f"""<section id="actions"><h2>Действия администраторов</h2><div class="table-wrap"><table><tr><th>Время</th><th>Администратор</th><th>Действие</th><th>Объект</th></tr>{action_rows or '<tr><td colspan=4>Действий пока нет</td></tr>'}</table></div></section>"""
+        history_rows = ""
+        if history_post_id.isdigit():
+            history_rows = "".join(
+                f"<tr><td>{fmt_time(row['created_at'], True)}</td><td>{esc(row['actor'])}</td><td>{esc(row['action'])}</td><td>{esc(row['target'])}</td></tr>"
+                for row in optional_rows(
+                    "SELECT actor, action, target, created_at FROM dashboard_actions "
+                    "WHERE target=? OR target LIKE ? ORDER BY created_at ASC",
+                    (history_post_id, f"{history_post_id}:%"),
+                )
+            )
+        history_section = (
+            f"<section class='history-panel'><h2>История заявки #{esc(history_post_id)}</h2>"
+            f"<div class='table-wrap'><table><tr><th>Время</th><th>Кто</th><th>Действие</th><th>Объект</th></tr>"
+            f"{history_rows or '<tr><td colspan=4>История изменений не найдена</td></tr>'}</table></div></section>"
+            if history_post_id.isdigit() else ""
+        )
+        actions_section = f"""<section id="actions"><h2>Журнал действий</h2>{history_section}<div class="table-wrap"><table><tr><th>Время</th><th>Администратор</th><th>Действие</th><th>Объект</th><th>История</th></tr>{action_rows or '<tr><td colspan=5>Действий пока нет</td></tr>'}</table></div></section>"""
         approval = actions_section if section == "actions" else ""
         if owner:
             pending = db_rows("SELECT username, created_at FROM dashboard_users WHERE status='pending' ORDER BY created_at")
@@ -1243,6 +1283,21 @@ def page(current_user: str = "", section: str = "overview") -> str:
                 "owners": f"""<section id="owners"><h2>Владельцы</h2><form class="owner-form" method="post" action="/add-owner"><input name="username" placeholder="Логин нового владельца" required minlength="3"><input name="password" type="password" placeholder="Пароль нового владельца" required minlength="8"><button>Добавить владельца</button></form><div class="table-wrap"><table><tr><th>Логин</th><th>Добавлен</th></tr>{owner_rows or '<tr><td colspan=2>Дополнительных владельцев нет</td></tr>'}</table></div></section>""",
                 "actions": actions_section,
             }.get(section, "")
+    status_cards = "".join(
+        f"<div class='health-item'><span class='health-dot {'ok' if state in ('online', 'running', 'настроена', 'настроен') else 'warn'}'></span><div><b>{esc(label)}</b><small>{esc(state)} {esc(detail)}</small></div></div>"
+        for label, state, detail in monitoring_items
+    )
+    system_section = (
+        f"<section id='health'><h2>Здоровье системы</h2><div class='health-grid'>{status_cards}</div>"
+        f"<div class='health-last'>Последняя ошибка: <b>{esc(last_error)}</b></div>"
+        f"<div class='health-last'>Проверено: <b>{fmt_time(time.time(), True)}</b> · База: <b>{database_ms} мс</b></div></section>"
+        if section == "health" else ""
+    )
+    monitoring_section = (
+        f"<section id='monitoring'><h2>Системный мониторинг</h2><div class='monitoring-grid'>{status_cards}</div>"
+        f"<p class='muted'>Данные обновляются вместе с панелью. Ошибки и сбои записываются в журнал действий.</p></section>"
+        if section == "monitoring" else ""
+    )
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <title>Podslushka DB</title><style>
@@ -1266,12 +1321,13 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 .empty{{display:none;color:#94a3b8;padding:16px}}.inline{{display:inline}}.inline button{{margin:2px 4px 2px 0}}.owner-form{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 16px}}.owner-form input{{min-width:220px}}section{{scroll-margin-top:20px}}
 @media(max-width:1150px){{.cards{{grid-template-columns:repeat(3,1fr)}}.insights{{grid-template-columns:1fr}}}}@keyframes pageIn{{from{{opacity:0;transform:translateY(14px) scale(.985)}}to{{opacity:1;transform:none}}}}@keyframes cardIn{{from{{opacity:0;transform:translateY(18px) rotateX(5deg)}}to{{opacity:1;transform:translateY(0) rotateX(0)}}}}@keyframes pulseStatus{{0%,100%{{box-shadow:0 0 0 0 #42e6c700}}50%{{box-shadow:0 0 0 7px #42e6c722}}}}@keyframes newRow{{0%{{background:#27d3c455}}100%{{background:transparent}}}}@keyframes scan{{0%{{transform:translateX(-110%)}}100%{{transform:translateX(110%)}}}}@keyframes spin3d{{to{{transform:rotate(360deg)}}}}
 .content{{animation:pageIn .48s cubic-bezier(.2,.75,.25,1) both}}.card,.insight-card,.toolbar,.table-wrap{{animation:cardIn .55s cubic-bezier(.2,.75,.25,1) both}}.card:nth-child(2){{animation-delay:.06s}}.card:nth-child(3){{animation-delay:.12s}}.card:nth-child(4){{animation-delay:.18s}}.card:nth-child(5){{animation-delay:.24s}}.card:nth-child(6){{animation-delay:.3s}}.live-pill{{animation:pulseStatus 2.4s ease-in-out infinite}}.chart-bar{{transform-origin:bottom;animation:chartRise .7s cubic-bezier(.2,.8,.2,1) both}}@keyframes chartRise{{from{{height:0!important;opacity:0}}to{{opacity:1}}}}
+.health-grid,.monitoring-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}}.health-item{{display:flex;align-items:center;gap:11px;padding:18px;background:linear-gradient(145deg,#1b2940,#172438);border:1px solid #2d4565;border-radius:14px;box-shadow:6px 7px 0 #080f1e,0 12px 24px #03091435;animation:cardIn .5s both}}.health-item b,.health-item small{{display:block}}.health-item small{{color:#9bb0ca;margin-top:5px}}.health-dot{{width:11px;height:11px;border-radius:50%;background:#f0b35a;box-shadow:0 0 14px #f0b35a}}.health-dot.ok{{background:#42e6c7;box-shadow:0 0 14px #42e6c7}}.health-last{{margin-top:15px;padding:14px 17px;border:1px solid #354777;border-radius:12px;background:#131a35;color:#aebcda}}.history-panel{{margin-bottom:20px}}.history-link{{font-size:11px;padding:7px 10px}}
 .post-row.new-row{{animation:newRow 1.8s ease-out}}.ai-loading{{position:relative;overflow:hidden}}.ai-loading:after{{content:"";position:absolute;inset:0 auto 0 0;width:42%;background:linear-gradient(90deg,transparent,#27d3c244,transparent);animation:scan 1.35s ease-in-out infinite}}.ai-loading:before{{content:"";display:inline-block;width:15px;height:15px;margin-right:9px;vertical-align:-2px;border:2px solid #89f0df66;border-top-color:#89f0df;border-radius:50%;animation:spin3d .8s linear infinite}}.ai-card.open .ai-card-panel{{animation:cardIn .32s cubic-bezier(.2,.8,.2,1) both}}button,a.button-link{{overflow:hidden}}button:after,a.button-link:after{{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 25%,#ffffff55 48%,transparent 70%);transform:translateX(-120%);pointer-events:none}}button:hover:after,a.button-link:hover:after{{animation:buttonShine .7s ease}}@keyframes buttonShine{{to{{transform:translateX(120%)}}}}
 @media(prefers-reduced-motion:reduce){{*,*::before,*::after{{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.001ms!important}}}}
-@media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:20px 12px 40px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:15px}}.theme-switch{{width:auto;margin:0 0 15px}}.nav{{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}}.nav a{{padding:10px 8px;font-size:12px;min-width:0}}.nav a .icon{{width:16px}}.topbar{{display:block}}.topbar>div:last-child{{display:flex;gap:8px;margin-top:15px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}.toolbar input,.toolbar select{{min-width:0;flex:1;width:100%}}.filter-tabs{{width:100%;overflow:auto;flex-wrap:nowrap}}h1{{font-size:25px}}h2{{font-size:19px;margin-top:30px}}.table-wrap{{margin-right:-4px;border-radius:10px}}.ai-card{{padding:10px}}.ai-card-panel{{max-height:94vh}}}}
+@media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:20px 12px 40px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:15px}}.theme-switch{{width:auto;margin:0 0 15px}}.nav{{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}}.nav a{{padding:10px 8px;font-size:12px;min-width:0}}.nav a .icon{{width:16px}}.topbar{{display:block}}.topbar>div:last-child{{display:flex;gap:8px;margin-top:15px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}.toolbar input,.toolbar select{{min-width:0;flex:1;width:100%}}.filter-tabs{{width:100%;overflow:auto;flex-wrap:nowrap}}h1{{font-size:25px}}h2{{font-size:19px;margin-top:30px}}.table-wrap{{margin-right:-4px;border-radius:10px}}.health-grid,.monitoring-grid{{grid-template-columns:1fr}}.ai-card{{padding:10px}}.ai-card-panel{{max-height:94vh}}}}
 </style></head><body><div class="layout">
 <aside class="sidebar"><div class="brand"><span class="logo">◈</span><span>Podslushka DB</span></div><button type="button" class="theme-switch" id="theme-switch">☀️ Светлая тема</button><div class="menu-title">Навигация</div><nav class="nav">
-<a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a>
+<a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a><a class="{'active' if section == 'health' else ''}" href="/?view=health"><span class="icon">♥</span>Здоровье системы</a><a class="{'active' if section == 'monitoring' else ''}" href="/?view=monitoring"><span class="icon">◉</span>Мониторинг</a>
 <a class="{'active' if section == 'user-search' else ''}" href="/?view=user-search"><span class="icon">⌕</span>Поиск пользователей</a>
 {('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else '')}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
@@ -1282,7 +1338,7 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 {('<section id="users"><h2>Все пользователи</h2><div class="toolbar"><input id="detail-search" placeholder="Поиск по ID, имени, username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'users' else '')}
 {('<section id="posts"><h2>Все заявки</h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table></div></section>' if section == 'posts' else '')}
 {('<section id="user-search"><h2>Поиск пользователя</h2><div class="toolbar"><input id="detail-search" placeholder="Введите ID, имя или username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'user-search' else '')}
-{approval}
+{approval}{system_section}{monitoring_section}
 </main></div><div class="ai-card" id="ai-card" aria-hidden="true"><div class="ai-card-panel" role="dialog" aria-modal="true" aria-labelledby="ai-card-title"><div class="ai-card-head"><h2 id="ai-card-title">ИИ-анализ заявки</h2><button type="button" class="ai-close" id="ai-close">Закрыть</button></div><div id="ai-card-body"></div></div></div><script>
 const themeSwitch = document.getElementById('theme-switch');
 function applyTheme(theme) {{
@@ -1748,8 +1804,10 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if path == "/":
-            requested_section = parse_qs(parsed.query).get("view", ["overview"])[0]
-            body = page(auth_user(self) or "", requested_section).encode("utf-8")
+            query_data = parse_qs(parsed.query)
+            requested_section = query_data.get("view", ["overview"])[0]
+            history_post_id = query_data.get("post_id", [""])[0]
+            body = page(auth_user(self) or "", requested_section, history_post_id).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
         elif path == "/backup":
