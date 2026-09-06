@@ -566,42 +566,50 @@ def request_gemini_analysis(text: str) -> dict:
             "responseMimeType": "application/json",
         },
     }).encode("utf-8")
-    endpoint = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        + urllib.parse.quote(GEMINI_MODEL, safe="")
-        + ":generateContent?key="
-        + urllib.parse.quote(GEMINI_API_KEY, safe="")
-    )
-    request = urllib.request.Request(
-        endpoint,
-        data=payload,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=25) as response:
-            response_data = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        try:
-            provider_error = exc.read().decode("utf-8", errors="replace")[:500]
-        except (OSError, UnicodeError):
-            provider_error = ""
-        logging.warning(
-            "Gemini analysis returned HTTP %s for model %s: %s",
-            exc.code,
-            GEMINI_MODEL,
-            provider_error,
+    models = list(dict.fromkeys([
+        GEMINI_MODEL,
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+    ]))
+    response_data = None
+    last_http_error = None
+    for model in models:
+        endpoint = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            + urllib.parse.quote(model, safe="")
+            + ":generateContent?key="
+            + urllib.parse.quote(GEMINI_API_KEY, safe="")
         )
-        raise RuntimeError("upstream_http") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        logging.warning("Gemini analysis network failure: %s", type(exc).__name__)
-        raise TimeoutError("upstream_network") from exc
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        logging.warning("Gemini analysis returned invalid JSON")
-        raise RuntimeError("upstream_json") from exc
+        request = urllib.request.Request(
+            endpoint,
+            data=payload.replace(GEMINI_MODEL.encode("utf-8"), model.encode("utf-8")),
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=25) as response:
+                response_data = json.loads(response.read().decode("utf-8"))
+            logging.info("Gemini analysis used model %s", model)
+            break
+        except urllib.error.HTTPError as exc:
+            last_http_error = exc
+            if exc.code != 404:
+                break
+            logging.warning("Gemini model %s returned HTTP 404", model)
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            logging.warning("Gemini analysis network failure: %s", type(exc).__name__)
+            raise TimeoutError("upstream_network") from exc
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            logging.warning("Gemini analysis returned invalid JSON")
+            raise RuntimeError("upstream_json") from exc
+    if response_data is None:
+        if last_http_error is not None:
+            raise RuntimeError("upstream_http") from last_http_error
+        raise RuntimeError("upstream_http")
     try:
         content = response_data["candidates"][0]["content"]["parts"][0]["text"]
         if not isinstance(content, str):
