@@ -566,12 +566,40 @@ def request_gemini_analysis(text: str) -> dict:
             "responseMimeType": "application/json",
         },
     }).encode("utf-8")
-    models = list(dict.fromkeys([
+    key_query = urllib.parse.urlencode({"key": GEMINI_API_KEY})
+    models_endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models?"
+        + key_query
+    )
+    models = []
+    try:
+        models_request = urllib.request.Request(
+            models_endpoint,
+            method="GET",
+            headers={"Accept": "application/json"},
+        )
+        with urllib.request.urlopen(models_request, timeout=15) as response:
+            available = json.loads(response.read().decode("utf-8"))
+        for item in available.get("models", []):
+            name = str(item.get("name", ""))
+            methods = item.get("supportedGenerationMethods", [])
+            if name.startswith("models/") and "generateContent" in methods:
+                models.append(name.removeprefix("models/"))
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError,
+            UnicodeDecodeError, json.JSONDecodeError, AttributeError, TypeError):
+        logging.warning("Gemini model discovery failed")
+    preferred = [
         GEMINI_MODEL,
+        "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
         "gemini-2.0-flash",
         "gemini-1.5-flash",
-    ]))
+    ]
+    models = list(dict.fromkeys(
+        [model for model in preferred if model in models] + models
+    ))
+    if not models:
+        models = list(dict.fromkeys(preferred))
     response_data = None
     last_http_error = None
     for model in models:
@@ -583,7 +611,7 @@ def request_gemini_analysis(text: str) -> dict:
         )
         request = urllib.request.Request(
             endpoint,
-            data=payload.replace(GEMINI_MODEL.encode("utf-8"), model.encode("utf-8")),
+            data=payload,
             method="POST",
             headers={
                 "Content-Type": "application/json",
