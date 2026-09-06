@@ -243,36 +243,33 @@ def page(current_user: str = "") -> str:
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta http-equiv="refresh" content="30">
 <title>Podslushka DB</title><style>
-*{{box-sizing:border-box}}body{{margin:0;background:#0f172a;color:#dbeafe;font:14px Segoe UI,Arial,sans-serif}}
-main{{max-width:1400px;margin:auto;padding:28px}}h1{{margin:0 0 6px;font-size:28px}}h2{{margin-top:34px}}
-.muted{{color:#94a3b8}}.cards{{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:24px 0}}
-.card{{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px}}
-.card b{{display:block;color:#94a3b8;font-size:12px}}.card strong{{display:block;font-size:27px;margin-top:8px}}
-.toolbar{{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0}}input,select{{background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:8px;padding:10px 12px;min-width:220px}}
-.table-wrap{{overflow:auto;background:#1e293b;border:1px solid #334155;border-radius:12px}}
-table{{border-collapse:collapse;width:100%;min-width:850px}}th,td{{padding:11px 13px;text-align:left;border-bottom:1px solid #334155}}
-th{{color:#93c5fd;background:#172033;position:sticky;top:0}}tr:hover{{background:#263449}}
-code{{color:#a7f3d0}}.status{{padding:3px 8px;border-radius:10px;background:#334155}}
-button{{background:#2563eb;color:white;border:0;border-radius:8px;padding:9px 14px;cursor:pointer}}
-.danger{{background:#b91c1c}}.empty{{display:none;color:#94a3b8;padding:14px}}
-.inline{{display:inline}}.inline button{{margin:2px 4px 2px 0}}.owner-form{{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 16px}}.owner-form input{{min-width:220px}}
-.nav{{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}}.nav a{{color:#bfdbfe;text-decoration:none;background:#1e293b;border:1px solid #334155;padding:9px 12px;border-radius:8px}}
-@media(max-width:900px){{.cards{{grid-template-columns:repeat(3,1fr)}}}}
-</style></head><body><main>
-<h1>Podslushka · база данных</h1><div class="muted">Только этот компьютер · автообновление каждые 30 секунд</div>
-<div class="cards">{cards}</div>
-{('<nav class="nav"><a href="#access">Доступ</a><a href="#actions">Журнал действий</a><a href="#owners">Владельцы</a></nav>' if is_owner(current_user) else '')}
+:root{{--bg:#0b1220;--sidebar:#111c2e;--panel:#162238;--panel2:#1b2940;--line:#2b405f;--text:#edf5ff;--muted:#91a4bf;--blue:#4f8cff;--blue2:#6ca0ff;--danger:#d14d5a}}
+*{{box-sizing:border-box}}html{{scroll-behavior:smooth}}body{{margin:0;background:radial-gradient(circle at 80% 0,#1b376022,transparent 36%),var(--bg);color:var(--text);font:14px Inter,Segoe UI,Arial,sans-serif}}
+.layout{{display:flex;min-height:100vh}}.sidebar{{position:fixed;inset:0 auto 0 0;width:255px;padding:25px 16px;background:linear-gradient(180deg,#13213a,#0e1728);border-right:1px solid #243956;z-index:5}}
+.brand{{display:flex;align-items:center;gap:11px;padding:4px 10px 28px;font-size:19px;font-weight:800;letter-spacing:-.4px}}.logo{{display:grid;place-items:center;width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,#70a7ff,#3d6cf0);box-shadow:0 8px 22px #3975ed55;font-size:19px}}
+.menu-title{{padding:0 11px 9px;color:#7085a3;text-transform:uppercase;font-size:10px;font-weight:800;letter-spacing:1px}}.nav{{display:grid;gap:5px}}.nav a{{display:flex;align-items:center;gap:11px;padding:12px 11px;border:1px solid transparent;border-radius:10px;color:#adc0d9;text-decoration:none;font-weight:600;transition:.18s}}.nav a:hover,.nav a.active{{color:#fff;background:#263e63;border-color:#3b6095;box-shadow:0 6px 18px #06112655}}.nav .icon{{width:20px;text-align:center;font-size:16px}}
+.sidebar-footer{{position:absolute;bottom:22px;left:25px;right:25px;color:#6f85a3;font-size:11px;line-height:1.55}}.content{{width:100%;margin-left:255px;padding:34px clamp(22px,4vw,58px) 60px}}.topbar{{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:25px}}h1{{margin:0 0 7px;font-size:30px;letter-spacing:-.8px}}h2{{margin:42px 0 15px;font-size:21px;letter-spacing:-.3px}}.muted{{color:var(--muted)}}
+.cards{{display:grid;grid-template-columns:repeat(6,1fr);gap:13px;margin:0 0 27px}}.card{{background:linear-gradient(145deg,#1b2b45,#152238);border:1px solid #2b4568;border-radius:15px;padding:17px;box-shadow:0 12px 30px #03091435}}.card b{{display:block;color:#94aaca;font-size:12px;font-weight:600}}.card strong{{display:block;font-size:28px;margin-top:9px;color:#f4f8ff}}
+.toolbar{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 25px;padding:15px;background:#111d30;border:1px solid #253b5b;border-radius:14px;box-shadow:0 10px 28px #03091435}}input,select{{background:#0e192b;color:#e2e8f0;border:1px solid #3a5272;border-radius:9px;padding:11px 13px;min-width:220px;outline:none}}input:focus,select:focus{{border-color:var(--blue);box-shadow:0 0 0 3px #4f8cff22}}button{{background:linear-gradient(135deg,var(--blue),#3e6fe8);color:white;border:0;border-radius:9px;padding:10px 15px;font-weight:700;cursor:pointer;transition:.18s}}button:hover{{filter:brightness(1.1);transform:translateY(-1px)}}.danger{{background:linear-gradient(135deg,#c84d5a,#a83240)}}
+.table-wrap{{overflow:auto;background:linear-gradient(145deg,#1b2940,#172438);border:1px solid #2d4565;border-radius:14px;box-shadow:0 12px 30px #03091435}}table{{border-collapse:collapse;width:100%;min-width:850px}}th,td{{padding:13px 14px;text-align:left;border-bottom:1px solid #2b405f}}th{{color:#8fc0ff;background:#18263b;position:sticky;top:0;font-size:12px;text-transform:uppercase;letter-spacing:.3px}}tr:last-child td{{border-bottom:0}}tr:hover{{background:#243650}}code{{color:#a7f3d0}}.status{{padding:4px 9px;border-radius:20px;background:#304664;color:#d7e8ff;font-size:12px}}
+.empty{{display:none;color:#94a3b8;padding:16px}}.inline{{display:inline}}.inline button{{margin:2px 4px 2px 0}}.owner-form{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 16px}}.owner-form input{{min-width:220px}}section{{scroll-margin-top:20px}}
+@media(max-width:1150px){{.cards{{grid-template-columns:repeat(3,1fr)}}}}@media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:25px 16px 45px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:17px}}.nav{{grid-template-columns:repeat(2,1fr)}}.nav a{{padding:10px;font-size:12px}}.topbar{{display:block}}.cards{{grid-template-columns:repeat(2,1fr);gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}h1{{font-size:25px}}}}
+</style></head><body><div class="layout">
+<aside class="sidebar"><div class="brand"><span class="logo">◈</span><span>Podslushka DB</span></div><div class="menu-title">Навигация</div><nav class="nav">
+<a class="active" href="#overview"><span class="icon">⌂</span>Обзор</a><a href="#users"><span class="icon">♙</span>Пользователи</a><a href="#posts"><span class="icon">▤</span>Заявки</a>
+{('<a href="#access"><span class="icon">✓</span>Доступ</a><a href="#actions"><span class="icon">◷</span>Журнал действий</a><a href="#owners"><span class="icon">♛</span>Владельцы</a>' if is_owner(current_user) else '')}
+</nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
+<main class="content"><div class="topbar"><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации</div></div><a href="/logout"><button class="danger">Выйти</button></a></div>
+<section id="overview"><div class="cards">{cards}</div></section>
 <div class="toolbar">
 <input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off">
 <select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select>
-<button onclick="location.reload()">Обновить сейчас</button>
-<a href="/backup"><button>Резервная копия</button></a>
-<a href="/logout"><button class="danger">Выйти</button></a>
+<button onclick="location.reload()">↻ Обновить</button><a href="/backup"><button>↓ Резервная копия</button></a>
 </div>
-<h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>{user_rows}</table><div class="empty" id="users-empty">Ничего не найдено</div></div>
-<h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th></tr>{post_rows}</table><div class="empty" id="posts-empty">Ничего не найдено</div></div>
+<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>{user_rows}</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section>
+<section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th></tr>{post_rows}</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>
 {approval}
-<script>
+</main></div><script>
 const search = document.getElementById('search');
 const status = document.getElementById('status');
 function filterRows() {{
@@ -299,7 +296,7 @@ search.addEventListener('input', filterRows);
 status.addEventListener('change', filterRows);
 filterRows();
 </script>
-</main></body></html>"""
+</body></html>"""
 
 
 class Handler(BaseHTTPRequestHandler):
