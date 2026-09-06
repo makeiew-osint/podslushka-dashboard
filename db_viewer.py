@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "podslushka.db"
-HOST = os.getenv("HOST", "127.0.0.1")
+HOST = os.getenv("HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1")
 PORT = int(os.getenv("PORT", "8765"))
 SESSIONS: dict[str, str] = {}
 
