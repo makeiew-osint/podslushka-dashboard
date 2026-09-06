@@ -236,6 +236,19 @@ class Database:
                     await self._execute(
                         f"ALTER TABLE {table} ADD COLUMN {name} {definition}"
                     )
+        if self.database_url:
+            # Telegram IDs and channel IDs exceed PostgreSQL's 32-bit INTEGER.
+            # Widen existing deployments without dropping any data.
+            for table, column in (
+                ("users", "user_id"), ("posts", "user_id"),
+                ("posts", "moderated_by"), ("bans", "user_id"),
+                ("warns", "user_id"), ("warns", "admin_id"),
+                ("reports", "reporter_id"), ("comments", "user_id"),
+                ("votes", "user_id"),
+            ):
+                await self._execute(
+                    f"ALTER TABLE {table} ALTER COLUMN {column} TYPE BIGINT"
+                )
 
     # ── Users ──
     async def upsert_user(self, user_id: int, first_name: str | None, last_name: str | None,

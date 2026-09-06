@@ -338,6 +338,16 @@ def init_auth() -> None:
         conn.execute("CREATE TABLE IF NOT EXISTS warns (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, reason TEXT, post_id INTEGER, admin_id INTEGER, created_at INTEGER)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_actions_created ON dashboard_actions(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_expiry ON dashboard_sessions(expires_at)")
+        if DATABASE_URL:
+            for table, column in (
+                ("users", "user_id"), ("posts", "user_id"),
+                ("reports", "reporter_id"), ("comments", "user_id"),
+                ("votes", "user_id"), ("warns", "user_id"),
+                ("warns", "admin_id"),
+            ):
+                conn.execute(
+                    f"ALTER TABLE {table} ALTER COLUMN {column} TYPE BIGINT"
+                )
         conn.commit()
 
 
