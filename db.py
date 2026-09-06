@@ -144,9 +144,11 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_reports_public ON reports(public_id);",
             "CREATE INDEX IF NOT EXISTS idx_comments_public ON comments(public_id);",
         ]
-        for sql in tables + indexes:
+        for sql in tables:
             await self._execute(sql)
         await self._migrate_columns()
+        for sql in indexes:
+            await self._execute(sql)
         await self._commit()
 
     async def _migrate_columns(self):
