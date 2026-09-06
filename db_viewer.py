@@ -318,6 +318,14 @@ class Handler(BaseHTTPRequestHandler):
                         conn.commit()
                 except sqlite3.IntegrityError:
                     error = "Такой логин уже зарегистрирован."
+            if not error:
+                body = auth_page("Заявка отправлена. Владелец должен одобрить доступ перед входом.").encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
         elif path == "/approve":
             if not is_owner(auth_user(self)):
                 self.send_error(403)
