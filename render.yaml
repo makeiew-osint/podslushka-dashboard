@@ -23,7 +23,7 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        sync: false
+        value: gemini-2.5-flash
       - key: TELEGRAM_BOT_USERNAME
         value: schoolmboy202648_bot_bot
       - key: GOOGLE_CLIENT_ID
