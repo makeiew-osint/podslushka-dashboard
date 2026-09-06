@@ -71,6 +71,8 @@ ROLE_PERMISSIONS = {
 BOT_STATUS = {"state": "disabled", "error": ""}
 BOT_PROCESS = None
 BOT_RESTART_LOCK = threading.Lock()
+PG_CONNECTION = None
+PG_CONNECTION_LOCK = threading.Lock()
 
 
 def adapt_sql(query: str) -> str:
@@ -94,10 +96,21 @@ class DatabaseConnection:
 
 @contextmanager
 def db_connect(readonly: bool = False):
+    global PG_CONNECTION
     if DATABASE_URL:
         if psycopg is None:
             raise RuntimeError("psycopg is required when DATABASE_URL is set")
-        connection = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        # Keep one dashboard connection instead of opening a new PostgreSQL
+        # connection for every HTTP request on Render's small database plan.
+        PG_CONNECTION_LOCK.acquire()
+        try:
+            if PG_CONNECTION is None or PG_CONNECTION.closed:
+                PG_CONNECTION = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+            connection = PG_CONNECTION
+        except Exception:
+            PG_CONNECTION = None
+            PG_CONNECTION_LOCK.release()
+            raise
     else:
         uri = f"file:{DB_PATH}?mode=ro" if readonly else str(DB_PATH)
         connection = sqlite3.connect(uri, uri=readonly)
@@ -107,11 +120,17 @@ def db_connect(readonly: bool = False):
         yield wrapped
     except Exception:
         connection.rollback()
+        if DATABASE_URL:
+            connection.close()
+            PG_CONNECTION = None
         raise
     else:
         connection.commit()
     finally:
-        connection.close()
+        if DATABASE_URL:
+            PG_CONNECTION_LOCK.release()
+        else:
+            connection.close()
 
 
 DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError,) + (
@@ -1628,3 +1647,5 @@ if __name__ == "__main__":
     finally:
         if BOT_PROCESS and BOT_PROCESS.poll() is None:
             BOT_PROCESS.terminate()
+        if PG_CONNECTION is not None and not PG_CONNECTION.closed:
+            PG_CONNECTION.close()
