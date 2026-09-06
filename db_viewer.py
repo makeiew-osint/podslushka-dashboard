@@ -615,37 +615,47 @@ def request_gemini_analysis(text: str) -> dict:
     response_data = None
     last_http_error = None
     for model in models:
-        endpoint = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            + urllib.parse.quote(model, safe="")
-            + ":generateContent?key="
-            + urllib.parse.quote(GEMINI_API_KEY, safe="")
-        )
-        request = urllib.request.Request(
-            endpoint,
-            data=payload,
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=25) as response:
-                response_data = json.loads(response.read().decode("utf-8"))
-            logging.info("Gemini analysis used model %s", model)
-            break
-        except urllib.error.HTTPError as exc:
-            last_http_error = exc
-            if exc.code != 404:
+        for api_version in ("v1", "v1beta"):
+            endpoint = (
+                "https://generativelanguage.googleapis.com/" + api_version + "/models/"
+                + urllib.parse.quote(model, safe="")
+                + ":generateContent?key="
+                + urllib.parse.quote(GEMINI_API_KEY, safe="")
+            )
+            request = urllib.request.Request(
+                endpoint,
+                data=payload,
+                method="POST",
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=25) as response:
+                    response_data = json.loads(response.read().decode("utf-8"))
+                logging.warning("Gemini analysis used model %s via %s", model, api_version)
                 break
-            logging.warning("Gemini model %s returned HTTP 404", model)
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            logging.warning("Gemini analysis network failure: %s", type(exc).__name__)
-            raise TimeoutError("upstream_network") from exc
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            logging.warning("Gemini analysis returned invalid JSON")
-            raise RuntimeError("upstream_json") from exc
+            except urllib.error.HTTPError as exc:
+                last_http_error = exc
+                try:
+                    provider_error = exc.read().decode("utf-8", errors="replace")[:300]
+                except (OSError, UnicodeError):
+                    provider_error = ""
+                logging.warning(
+                    "Gemini model %s via %s returned HTTP %s: %s",
+                    model, api_version, exc.code, provider_error,
+                )
+                if exc.code != 404:
+                    break
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                logging.warning("Gemini analysis network failure: %s", type(exc).__name__)
+                raise TimeoutError("upstream_network") from exc
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                logging.warning("Gemini analysis returned invalid JSON")
+                raise RuntimeError("upstream_json") from exc
+        if response_data is not None:
+            break
     if response_data is None:
         if last_http_error is not None:
             raise RuntimeError("upstream_http") from last_http_error
