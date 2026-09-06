@@ -585,9 +585,19 @@ def request_gemini_analysis(text: str) -> dict:
             methods = item.get("supportedGenerationMethods", [])
             if name.startswith("models/") and "generateContent" in methods:
                 models.append(name.removeprefix("models/"))
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError,
-            UnicodeDecodeError, json.JSONDecodeError, AttributeError, TypeError):
-        logging.warning("Gemini model discovery failed")
+    except urllib.error.HTTPError as exc:
+        try:
+            provider_error = exc.read().decode("utf-8", errors="replace")[:500]
+        except (OSError, UnicodeError):
+            provider_error = ""
+        logging.warning(
+            "Gemini model discovery returned HTTP %s: %s",
+            exc.code,
+            provider_error,
+        )
+    except (urllib.error.URLError, TimeoutError, OSError,
+            UnicodeDecodeError, json.JSONDecodeError, AttributeError, TypeError) as exc:
+        logging.warning("Gemini model discovery failed: %s", type(exc).__name__)
     preferred = [
         GEMINI_MODEL,
         "gemini-2.5-flash",
