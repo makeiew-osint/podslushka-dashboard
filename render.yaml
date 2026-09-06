@@ -27,4 +27,4 @@ services:
       - key: ADMIN_IDS
         sync: false
       - key: CHANNEL_ID
-        sync: false
+        value: "-10042000444335"
