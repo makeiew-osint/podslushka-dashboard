@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # Telegram itself limits individual text messages; the bot does not impose
     # an additional minimum so users may submit even a single character.
     min_text_len: int = 0
-    cooldown_seconds: int = 300
+    cooldown_seconds: int = 30
     max_posts_per_hour: int = 5
     media_group_timeout: float = 3.0
     queue_alert_threshold: int = 20

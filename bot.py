@@ -465,17 +465,18 @@ async def handle_incoming(message: Message, state: FSMContext):
         await message.answer(t("ru", "need_lang"))
         return
 
-    last = await db.last_post_time(uid)
-    if last and (time.time() - last) < cfg.cooldown_seconds:
-        await _audit(uid, "Bot rate limit cooldown", "message")
-        wait = int(cfg.cooldown_seconds - (time.time() - last))
-        await message.answer(t(lang, "wait", wait=wait))
-        return
+    if uid not in cfg.admin_ids:
+        last = await db.last_post_time(uid)
+        if last and (time.time() - last) < cfg.cooldown_seconds:
+            await _audit(uid, "Bot rate limit cooldown", "message")
+            wait = int(cfg.cooldown_seconds - (time.time() - last))
+            await message.answer(t(lang, "wait", wait=wait))
+            return
 
-    if await db.posts_last_hour(uid) >= cfg.max_posts_per_hour:
-        await _audit(uid, "Bot rate limit hourly", "message")
-        await message.answer(t(lang, "flood", limit=cfg.max_posts_per_hour))
-        return
+        if await db.posts_last_hour(uid) >= cfg.max_posts_per_hour:
+            await _audit(uid, "Bot rate limit hourly", "message")
+            await message.answer(t(lang, "flood", limit=cfg.max_posts_per_hour))
+            return
 
     txt = message.text or message.caption
     if message.content_type.value == "text" and cfg.min_text_len > 0 and (not txt or len(txt) < cfg.min_text_len):
