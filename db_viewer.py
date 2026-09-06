@@ -585,7 +585,16 @@ def request_gemini_analysis(text: str) -> dict:
         with urllib.request.urlopen(request, timeout=25) as response:
             response_data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        logging.warning("Gemini analysis returned HTTP %s", exc.code)
+        try:
+            provider_error = exc.read().decode("utf-8", errors="replace")[:500]
+        except (OSError, UnicodeError):
+            provider_error = ""
+        logging.warning(
+            "Gemini analysis returned HTTP %s for model %s: %s",
+            exc.code,
+            GEMINI_MODEL,
+            provider_error,
+        )
         raise RuntimeError("upstream_http") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         logging.warning("Gemini analysis network failure: %s", type(exc).__name__)
