@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import hashlib
 import json
+import logging
 import os
 import secrets
 import shutil
@@ -23,6 +24,21 @@ SESSIONS: dict[str, str] = {}
 OWNER_USERNAME = os.getenv("OWNER_USERNAME", "")
 OWNER_PASSWORD = os.getenv("OWNER_PASSWORD", "")
 SYNC_SECRET = os.getenv("DASHBOARD_SYNC_SECRET", "")
+
+
+def start_embedded_bot() -> None:
+    if os.getenv("RUN_BOT_IN_WEB", "").lower() not in {"1", "true", "yes"}:
+        return
+
+    def run() -> None:
+        try:
+            import asyncio
+            from bot import main as bot_main
+            asyncio.run(bot_main())
+        except Exception:
+            logging.exception("Embedded Telegram bot stopped")
+
+    threading.Thread(target=run, name="telegram-bot", daemon=True).start()
 
 
 def esc(value) -> str:
@@ -540,6 +556,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     init_auth()
+    start_embedded_bot()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     public_host = "127.0.0.1" if HOST == "0.0.0.0" else HOST
     url = f"http://{public_host}:{PORT}/"

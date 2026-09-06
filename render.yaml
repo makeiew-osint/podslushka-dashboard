@@ -16,3 +16,11 @@ services:
         sync: false
       - key: DASHBOARD_SYNC_SECRET
         sync: false
+      - key: RUN_BOT_IN_WEB
+        value: "true"
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: CHANNEL_ID
+        sync: false
