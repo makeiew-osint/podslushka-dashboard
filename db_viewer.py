@@ -168,7 +168,10 @@ document.querySelectorAll('.toggle').forEach(btn => btn.addEventListener('click'
 </script></body></html>"""
 
 
-def page(current_user: str = "") -> str:
+def page(current_user: str = "", section: str = "overview") -> str:
+    owner = is_owner(current_user)
+    if not owner:
+        section = "overview"
     stats = {
         "users": scalar("SELECT COUNT(*) FROM users"),
         "posts": scalar("SELECT COUNT(*) FROM posts"),
@@ -236,10 +239,14 @@ def page(current_user: str = "") -> str:
             f"<tr><td>{datetime.fromtimestamp(row['created_at']).strftime('%d.%m.%Y %H:%M:%S')}</td><td>{esc(row['actor'])}</td><td>{esc(row['action'])}</td><td>{esc(row['target'])}</td></tr>"
             for row in actions
         )
-        approval = f"""
-<section id="access"><h2>Заявки на доступ</h2><div class="table-wrap"><table><tr><th>Логин</th><th>Дата</th><th>Действие</th></tr>{rows or '<tr><td colspan=3>Новых заявок нет</td></tr>'}</table></div></section>
-<section id="owners"><h2>Владельцы</h2><form class="owner-form" method="post" action="/add-owner"><input name="username" placeholder="Логин нового владельца" required minlength="3"><input name="password" type="password" placeholder="Пароль нового владельца" required minlength="8"><button>Добавить владельца</button></form><div class="table-wrap"><table><tr><th>Логин</th><th>Добавлен</th></tr>{owner_rows or '<tr><td colspan=2>Дополнительных владельцев нет</td></tr>'}</table></div></section>
-<section id="actions"><h2>Действия администраторов</h2><div class="table-wrap"><table><tr><th>Время</th><th>Администратор</th><th>Действие</th><th>Объект</th></tr>{action_rows or '<tr><td colspan=4>Действий пока нет</td></tr>'}</table></div></section>"""
+        access_section = f"""<section id="access"><h2>Заявки на доступ</h2><div class="table-wrap"><table><tr><th>Логин</th><th>Дата</th><th>Действие</th></tr>{rows or '<tr><td colspan=3>Новых заявок нет</td></tr>'}</table></div></section>"""
+        owners_section = f"""<section id="owners"><h2>Владельцы</h2><form class="owner-form" method="post" action="/add-owner"><input name="username" placeholder="Логин нового владельца" required minlength="3"><input name="password" type="password" placeholder="Пароль нового владельца" required minlength="8"><button>Добавить владельца</button></form><div class="table-wrap"><table><tr><th>Логин</th><th>Добавлен</th></tr>{owner_rows or '<tr><td colspan=2>Дополнительных владельцев нет</td></tr>'}</table></div></section>"""
+        actions_section = f"""<section id="actions"><h2>Действия администраторов</h2><div class="table-wrap"><table><tr><th>Время</th><th>Администратор</th><th>Действие</th><th>Объект</th></tr>{action_rows or '<tr><td colspan=4>Действий пока нет</td></tr>'}</table></div></section>"""
+        approval = {
+            "access": access_section,
+            "owners": owners_section,
+            "actions": actions_section,
+        }.get(section, "")
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta http-equiv="refresh" content="30">
 <title>Podslushka DB</title><style>
@@ -256,22 +263,18 @@ def page(current_user: str = "") -> str:
 @media(max-width:1150px){{.cards{{grid-template-columns:repeat(3,1fr)}}}}@media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:25px 16px 45px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:17px}}.nav{{grid-template-columns:repeat(2,1fr)}}.nav a{{padding:10px;font-size:12px}}.topbar{{display:block}}.cards{{grid-template-columns:repeat(2,1fr);gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}h1{{font-size:25px}}}}
 </style></head><body><div class="layout">
 <aside class="sidebar"><div class="brand"><span class="logo">◈</span><span>Podslushka DB</span></div><div class="menu-title">Навигация</div><nav class="nav">
-<a class="active" href="#overview"><span class="icon">⌂</span>Обзор</a><a href="#users"><span class="icon">♙</span>Пользователи</a><a href="#posts"><span class="icon">▤</span>Заявки</a>
-{('<a href="#access"><span class="icon">✓</span>Доступ</a><a href="#actions"><span class="icon">◷</span>Журнал действий</a><a href="#owners"><span class="icon">♛</span>Владельцы</a>' if is_owner(current_user) else '')}
+<a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a href="/#users"><span class="icon">♙</span>Пользователи</a><a href="/#posts"><span class="icon">▤</span>Заявки</a>
+{('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else '')}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
 <main class="content"><div class="topbar"><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации</div></div><a href="/logout"><button class="danger">Выйти</button></a></div>
-<section id="overview"><div class="cards">{cards}</div></section>
-<div class="toolbar">
-<input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off">
-<select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select>
-<button onclick="location.reload()">↻ Обновить</button><a href="/backup"><button>↓ Резервная копия</button></a>
-</div>
-<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>{user_rows}</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section>
-<section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th></tr>{post_rows}</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>
+{('<section id="overview"><div class="cards">' + cards + '</div></section>' if section == 'overview' else '')}
+{('<div class="toolbar"><input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off"><select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select><button onclick="location.reload()">↻ Обновить</button><a href="/backup"><button>↓ Резервная копия</button></a></div>' if section == 'overview' else '')}
+{('<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_rows + '</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section><section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th></tr>' + post_rows + '</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>' if section == 'overview' else '')}
 {approval}
 </main></div><script>
 const search = document.getElementById('search');
 const status = document.getElementById('status');
+if (search && status) {{
 function filterRows() {{
   const q = search.value.toLowerCase().trim();
   const selected = status.value;
@@ -295,13 +298,15 @@ function filterRows() {{
 search.addEventListener('input', filterRows);
 status.addEventListener('change', filterRows);
 filterRows();
+}}
 </script>
 </body></html>"""
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path == "/logout":
             token = next((item.split("=", 1)[1] for item in self.headers.get("Cookie", "").split("; ")
                           if item.startswith("session=")), None)
@@ -321,7 +326,8 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if path == "/":
-            body = page(auth_user(self) or "").encode("utf-8")
+            requested_section = parse_qs(parsed.query).get("view", ["overview"])[0]
+            body = page(auth_user(self) or "", requested_section).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
         elif path == "/backup":
