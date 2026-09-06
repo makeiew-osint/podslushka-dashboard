@@ -32,6 +32,8 @@ services:
         sync: false
       - key: OWNER_2FA_SECRET
         sync: false
+      - key: OWNER_2FA_REQUIRED
+        value: "false"
       - key: RUN_BOT_IN_WEB
         value: "true"
       - key: BOT_TOKEN

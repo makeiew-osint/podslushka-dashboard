@@ -120,8 +120,14 @@ def _admin_kb(post_id: int, user_id: int, lang: str, public_id: Optional[int] = 
 
 @dp.startup()
 async def _on_startup():
-    await db.connect()
-    logging.info("Bot started, DB connected")
+    while True:
+        try:
+            await db.connect()
+            logging.info("Bot started, DB connected")
+            return
+        except Exception:
+            logging.exception("Bot database connection failed; retrying in 10 seconds")
+            await asyncio.sleep(10)
 
 
 @dp.shutdown()

@@ -44,6 +44,7 @@ OAUTH_STATES: dict[str, tuple[str, int]] = {}
 OWNER_USERNAME = os.getenv("OWNER_USERNAME", "")
 OWNER_PASSWORD = os.getenv("OWNER_PASSWORD", "")
 OWNER_2FA_SECRET = os.getenv("OWNER_2FA_SECRET", "").strip()
+OWNER_2FA_REQUIRED = os.getenv("OWNER_2FA_REQUIRED", "").strip().lower() in {"1", "true", "yes"}
 SYNC_SECRET = os.getenv("DASHBOARD_SYNC_SECRET", "")
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
 TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
@@ -598,7 +599,7 @@ color:white;font-weight:800;font-size:15px;cursor:pointer;background:linear-grad
 <div class="error">{esc(message)}</div><div class="tabs"><button class="tab active" data-tab="login">Войти</button><button class="tab" data-tab="register">Регистрация</button></div>
 <form class="form active" id="login" method="post" action="/login"><label class="field">Логин</label><input name="username" placeholder="Введите логин" required autocomplete="username">
 <label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Введите пароль" required autocomplete="current-password"><button type="button" class="toggle">◉</button></div>
-<label class="field">Код 2FA <span class="muted">(если включён)</span></label><input name="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="Необязательно">
+<label class="field">Код 2FA <span class="muted">(включается отдельно)</span></label><input name="otp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="Необязательно" title="Введите 6 цифр, если 2FA включена">
 <button class="submit" type="submit">Войти в панель →</button></form>
 <form class="form" id="register" method="post" action="/register"><label class="field">Логин</label><input name="username" placeholder="Придумайте логин" required minlength="3" autocomplete="username">
 <label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Минимум 8 символов" required minlength="8" autocomplete="new-password"><button type="button" class="toggle">◉</button></div><button class="submit" type="submit">Создать аккаунт →</button></form>{oauth_links}
@@ -1334,9 +1335,9 @@ class Handler(BaseHTTPRequestHandler):
                     username == OWNER_USERNAME and OWNER_PASSWORD
                     and secrets.compare_digest(password, OWNER_PASSWORD)
                 )
-                configured_totp = OWNER_2FA_SECRET
+                configured_totp = OWNER_2FA_SECRET if OWNER_2FA_REQUIRED else ""
                 if row and row_value(row, "totp_secret", 2):
-                    configured_totp = row_value(row, "totp_secret", 2)
+                    configured_totp = row_value(row, "totp_secret", 2) if OWNER_2FA_REQUIRED else ""
                 valid_password = owner_login or (
                     bool(row)
                     and row_value(row, "status", 1) == "approved"
