@@ -6,6 +6,7 @@ import os
 import time
 import urllib.request
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Optional, Dict, List, Any
 
 from aiogram import Bot, Dispatcher, F
@@ -55,9 +56,15 @@ async def _lang(user_id: int) -> str:
     return l or "ru"
 
 
-async def _audit(actor: Any, action: str, target: Any = ""):
+async def _audit(actor: Any, action: str, target: Any = "", admin_log: bool = False):
     try:
         await db.log_dashboard_action(str(actor), action, str(target))
+        if admin_log:
+            try:
+                actor_id = int(actor)
+            except (TypeError, ValueError):
+                actor_id = 0
+            await db.log_admin_action(actor_id, action, None, str(target)[:500])
     except Exception:
         logging.exception("Dashboard action audit failed")
 
@@ -337,6 +344,70 @@ async def cmd_start(message: Message, state: FSMContext):
         await message.answer("Выбери язык / Choose language / Обери мову:", reply_markup=_lang_kb())
         return
     await message.answer(t(ui_lang, "welcome", min_len=cfg.min_text_len or "без ограничений"))
+
+
+@dp.message(Command("profile"))
+async def cmd_profile(message: Message, command: CommandObject):
+    """Show a Telegram/user history card; admins may inspect another user."""
+    uid = message.from_user.id
+    query = (command.args or "").strip()
+    if query and uid not in cfg.admin_ids:
+        await message.answer("Команда без аргументов доступна только для вашего профиля.")
+        await _audit(uid, "Bot /profile denied", query, admin_log=True)
+        return
+
+    target_id = uid
+    target_user = message.from_user
+    if query:
+        matches = await db.search_users(query, limit=5)
+        if not matches:
+            await message.answer("Пользователь не найден.")
+            await _audit(uid, "Bot /profile not found", query, admin_log=True)
+            return
+        target = matches[0]
+        target_id = int(target["user_id"])
+        target_user = SimpleNamespace(
+            id=target_id,
+            first_name=target["first_name"] or "",
+            last_name=target["last_name"] or "",
+            username=target["username"],
+            full_name=" ".join(filter(None, [target["first_name"], target["last_name"]])) or str(target_id),
+            language_code=target["language_code"],
+            is_premium=bool(target["is_premium"]),
+            is_bot=False,
+        )
+    await _audit(uid, "Bot /profile viewed", target_id, admin_log=True)
+    await message.answer(await _build_user_card(target_id, target_user, await _lang(uid)), parse_mode="HTML")
+
+
+@dp.message(Command("find"))
+async def cmd_find(message: Message, command: CommandObject):
+    """Admin-only user lookup by Telegram ID, username, first or last name."""
+    admin_id = message.from_user.id
+    query = (command.args or "").strip()
+    if admin_id not in cfg.admin_ids:
+        await _audit(admin_id, "Bot /find denied", query, admin_log=True)
+        return
+    if not query:
+        await message.answer("Использование: /find <id или username>")
+        await _audit(admin_id, "Bot /find usage", "", admin_log=True)
+        return
+    matches = await db.search_users(query, limit=20)
+    await _audit(admin_id, "Bot /find", query, admin_log=True)
+    if not matches:
+        await message.answer("Пользователи не найдены.")
+        return
+    lines = [f"🔎 <b>Найдено: {len(matches)}</b>"]
+    for row in matches:
+        name = " ".join(filter(None, [row["first_name"], row["last_name"]])) or "Без имени"
+        username = f"@{_esc(row['username'])}" if row["username"] else "—"
+        state = "🔨 бан" if row["is_banned"] else "✅ активен"
+        lines.append(
+            f'• <a href="tg://user?id={row["user_id"]}">{_esc(name)}</a> '
+            f'(<code>{row["user_id"]}</code>, {username}) · {state} · '
+            f'заявок: {row["posts_count"] or 0} · варнов: {row["warns_count"] or 0}'
+        )
+    await message.answer(chr(10).join(lines), parse_mode="HTML")
 
 
 @dp.callback_query(F.data.startswith("lang:"))
@@ -880,7 +951,7 @@ async def cb_queue(callback: CallbackQuery):
     if admin_id not in cfg.admin_ids:
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
-    await _audit(admin_id, "Bot queue viewed", "")
+    await _audit(admin_id, "Bot queue viewed", "", admin_log=True)
     pending = await db.list_pending()
     if not pending:
         await callback.message.answer(t(lang, "admin_queue_empty"))
@@ -901,7 +972,7 @@ async def cb_stats(callback: CallbackQuery):
     if admin_id not in cfg.admin_ids:
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
-    await _audit(admin_id, "Bot stats viewed", "")
+    await _audit(admin_id, "Bot stats viewed", "", admin_log=True)
     s = await db.stats()
     text = t(lang, "admin_stats_title") + chr(10) + chr(10)
     text += t(lang, "admin_users", count=s["users"]) + chr(10)
@@ -925,7 +996,7 @@ async def cmd_queue(message: Message):
     lang = await _lang(admin_id)
     if admin_id not in cfg.admin_ids:
         return
-    await _audit(admin_id, "Bot queue viewed", "")
+    await _audit(admin_id, "Bot queue viewed", "", admin_log=True)
     pending = await db.list_pending()
     if not pending:
         await message.answer(t(lang, "admin_queue_empty"))
@@ -944,7 +1015,7 @@ async def cmd_stats(message: Message):
     lang = await _lang(admin_id)
     if admin_id not in cfg.admin_ids:
         return
-    await _audit(admin_id, "Bot stats viewed", "")
+    await _audit(admin_id, "Bot stats viewed", "", admin_log=True)
     s = await db.stats()
     text = t(lang, "admin_stats_title") + chr(10) + chr(10)
     text += t(lang, "admin_users", count=s["users"]) + chr(10)
@@ -1017,7 +1088,8 @@ async def cmd_warn(message: Message, command: CommandObject):
 
 @dp.message(Command("addword"))
 async def cmd_addword(message: Message, command: CommandObject):
-    if message.from_user.id not in cfg.admin_ids:
+    admin_id = message.from_user.id
+    if admin_id not in cfg.admin_ids:
         return
     if not command.args:
         await message.answer("Usage: /addword <word>")
@@ -1032,7 +1104,8 @@ async def cmd_addword(message: Message, command: CommandObject):
 
 @dp.message(Command("delword"))
 async def cmd_delword(message: Message, command: CommandObject):
-    if message.from_user.id not in cfg.admin_ids:
+    admin_id = message.from_user.id
+    if admin_id not in cfg.admin_ids:
         return
     if not command.args:
         await message.answer("Usage: /delword <word>")
@@ -1144,15 +1217,29 @@ async def _sync_dashboard():
                 "SELECT id, user_id, kind, text, status, public_id, created_at, chat_id, chat_type, "
                 "message_id, content_type, message_date, edit_date, text_chars, text_words, metadata FROM posts"
             )
+            actions = await db._fetchall(
+                "SELECT id, actor, action, target, created_at FROM dashboard_actions"
+            )
+            admin_logs = await db._fetchall(
+                "SELECT id, admin_id, action, post_id, details, created_at FROM admin_logs"
+            )
             user_payload = [
                 {key: row[key] for key in row.keys()} for row in users
             ]
             post_payload = [
                 {key: row[key] for key in row.keys()} for row in posts
             ]
+            action_payload = [
+                {key: row[key] for key in row.keys()} for row in actions
+            ]
+            admin_log_payload = [
+                {key: row[key] for key in row.keys()} for row in admin_logs
+            ]
             payload = json.dumps({
                 "users": user_payload,
                 "posts": post_payload,
+                "actions": action_payload,
+                "admin_logs": admin_log_payload,
             }).encode("utf-8")
             request = urllib.request.Request(
                 cfg.dashboard_sync_url.rstrip("/") + "/api/sync",

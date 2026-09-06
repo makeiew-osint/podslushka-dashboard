@@ -169,8 +169,8 @@ def db_rows(query: str, params=()):
         return conn.execute(query, params).fetchall()
 
 
-def scalar(query: str):
-    rows = db_rows(query)
+def scalar(query: str, params=()):
+    rows = db_rows(query, params)
     if not rows:
         return 0
     row = rows[0]
@@ -314,6 +314,14 @@ def init_auth() -> None:
             target TEXT,
             created_at INTEGER NOT NULL
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS admin_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_id BIGINT NOT NULL,
+            action TEXT NOT NULL,
+            post_id BIGINT,
+            details TEXT,
+            created_at INTEGER NOT NULL
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS dashboard_sessions (
             token TEXT PRIMARY KEY,
             username TEXT NOT NULL,
@@ -354,6 +362,7 @@ def init_auth() -> None:
         conn.execute("CREATE TABLE IF NOT EXISTS votes (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id INTEGER, user_id INTEGER, vote INTEGER, created_at INTEGER)")
         conn.execute("CREATE TABLE IF NOT EXISTS warns (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, reason TEXT, post_id INTEGER, admin_id INTEGER, created_at INTEGER)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_actions_created ON dashboard_actions(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_logs(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_expiry ON dashboard_sessions(expires_at)")
         if DATABASE_URL:
             for table, column in (
@@ -434,6 +443,18 @@ def log_action(actor: str, action: str, target: str = "") -> None:
         conn.execute(
             "INSERT INTO dashboard_actions (actor, action, target, created_at) VALUES (?, ?, ?, ?)",
             (actor, action, target, int(datetime.now().timestamp())),
+        )
+        # Keep the operational audit trail in both schemas.  Dashboard accounts
+        # use 0 because admin_logs.admin_id is numeric, while the original actor
+        # remains available in details and dashboard_actions.
+        try:
+            numeric_actor = int(actor)
+        except (TypeError, ValueError):
+            numeric_actor = 0
+        conn.execute(
+            """INSERT INTO admin_logs (admin_id, action, post_id, details, created_at)
+               VALUES (?, ?, NULL, ?, ?)""",
+            (numeric_actor, action, f"actor={actor}; target={target}"[:500], int(datetime.now().timestamp())),
         )
         conn.commit()
 
@@ -690,6 +711,16 @@ def user_detail_page(current_user: str, user_id: int) -> str:
         "WHERE actor=? OR target=? ORDER BY created_at DESC LIMIT 500",
         (str(user_id), str(user_id)),
     )
+    profile_counts = {
+        "Всего заявок": len(posts),
+        "Опубликовано": sum(1 for row in posts if row["status"] == "published"),
+        "На модерации": sum(1 for row in posts if row["status"] == "pending"),
+        "Активность": len(comments) + len(votes) + len(reports),
+    }
+    profile_metrics = "".join(
+        f'<div class="profile-metric"><span>{esc(label)}</span><b>{esc(value)}</b></div>'
+        for label, value in profile_counts.items()
+    )
     posts_html = "".join(
         f"<tr><td>#{esc(row['id'])}</td><td>{esc(row['kind'])}</td>"
         f"<td>{esc(row['status'])}</td><td>{esc((row['text'] or '')[:240])}</td>"
@@ -736,16 +767,16 @@ border:0;border-radius:10px;padding:10px 15px;font-weight:700;background:linear-
 box-shadow:0 5px 0 #34268d;cursor:pointer;transition:.18s}}a:hover,button:hover{{transform:translateY(-2px);
 filter:brightness(1.1)}}a:focus-visible,button:focus-visible{{outline:3px solid #27d3c2;outline-offset:3px}}
 section{{margin-top:22px;background:#171936;border:1px solid #353866;border-radius:14px;padding:18px;
-box-shadow:7px 8px 0 #050611}}h1{{margin:18px 0 4px}}h2{{margin:0 0 12px}}table{{border-collapse:collapse;
+box-shadow:7px 8px 0 #050611}}.profile-metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:15px}}.profile-metric{{padding:13px;border:1px solid #3b4677;border-radius:11px;background:linear-gradient(145deg,#242851,#171936)}}.profile-metric span{{display:block;color:#a5a8c7;font-size:11px}}.profile-metric b{{display:block;font-size:22px;margin-top:5px;color:#a7f3d0}}h1{{margin:18px 0 4px}}h2{{margin:0 0 12px}}table{{border-collapse:collapse;
 width:100%;min-width:650px}}.table{{overflow:auto}}th,td{{padding:10px;border-bottom:1px solid #353866;
 text-align:left}}th{{color:#8fc0ff}}.muted{{color:#a5a8c7}}.badge{{display:inline-block;padding:5px 9px;
-border-radius:99px;background:#304664;color:#d7e8ff}}</style></head><body><main>
+border-radius:99px;background:#304664;color:#d7e8ff}}@media(max-width:700px){{body{{padding:16px}}.profile-metrics{{grid-template-columns:repeat(2,1fr)}}section{{padding:14px}}}}</style></head><body><main>
 <a href="/?view=users">← К пользователям</a><h1>{esc(display_name or "Пользователь")}
 <span class="badge">{esc(role)}</span></h1><p class="muted">Telegram ID: <code>{esc(user_id)}</code>
  · @{esc(user["username"]) if user["username"] else "—"} · Язык: {esc(user["ui_lang"] or user["language_code"])}</p>
 <section><h2>Профиль пользователя</h2><p>Telegram ID: <code>{esc(user_id)}</code> · Имя: {esc(display_name or "—")} · Username: @{esc(user["username"] or "—")}<br>
 Язык Telegram: {esc(user["language_code"] or "—")} · Язык панели: {esc(user["ui_lang"] or "—")} · Premium: {"да" if user["is_premium"] else "нет"}<br>
-Первый контакт: {esc(fmt_time(user["first_seen"], True))} · Последний контакт: {esc(fmt_time(user["last_seen"], True))}</p></section>
+Первый контакт: {esc(fmt_time(user["first_seen"], True))} · Последний контакт: {esc(fmt_time(user["last_seen"], True))}</p><div class="profile-metrics">{profile_metrics}</div></section>
 <section><h2>Сообщения и заявки ({len(posts)})</h2><div class="table"><table><tr><th>ID</th><th>Тип</th>
 <th>Статус</th><th>Текст</th><th>Время</th><th>Chat ID</th><th>Chat type</th><th>Message ID</th><th>Символы/слова</th></tr>{posts_html}</table></div></section>
 <section><h2>Жалобы ({len(reports)})</h2><div class="table"><table><tr><th>ID</th><th>Причина</th>
@@ -776,6 +807,28 @@ def page(current_user: str = "", section: str = "overview") -> str:
         "banned": scalar("SELECT COUNT(*) FROM bans"),
         "reports": scalar("SELECT COUNT(*) FROM reports"),
     }
+    active_since = int(time.time()) - 7 * 86400
+    stats["active_users"] = scalar(
+        "SELECT COUNT(*) FROM users WHERE last_seen >= ?", (active_since,)
+    )
+    activity_rows = optional_rows(
+        "SELECT created_at, status, COUNT(*) AS total FROM posts "
+        "WHERE created_at >= ? GROUP BY created_at, status ORDER BY created_at",
+        (active_since,),
+    )
+    daily = {}
+    for row in activity_rows:
+        day = datetime.fromtimestamp(int(row_value(row, "created_at", 0))).strftime("%d.%m")
+        daily.setdefault(day, {"total": 0, "published": 0, "pending": 0, "rejected": 0})
+        status_name = str(row_value(row, "status", 1) or "")
+        total = int(row_value(row, "total", 2) or 0)
+        daily[day]["total"] += total
+        if status_name in daily[day]:
+            daily[day][status_name] += total
+    recent_actions = optional_rows(
+        "SELECT actor, action, target, created_at FROM dashboard_actions "
+        "ORDER BY created_at DESC LIMIT 8"
+    )
     users = db_rows("""
         SELECT u.*, COUNT(p.id) AS posts_count
         FROM users u LEFT JOIN posts p ON p.user_id = u.user_id
@@ -793,6 +846,7 @@ def page(current_user: str = "", section: str = "overview") -> str:
         for label, value in (
             ("Пользователи", stats["users"]), ("Заявки", stats["posts"]),
             ("На модерации", stats["pending"]), ("Опубликовано", stats["published"]),
+            ("Активны за 7 дней", stats["active_users"]),
             ("Баны", stats["banned"]), ("Жалобы", stats["reports"]),
         )
     )
@@ -808,7 +862,7 @@ def page(current_user: str = "", section: str = "overview") -> str:
         for row in users
     )
     post_rows = "".join(
-        f"<tr class=\"post-row\" data-status=\"{esc(row['status'])}\">"
+        f"<tr class=\"post-row\" data-status=\"{esc(row['status'])}\" data-kind=\"{esc(row['kind'])}\">"
         f"<td>#{esc(row['id'])}</td><td><code>{esc(row['user_id'])}</code></td>"
         f"<td>{esc(row['first_name'])} {('@' + row['username']) if row['username'] else ''}</td>"
         f"<td>{esc(row['kind'])}</td><td><span class=\"status\">{esc(row['status'])}</span></td>"
@@ -816,6 +870,18 @@ def page(current_user: str = "", section: str = "overview") -> str:
         "</tr>"
         for row in posts
     )
+    max_daily = max((item["total"] for item in daily.values()), default=1)
+    chart_bars = "".join(
+        f'<div class="chart-bar" title="{esc(day)}: {item["total"]}" '
+        f'style="height:{max(8, round(item["total"] / max_daily * 100))}%">'
+        f'<span>{esc(item["total"])}</span><small>{esc(day)}</small></div>'
+        for day, item in list(daily.items())[-14:]
+    ) or '<div class="chart-empty">Нет данных за последние 7 дней</div>'
+    notification_rows = "".join(
+        f'<li><span class="event-dot"></span><div><b>{esc(row["action"])}</b>'
+        f'<small>{esc(fmt_time(row["created_at"], True))} · {esc(row["actor"])}</small></div></li>'
+        for row in recent_actions
+    ) or '<li class="muted">Событий пока нет</li>'
     user_details = db_rows("""
         SELECT u.*, COUNT(p.id) AS posts_count,
                MAX(p.created_at) AS last_post_at
@@ -868,10 +934,10 @@ def page(current_user: str = "", section: str = "overview") -> str:
 .menu-title{{padding:0 11px 9px;color:#7085a3;text-transform:uppercase;font-size:10px;font-weight:800;letter-spacing:1px}}.nav{{display:grid;gap:7px}}.nav a{{position:relative;z-index:60;display:flex;align-items:center;gap:11px;padding:12px 11px;border:1px solid transparent;border-radius:10px;color:#adc0d9;text-decoration:none;font-weight:600;transition:.18s;transform-style:preserve-3d;pointer-events:auto}}.nav a:hover,.nav a.active{{color:#fff;background:linear-gradient(135deg,#353276,#202957);border-color:#695ce0;box-shadow:5px 6px 0 #0a1027,0 0 22px #7b61ff33;transform:translate(-2px,-2px)}}.nav a:focus-visible{{outline:3px solid var(--blue2);outline-offset:3px}}.nav .icon{{width:20px;text-align:center;font-size:16px}}
 .sidebar-footer{{position:absolute;bottom:22px;left:25px;right:25px;color:#6f85a3;font-size:11px;line-height:1.55}}.content{{width:100%;margin-left:255px;padding:34px clamp(22px,4vw,58px) 60px}}.topbar{{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:25px}}h1{{margin:0 0 7px;font-size:30px;letter-spacing:-.8px}}h2{{margin:42px 0 15px;font-size:21px;letter-spacing:-.3px}}.muted{{color:var(--muted)}}
 .cards{{display:grid;grid-template-columns:repeat(6,1fr);gap:13px;margin:0 0 27px}}.card{{background:linear-gradient(145deg,#252953,#171a39);border:1px solid #454783;border-radius:15px;padding:17px;box-shadow:7px 8px 0 #080a1b,0 12px 30px #03091455,0 0 24px #7b61ff12;transition:.2s;transform:translateZ(8px)}}.card:hover{{transform:translateY(-5px) rotateX(3deg) rotateY(-2deg);box-shadow:9px 12px 0 #080a1b,0 18px 34px #03091488,0 0 30px #7b61ff2b}}.card b{{display:block;color:#a7aad0;font-size:12px;font-weight:600}}.card strong{{display:block;font-size:28px;margin-top:9px;color:#f9f8ff}}
-.toolbar{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 25px;padding:15px;background:linear-gradient(145deg,#191c3b,#11142c);border:1px solid #393d70;border-radius:14px;box-shadow:7px 8px 0 #080a1b,0 10px 28px #03091455}}input,select{{background:#0e192b;color:#e2e8f0;border:1px solid #3a5272;border-radius:9px;padding:11px 13px;min-width:220px;outline:none}}input:focus,select:focus{{border-color:var(--blue);box-shadow:0 0 0 3px #4f8cff22}}button,input[type=submit],a.button-link{{position:relative;z-index:60;pointer-events:auto;display:inline-block;background:linear-gradient(145deg,#876eff,#3e6fe8);color:white;border:0;border-radius:9px;padding:10px 15px;font-weight:700;cursor:pointer;transition:transform .18s,filter .18s,box-shadow .18s;text-decoration:none;box-shadow:0 5px 0 #34268d,0 10px 18px #7b61ff33;transform:translateY(0);transform-style:preserve-3d}}button:hover,input[type=submit]:hover,a.button-link:hover{{filter:brightness(1.1);transform:translateY(-2px);box-shadow:0 7px 0 #34268d,0 14px 24px #7b61ff44}}button:active,input[type=submit]:active,a.button-link:active{{transform:translateY(3px);box-shadow:0 2px 0 #34268d}}button:focus-visible,input[type=submit]:focus-visible,a.button-link:focus-visible{{outline:3px solid var(--blue2);outline-offset:3px}}button:disabled,input[type=submit]:disabled{{opacity:.5;cursor:not-allowed;transform:none;box-shadow:0 3px 0 #252848}}.danger{{background:linear-gradient(135deg,#c84d5a,#a83240);box-shadow:0 5px 0 #702933,0 10px 18px #c84d5a33}}.button-link code{{color:inherit}}
+.insights{{display:grid;grid-template-columns:1.35fr 1fr;gap:14px;margin:0 0 27px}}.insight-card{{min-height:190px;padding:18px;background:linear-gradient(145deg,#1b2547,#131a35);border:1px solid #354777;border-radius:15px;box-shadow:7px 8px 0 #080a1b,0 12px 30px #03091455;transform:translateZ(5px)}}.insight-head{{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:15px}}.insight-head b,.insight-head .muted{{display:block}}.insight-head .muted{{font-size:12px;margin-top:4px}}.live-pill{{padding:5px 8px;border:1px solid #2b827c;border-radius:20px;color:#82f5e2;font-size:11px;text-transform:uppercase;letter-spacing:.6px}}.live-pill i{{display:inline-block;width:6px;height:6px;border-radius:50%;background:#42e6c7;box-shadow:0 0 10px #42e6c7;margin-right:5px}}.chart{{height:125px;display:flex;align-items:end;gap:7px;border-bottom:1px solid #385070;padding:0 4px}}.chart-bar{{position:relative;flex:1;min-width:10px;max-width:34px;border-radius:6px 6px 0 0;background:linear-gradient(180deg,#9f86ff,#4c6ee9);box-shadow:0 0 15px #7b61ff44;transition:height .25s ease;cursor:default}}.chart-bar:hover{{filter:brightness(1.2)}}.chart-bar span{{position:absolute;top:-18px;left:50%;transform:translateX(-50%);font-size:10px;color:#c9d7ff}}.chart-bar small{{position:absolute;top:calc(100% + 5px);left:50%;transform:translateX(-50%);font-size:9px;color:#7f97b7;white-space:nowrap}}.chart-empty{{align-self:center;color:#7f97b7;font-size:12px;margin:auto}}.event-list{{list-style:none;padding:0;margin:0;display:grid;gap:10px;max-height:140px;overflow:auto}}.event-list li{{display:flex;align-items:flex-start;gap:9px;font-size:12px}}.event-list li b,.event-list li small{{display:block}}.event-list li small{{color:#8296b2;margin-top:2px}}.event-dot{{width:8px;height:8px;flex:none;margin-top:4px;border-radius:50%;background:#27d3c2;box-shadow:0 0 10px #27d3c2aa}}.text-link{{color:#9eb9ff;text-decoration:none;font-size:12px;white-space:nowrap}}.text-link:hover{{color:#fff}}.toolbar{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 25px;padding:15px;background:linear-gradient(145deg,#191c3b,#11142c);border:1px solid #393d70;border-radius:14px;box-shadow:7px 8px 0 #080a1b,0 10px 28px #03091455}}input,select{{background:#0e192b;color:#e2e8f0;border:1px solid #3a5272;border-radius:9px;padding:11px 13px;min-width:220px;outline:none}}input:focus,select:focus{{border-color:var(--blue);box-shadow:0 0 0 3px #4f8cff22}}button,input[type=submit],a.button-link{{position:relative;z-index:60;pointer-events:auto;display:inline-block;background:linear-gradient(145deg,#876eff,#3e6fe8);color:white;border:0;border-radius:9px;padding:10px 15px;font-weight:700;cursor:pointer;transition:transform .18s,filter .18s,box-shadow .18s;text-decoration:none;box-shadow:0 5px 0 #34268d,0 10px 18px #7b61ff33;transform:translateY(0);transform-style:preserve-3d}}button:hover,input[type=submit]:hover,a.button-link:hover{{filter:brightness(1.1);transform:translateY(-2px);box-shadow:0 7px 0 #34268d,0 14px 24px #7b61ff44}}button:active,input[type=submit]:active,a.button-link:active{{transform:translateY(3px);box-shadow:0 2px 0 #34268d}}button:focus-visible,input[type=submit]:focus-visible,a.button-link:focus-visible{{outline:3px solid var(--blue2);outline-offset:3px}}button:disabled,input[type=submit]:disabled{{opacity:.5;cursor:not-allowed;transform:none;box-shadow:0 3px 0 #252848}}.filter-tabs{{display:flex;gap:5px;align-items:center}}.filter-tab{{padding:8px 10px;background:#263655;box-shadow:0 3px 0 #132039;font-size:12px}}.filter-tab.active{{background:linear-gradient(135deg,#7b61ff,#3e6fe8)}}.danger{{background:linear-gradient(135deg,#c84d5a,#a83240);box-shadow:0 5px 0 #702933,0 10px 18px #c84d5a33}}.button-link code{{color:inherit}}
 .table-wrap{{overflow:auto;background:linear-gradient(145deg,#1b2940,#172438);border:1px solid #2d4565;border-radius:14px;box-shadow:7px 8px 0 #080f1e,0 12px 30px #03091435;transform:translateZ(4px)}}table{{border-collapse:collapse;width:100%;min-width:850px}}th,td{{padding:13px 14px;text-align:left;border-bottom:1px solid #2b405f}}th{{color:#8fc0ff;background:#18263b;position:sticky;top:0;font-size:12px;text-transform:uppercase;letter-spacing:.3px}}tr:last-child td{{border-bottom:0}}tr:hover{{background:#243650}}code{{color:#a7f3d0}}.status{{padding:4px 9px;border-radius:20px;background:#304664;color:#d7e8ff;font-size:12px}}
 .empty{{display:none;color:#94a3b8;padding:16px}}.inline{{display:inline}}.inline button{{margin:2px 4px 2px 0}}.owner-form{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 16px}}.owner-form input{{min-width:220px}}section{{scroll-margin-top:20px}}
-@media(max-width:1150px){{.cards{{grid-template-columns:repeat(3,1fr)}}}}@media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:25px 16px 45px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:17px}}.nav{{grid-template-columns:repeat(2,1fr)}}.nav a{{padding:10px;font-size:12px}}.topbar{{display:block}}.cards{{grid-template-columns:repeat(2,1fr);gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}h1{{font-size:25px}}}}
+@media(max-width:1150px){{.cards{{grid-template-columns:repeat(3,1fr)}}.insights{{grid-template-columns:1fr}}}}@media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:25px 16px 45px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:17px}}.nav{{grid-template-columns:repeat(2,1fr)}}.nav a{{padding:10px;font-size:12px}}.topbar{{display:block}}.cards{{grid-template-columns:repeat(2,1fr);gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}.toolbar input,.toolbar select{{min-width:0;flex:1}}.filter-tabs{{width:100%;overflow:auto}}h1{{font-size:25px}}}}
 </style></head><body><div class="layout">
 <aside class="sidebar"><div class="brand"><span class="logo">◈</span><span>Podslushka DB</span></div><div class="menu-title">Навигация</div><nav class="nav">
 <a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a>
@@ -879,8 +945,8 @@ def page(current_user: str = "", section: str = "overview") -> str:
 {('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else '')}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
 <main class="content"><div class="topbar"><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div><div><a class="button-link" href="/export/users.csv">↓ CSV</a> <a href="/logout"><button class="danger">Выйти</button></a></div></div>
-{('<section id="overview"><div class="cards">' + cards + '</div></section>' if section == 'overview' else '')}
-{('<div class="toolbar"><input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off"><select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select><button type="button" onclick="refreshPage()">↻ Обновить</button><a class="button-link" href="/backup">↓ Резервная копия</a></div>' if section == 'overview' else '')}
+{('<section id="overview"><div class="cards">' + cards + '</div><div class="insights"><section class="insight-card chart-card"><div class="insight-head"><div><b>Активность за 7 дней</b><span class="muted">Заявки по дням</span></div><span class="live-pill"><i></i> live</span></div><div class="chart">' + chart_bars + '</div></section><section class="insight-card"><div class="insight-head"><div><b>Центр событий</b><span class="muted">Последние изменения</span></div><a class="text-link" href="/?view=actions">Все события →</a></div><ul class="event-list">' + notification_rows + '</ul></section></div></section>' if section == 'overview' else '')}
+{('<div class="toolbar"><input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off"><select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select><select id="kind"><option value="">Все типы</option><option value="text">Текст</option><option value="photo">Фото</option><option value="video">Видео</option><option value="media_group">Медиагруппа</option></select><div class="filter-tabs"><button type="button" class="filter-tab active" data-status="">Все</button><button type="button" class="filter-tab" data-status="pending">На модерации</button><button type="button" class="filter-tab" data-status="published">Опубликовано</button></div><button type="button" onclick="refreshPage()">↻ Обновить</button><a class="button-link" href="/backup">↓ Резервная копия</a></div>' if section == 'overview' else '')}
 {('<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_rows + '</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section><section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th></tr>' + post_rows + '</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>' if section == 'overview' else '')}
 {('<section id="users"><h2>Все пользователи</h2><div class="toolbar"><input id="detail-search" placeholder="Поиск по ID, имени, username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'users' else '')}
 {('<section id="posts"><h2>Все заявки</h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th></tr>' + post_rows + '</table></div></section>' if section == 'posts' else '')}
@@ -893,8 +959,11 @@ const detailSearch = document.getElementById('detail-search');
 function filterRows() {{
   const liveSearch = document.getElementById('search');
   const liveStatus = document.getElementById('status');
+  const liveKind = document.getElementById('kind');
+  if (!liveSearch || !liveStatus) return;
   const q = liveSearch.value.toLowerCase().trim();
   const selected = liveStatus.value;
+  const selectedKind = liveKind ? liveKind.value : '';
   let users = 0, posts = 0;
   document.querySelectorAll('.user-row').forEach(row => {{
     const visible = !q || row.innerText.toLowerCase().includes(q);
@@ -903,7 +972,8 @@ function filterRows() {{
   }});
   document.querySelectorAll('.post-row').forEach(row => {{
     const visible = (!q || row.innerText.toLowerCase().includes(q)) &&
-      (!selected || row.dataset.status === selected);
+      (!selected || row.dataset.status === selected) &&
+      (!selectedKind || row.dataset.kind === selectedKind);
     row.style.display = visible ? '' : 'none';
     if (visible) posts++;
   }});
@@ -926,10 +996,18 @@ function filterDetails() {{
 function bindControls() {{
   const liveSearch = document.getElementById('search');
   const liveStatus = document.getElementById('status');
+  const liveKind = document.getElementById('kind');
   const liveDetailSearch = document.getElementById('detail-search');
   if (liveSearch && liveStatus) {{
     liveSearch.addEventListener('input', filterRows);
     liveStatus.addEventListener('change', filterRows);
+    if (liveKind) liveKind.addEventListener('change', filterRows);
+    document.querySelectorAll('.filter-tab').forEach(tab => tab.addEventListener('click', () => {{
+      liveStatus.value = tab.dataset.status || '';
+      document.querySelectorAll('.filter-tab').forEach(item => item.classList.remove('active'));
+      tab.classList.add('active');
+      filterRows();
+    }}));
     filterRows();
   }}
   if (liveDetailSearch) {{
@@ -1107,7 +1185,61 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/state":
             updated = scalar("SELECT MAX(created_at) FROM posts") or 0
             updated = max(updated, scalar("SELECT MAX(last_seen) FROM users") or 0)
+            updated = max(updated, scalar("SELECT MAX(created_at) FROM dashboard_actions") or 0)
             body = json.dumps({"updated": str(updated)}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/api/notifications":
+            actor = auth_user(self)
+            if not can_access(actor, "overview"):
+                self.send_error(403)
+                return
+            rows = optional_rows(
+                "SELECT actor, action, target, created_at FROM dashboard_actions "
+                "ORDER BY created_at DESC LIMIT 20"
+            )
+            payload = [{
+                "actor": str(row_value(row, "actor", 0) or ""),
+                "action": str(row_value(row, "action", 1) or ""),
+                "target": str(row_value(row, "target", 2) or ""),
+                "created_at": int(row_value(row, "created_at", 3) or 0),
+            } for row in rows]
+            body = json.dumps({"items": payload, "pending": scalar(
+                "SELECT COUNT(*) FROM posts WHERE status='pending'"
+            )}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/api/stats":
+            actor = auth_user(self)
+            if not can_access(actor, "overview"):
+                self.send_error(403)
+                return
+            since = int(time.time()) - 14 * 86400
+            rows = optional_rows(
+                "SELECT created_at, status, COUNT(*) AS total FROM posts "
+                "WHERE created_at >= ? GROUP BY created_at, status ORDER BY created_at",
+                (since,),
+            )
+            daily = {}
+            for row in rows:
+                key = datetime.fromtimestamp(int(row_value(row, "created_at", 0))).strftime("%Y-%m-%d")
+                daily.setdefault(key, {})
+                daily[key][str(row_value(row, "status", 1) or "unknown")] = int(
+                    row_value(row, "total", 2) or 0
+                )
+            body = json.dumps({"days": daily, "pending": scalar(
+                "SELECT COUNT(*) FROM posts WHERE status='pending'"
+            )}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -1273,11 +1405,55 @@ class Handler(BaseHTTPRequestHandler):
                                 post.get("text_chars"), post.get("text_words"), post.get("metadata"),
                             ),
                         )
+                    for action in payload.get("actions", []):
+                        conn.execute(
+                            """INSERT INTO dashboard_actions (id, actor, action, target, created_at)
+                               VALUES (?, ?, ?, ?, ?)
+                               ON CONFLICT(id) DO UPDATE SET
+                                 actor=excluded.actor, action=excluded.action,
+                                 target=excluded.target, created_at=excluded.created_at""",
+                            (
+                                action["id"], action.get("actor", "bot-sync"),
+                                action.get("action", "Sync action"), action.get("target", ""),
+                                action.get("created_at", int(time.time())),
+                            ),
+                        )
+                    for entry in payload.get("admin_logs", []):
+                        conn.execute(
+                            """INSERT INTO admin_logs
+                               (id, admin_id, action, post_id, details, created_at)
+                               VALUES (?, ?, ?, ?, ?, ?)
+                               ON CONFLICT(id) DO UPDATE SET
+                                 admin_id=excluded.admin_id, action=excluded.action,
+                                 post_id=excluded.post_id, details=excluded.details,
+                                 created_at=excluded.created_at""",
+                            (
+                                entry["id"], entry.get("admin_id", 0),
+                                entry.get("action", "Sync action"), entry.get("post_id"),
+                                entry.get("details", ""), entry.get("created_at", int(time.time())),
+                            ),
+                        )
                     if DATABASE_URL and payload.get("posts"):
                         conn.execute(
                             """SELECT setval(
                                 pg_get_serial_sequence('posts', 'id'),
                                 COALESCE((SELECT MAX(id) FROM posts), 1),
+                                true
+                            )"""
+                        )
+                    if DATABASE_URL and payload.get("actions"):
+                        conn.execute(
+                            """SELECT setval(
+                                pg_get_serial_sequence('dashboard_actions', 'id'),
+                                COALESCE((SELECT MAX(id) FROM dashboard_actions), 1),
+                                true
+                            )"""
+                        )
+                    if DATABASE_URL and payload.get("admin_logs"):
+                        conn.execute(
+                            """SELECT setval(
+                                pg_get_serial_sequence('admin_logs', 'id'),
+                                COALESCE((SELECT MAX(id) FROM admin_logs), 1),
                                 true
                             )"""
                         )

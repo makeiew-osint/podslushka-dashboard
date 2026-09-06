@@ -188,12 +188,14 @@ class Database:
         indexes = [
             "CREATE INDEX IF NOT EXISTS idx_posts_user ON posts(user_id);",
             "CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status);",
+            "CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at);",
             "CREATE INDEX IF NOT EXISTS idx_posts_media_group ON posts(media_group_id);",
             "CREATE INDEX IF NOT EXISTS idx_media_group_post ON media_group_items(post_id);",
             "CREATE INDEX IF NOT EXISTS idx_warns_user ON warns(user_id);",
             "CREATE INDEX IF NOT EXISTS idx_reports_public ON reports(public_id);",
             "CREATE INDEX IF NOT EXISTS idx_comments_public ON comments(public_id);",
             "CREATE INDEX IF NOT EXISTS idx_dashboard_actions_created ON dashboard_actions(created_at);",
+            "CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_logs(created_at);",
         ]
         for sql in tables:
             await self._execute(sql)
@@ -544,6 +546,51 @@ class Database:
             WHERE p.text LIKE ? OR p.file_id LIKE ?
             ORDER BY p.created_at DESC LIMIT ?
         """, (q, q, limit))
+        return await cur.fetchall()
+
+    async def search_users(self, query: str, limit: int = 20) -> list[aiosqlite.Row]:
+        """Search users by Telegram ID, username, or display name."""
+        query = (query or "").strip()
+        if not query:
+            return []
+        try:
+            user_id = int(query.lstrip("@"))
+        except ValueError:
+            user_id = -1
+        q = f"%{query.lstrip('@')}%"
+        cur = await self._execute("""
+            SELECT u.*,
+                   (SELECT COUNT(*) FROM posts p WHERE p.user_id=u.user_id) AS posts_count,
+                   (SELECT COUNT(*) FROM posts p WHERE p.user_id=u.user_id AND p.status='published') AS published_count,
+                   (SELECT COUNT(*) FROM posts p WHERE p.user_id=u.user_id AND p.status='pending') AS pending_count,
+                   (SELECT COUNT(*) FROM warns w WHERE w.user_id=u.user_id) AS warns_count,
+                   CASE WHEN EXISTS (SELECT 1 FROM bans b WHERE b.user_id=u.user_id)
+                        THEN 1 ELSE 0 END AS is_banned
+            FROM users u
+            WHERE u.user_id = ?
+               OR COALESCE(u.username, '') LIKE ?
+               OR COALESCE(u.first_name, '') LIKE ?
+               OR COALESCE(u.last_name, '') LIKE ?
+            ORDER BY u.last_seen DESC
+            LIMIT ?
+        """, (user_id, q, q, q, limit))
+        return await cur.fetchall()
+
+    async def daily_post_stats(self, days: int = 14) -> list[aiosqlite.Row]:
+        """Return compact daily post totals for dashboard charts and /stats."""
+        days = max(1, min(int(days), 60))
+        since = int(time.time()) - days * 86400
+        cur = await self._execute("""
+            SELECT (created_at / 86400) AS day,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) AS published,
+                   SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
+                   SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END) AS rejected
+            FROM posts
+            WHERE created_at >= ?
+            GROUP BY (created_at / 86400)
+            ORDER BY day
+        """, (since,))
         return await cur.fetchall()
 
     async def get_top_posts_week(self, limit: int = 5) -> list[aiosqlite.Row]:
