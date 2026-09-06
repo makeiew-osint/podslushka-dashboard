@@ -46,12 +46,22 @@ def init_auth() -> None:
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
+                role TEXT NOT NULL DEFAULT 'user',
                 created_at INTEGER NOT NULL
             )
         """)
         columns = {row[1] for row in conn.execute("PRAGMA table_info(dashboard_users)")}
         if "status" not in columns:
             conn.execute("ALTER TABLE dashboard_users ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'")
+        if "role" not in columns:
+            conn.execute("ALTER TABLE dashboard_users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+        conn.execute("""CREATE TABLE IF NOT EXISTS dashboard_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            target TEXT,
+            created_at INTEGER NOT NULL
+        )""")
         conn.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, username TEXT, language_code TEXT, is_premium INTEGER DEFAULT 0, ui_lang TEXT, first_seen INTEGER, last_seen INTEGER)")
         conn.execute("CREATE TABLE IF NOT EXISTS posts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, kind TEXT, text TEXT, status TEXT DEFAULT 'pending', created_at INTEGER, public_id INTEGER)")
         conn.execute("CREATE TABLE IF NOT EXISTS bans (user_id INTEGER PRIMARY KEY, reason TEXT, created_at INTEGER)")
@@ -81,7 +91,24 @@ def auth_user(handler: BaseHTTPRequestHandler) -> str | None:
 
 
 def is_owner(username: str | None) -> bool:
-    return bool(username and OWNER_USERNAME and username == OWNER_USERNAME)
+    if not username:
+        return False
+    if OWNER_USERNAME and username == OWNER_USERNAME:
+        return True
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT role, status FROM dashboard_users WHERE username=?", (username,)
+        ).fetchone()
+    return bool(row and row[0] == "owner" and row[1] == "approved")
+
+
+def log_action(actor: str, action: str, target: str = "") -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO dashboard_actions (actor, action, target, created_at) VALUES (?, ?, ?, ?)",
+            (actor, action, target, int(datetime.now().timestamp())),
+        )
+        conn.commit()
 
 
 def auth_page(message: str = "") -> str:
@@ -195,10 +222,24 @@ def page(current_user: str = "") -> str:
         pending = db_rows("SELECT username, created_at FROM dashboard_users WHERE status='pending' ORDER BY created_at")
         rows = "".join(
             f"<tr><td>{esc(row['username'])}</td><td>{datetime.fromtimestamp(row['created_at']).strftime('%d.%m.%Y %H:%M')}</td>"
-            f"<td><form method='post' action='/approve'><input type='hidden' name='username' value='{esc(row['username'])}'><button>Одобрить</button></form></td></tr>"
+            f"<td><form class='inline' method='post' action='/approve'><input type='hidden' name='username' value='{esc(row['username'])}'><button>Одобрить</button></form>"
+            f"<form class='inline' method='post' action='/reject'><input type='hidden' name='username' value='{esc(row['username'])}'><button class='danger'>Отклонить</button></form></td></tr>"
             for row in pending
         )
-        approval = f"<h2>Заявки на доступ</h2><div class='table-wrap'><table><tr><th>Логин</th><th>Дата</th><th></th></tr>{rows or '<tr><td colspan=3>Новых заявок нет</td></tr>'}</table></div>"
+        owners = db_rows("SELECT username, created_at FROM dashboard_users WHERE role='owner' AND status='approved' ORDER BY username")
+        owner_rows = "".join(
+            f"<tr><td>{esc(row['username'])}</td><td>{datetime.fromtimestamp(row['created_at']).strftime('%d.%m.%Y %H:%M')}</td></tr>"
+            for row in owners
+        )
+        actions = db_rows("SELECT actor, action, target, created_at FROM dashboard_actions ORDER BY created_at DESC LIMIT 100")
+        action_rows = "".join(
+            f"<tr><td>{datetime.fromtimestamp(row['created_at']).strftime('%d.%m.%Y %H:%M:%S')}</td><td>{esc(row['actor'])}</td><td>{esc(row['action'])}</td><td>{esc(row['target'])}</td></tr>"
+            for row in actions
+        )
+        approval = f"""
+<section id="access"><h2>Заявки на доступ</h2><div class="table-wrap"><table><tr><th>Логин</th><th>Дата</th><th>Действие</th></tr>{rows or '<tr><td colspan=3>Новых заявок нет</td></tr>'}</table></div></section>
+<section id="owners"><h2>Владельцы</h2><form class="owner-form" method="post" action="/add-owner"><input name="username" placeholder="Логин нового владельца" required minlength="3"><input name="password" type="password" placeholder="Пароль нового владельца" required minlength="8"><button>Добавить владельца</button></form><div class="table-wrap"><table><tr><th>Логин</th><th>Добавлен</th></tr>{owner_rows or '<tr><td colspan=2>Дополнительных владельцев нет</td></tr>'}</table></div></section>
+<section id="actions"><h2>Действия администраторов</h2><div class="table-wrap"><table><tr><th>Время</th><th>Администратор</th><th>Действие</th><th>Объект</th></tr>{action_rows or '<tr><td colspan=4>Действий пока нет</td></tr>'}</table></div></section>"""
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta http-equiv="refresh" content="30">
 <title>Podslushka DB</title><style>
@@ -214,10 +255,13 @@ th{{color:#93c5fd;background:#172033;position:sticky;top:0}}tr:hover{{background
 code{{color:#a7f3d0}}.status{{padding:3px 8px;border-radius:10px;background:#334155}}
 button{{background:#2563eb;color:white;border:0;border-radius:8px;padding:9px 14px;cursor:pointer}}
 .danger{{background:#b91c1c}}.empty{{display:none;color:#94a3b8;padding:14px}}
+.inline{{display:inline}}.inline button{{margin:2px 4px 2px 0}}.owner-form{{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 16px}}.owner-form input{{min-width:220px}}
+.nav{{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}}.nav a{{color:#bfdbfe;text-decoration:none;background:#1e293b;border:1px solid #334155;padding:9px 12px;border-radius:8px}}
 @media(max-width:900px){{.cards{{grid-template-columns:repeat(3,1fr)}}}}
 </style></head><body><main>
 <h1>Podslushka · база данных</h1><div class="muted">Только этот компьютер · автообновление каждые 30 секунд</div>
 <div class="cards">{cards}</div>
+{('<nav class="nav"><a href="#access">Доступ</a><a href="#actions">Журнал действий</a><a href="#owners">Владельцы</a></nav>' if is_owner(current_user) else '')}
 <div class="toolbar">
 <input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off">
 <select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select>
@@ -333,10 +377,46 @@ class Handler(BaseHTTPRequestHandler):
             with sqlite3.connect(DB_PATH) as conn:
                 conn.execute("UPDATE dashboard_users SET status='approved' WHERE username=?", (username,))
                 conn.commit()
+            log_action(auth_user(self) or "owner", "Одобрил доступ", username)
             self.send_response(302)
             self.send_header("Location", "/")
             self.end_headers()
             return
+        elif path == "/reject":
+            if not is_owner(auth_user(self)):
+                self.send_error(403)
+                return
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.execute("UPDATE dashboard_users SET status='rejected' WHERE username=?", (username,))
+                conn.commit()
+            log_action(auth_user(self) or "owner", "Отклонил доступ", username)
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.end_headers()
+            return
+        elif path == "/add-owner":
+            actor = auth_user(self)
+            if not is_owner(actor):
+                self.send_error(403)
+                return
+            if len(username) < 3 or len(password) < 8:
+                error = "Логин владельца от 3 символов, пароль минимум 8 символов."
+            else:
+                try:
+                    with sqlite3.connect(DB_PATH) as conn:
+                        conn.execute(
+                            "INSERT INTO dashboard_users (username, password_hash, status, role, created_at) VALUES (?, ?, 'approved', 'owner', ?)",
+                            (username, password_hash(password), int(datetime.now().timestamp())),
+                        )
+                        conn.commit()
+                    log_action(actor or "owner", "Добавил владельца", username)
+                except sqlite3.IntegrityError:
+                    error = "Такой логин уже существует."
+            if not error:
+                self.send_response(302)
+                self.send_header("Location", "/#owners")
+                self.end_headers()
+                return
         elif path == "/login":
             with sqlite3.connect(DB_PATH) as conn:
                 row = conn.execute(
@@ -361,6 +441,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         token = secrets.token_urlsafe(32)
         SESSIONS[token] = username
+        if owner_login:
+            log_action(username, "Вошёл как владелец", "")
+        else:
+            log_action(username, "Вошёл в панель", "")
         self.send_response(302)
         self.send_header("Location", "/")
         self.send_header("Set-Cookie", f"session={token}; HttpOnly; SameSite=Strict")
