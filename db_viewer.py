@@ -613,10 +613,14 @@ def request_gemini_analysis(text: str) -> dict:
     ))
     if not models:
         models = list(dict.fromkeys(preferred))
+    models = [
+        model for model in models
+        if not any(marker in model.lower() for marker in ("tts", "image", "robotics"))
+    ][:5]
     response_data = None
     last_http_error = None
     for model in models:
-        for api_version in ("v1", "v1beta"):
+        for api_version in ("v1beta", "v1"):
             endpoint = (
                 "https://generativelanguage.googleapis.com/" + api_version + "/models/"
                 + urllib.parse.quote(model, safe="")
@@ -648,7 +652,7 @@ def request_gemini_analysis(text: str) -> dict:
                     model, api_version, exc.code, provider_error,
                 )
                 if exc.code != 404:
-                    break
+                    raise RuntimeError("upstream_http") from exc
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 logging.warning("Gemini analysis network failure: %s", type(exc).__name__)
                 raise TimeoutError("upstream_network") from exc
