@@ -24,19 +24,26 @@ SESSIONS: dict[str, str] = {}
 OWNER_USERNAME = os.getenv("OWNER_USERNAME", "")
 OWNER_PASSWORD = os.getenv("OWNER_PASSWORD", "")
 SYNC_SECRET = os.getenv("DASHBOARD_SYNC_SECRET", "")
+BOT_STATUS = {"state": "disabled", "error": ""}
 
 
 def start_embedded_bot() -> None:
     if os.getenv("RUN_BOT_IN_WEB", "").lower() not in {"1", "true", "yes"}:
         return
+    BOT_STATUS["state"] = "starting"
 
     def run() -> None:
         try:
             import asyncio
             from bot import main as bot_main
+            BOT_STATUS["state"] = "running"
             asyncio.run(bot_main())
-        except Exception:
+        except Exception as exc:
+            BOT_STATUS["state"] = "error"
+            BOT_STATUS["error"] = str(exc)[-500:]
             logging.exception("Embedded Telegram bot stopped")
+        else:
+            BOT_STATUS["state"] = "stopped"
 
     threading.Thread(target=run, name="telegram-bot", daemon=True).start()
 
@@ -361,6 +368,18 @@ class Handler(BaseHTTPRequestHandler):
             updated = scalar("SELECT MAX(created_at) FROM posts") or 0
             updated = max(updated, scalar("SELECT MAX(last_seen) FROM users") or 0)
             body = json.dumps({"updated": str(updated)}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/api/bot-status":
+            if not is_owner(auth_user(self)):
+                self.send_error(403)
+                return
+            body = json.dumps(BOT_STATUS).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
