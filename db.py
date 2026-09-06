@@ -89,7 +89,16 @@ class Database:
                 scheduled_at INTEGER,
                 hash TEXT,
                 channel_message_id INTEGER,
-                is_pinned INTEGER DEFAULT 0
+                is_pinned INTEGER DEFAULT 0,
+                chat_id BIGINT,
+                chat_type TEXT,
+                message_id BIGINT,
+                content_type TEXT,
+                message_date INTEGER,
+                edit_date INTEGER,
+                text_chars INTEGER DEFAULT 0,
+                text_words INTEGER DEFAULT 0,
+                metadata TEXT
             )""",
             """CREATE TABLE IF NOT EXISTS media_group_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -206,6 +215,15 @@ class Database:
                 "public_id": "INTEGER",
                 "channel_message_id": "INTEGER",
                 "is_pinned": "INTEGER DEFAULT 0",
+                "chat_id": "BIGINT",
+                "chat_type": "TEXT",
+                "message_id": "BIGINT",
+                "content_type": "TEXT",
+                "message_date": "INTEGER",
+                "edit_date": "INTEGER",
+                "text_chars": "INTEGER DEFAULT 0",
+                "text_words": "INTEGER DEFAULT 0",
+                "metadata": "TEXT",
             },
             "users": {
                 "ui_lang": "TEXT",
@@ -368,15 +386,22 @@ class Database:
     # ── Posts ──
     async def add_post(self, user_id: int, kind: str, text: str | None, file_id: str | None,
                        media_group_id: str | None = None, user_name: str | None = None,
-                       username: str | None = None) -> int:
+                       username: str | None = None, message_meta: dict | None = None) -> int:
         now = int(time.time())
         content = (text or "") + (file_id or "")
         h = hashlib.md5(content.encode()).hexdigest()
+        meta = message_meta or {}
         cur = await self._execute("""
-            INSERT INTO posts (user_id, kind, text, file_id, media_group_id, created_at, hash, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+            INSERT INTO posts (user_id, kind, text, file_id, media_group_id, created_at, hash, status,
+                               chat_id, chat_type, message_id, content_type, message_date, edit_date,
+                               text_chars, text_words, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """ + (" RETURNING id" if self.database_url else ""),
-            (user_id, kind, text, file_id, media_group_id, now, h))
+            (user_id, kind, text, file_id, media_group_id, now, h,
+             meta.get("chat_id"), meta.get("chat_type"), meta.get("message_id"),
+             meta.get("content_type"), meta.get("message_date"), meta.get("edit_date"),
+             meta.get("text_chars", len(text or "")), meta.get("text_words", len((text or "").split())),
+             meta.get("metadata")))
         await self._commit()
         if self.database_url:
             row = await cur.fetchone()

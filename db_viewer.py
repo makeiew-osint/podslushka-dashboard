@@ -328,7 +328,24 @@ def init_auth() -> None:
             window_started INTEGER NOT NULL
         )""")
         conn.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, username TEXT, language_code TEXT, is_premium INTEGER DEFAULT 0, ui_lang TEXT, first_seen INTEGER, last_seen INTEGER)")
-        conn.execute("CREATE TABLE IF NOT EXISTS posts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, kind TEXT, text TEXT, status TEXT DEFAULT 'pending', created_at INTEGER, public_id INTEGER)")
+        conn.execute("""CREATE TABLE IF NOT EXISTS posts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, kind TEXT, text TEXT,
+            status TEXT DEFAULT 'pending', created_at INTEGER, public_id INTEGER,
+            chat_id BIGINT, chat_type TEXT, message_id BIGINT, content_type TEXT,
+            message_date INTEGER, edit_date INTEGER, text_chars INTEGER DEFAULT 0,
+            text_words INTEGER DEFAULT 0, metadata TEXT)""")
+        for name, definition in {
+            "chat_id": "BIGINT", "chat_type": "TEXT", "message_id": "BIGINT",
+            "content_type": "TEXT", "message_date": "INTEGER", "edit_date": "INTEGER",
+            "text_chars": "INTEGER DEFAULT 0", "text_words": "INTEGER DEFAULT 0",
+            "metadata": "TEXT",
+        }.items():
+            if DATABASE_URL:
+                conn.execute(f"ALTER TABLE posts ADD COLUMN IF NOT EXISTS {name} {definition}")
+            else:
+                existing_posts = {row[1] for row in conn.execute("PRAGMA table_info(posts)")}
+                if name not in existing_posts:
+                    conn.execute(f"ALTER TABLE posts ADD COLUMN {name} {definition}")
         conn.execute("CREATE TABLE IF NOT EXISTS bans (user_id INTEGER PRIMARY KEY, reason TEXT, created_at INTEGER)")
         conn.execute("CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, reporter_id INTEGER, reason TEXT, created_at INTEGER)")
         # These tables are also created by db.py. IF NOT EXISTS keeps PostgreSQL authoritative
@@ -647,7 +664,8 @@ def user_detail_page(current_user: str, user_id: int) -> str:
     user = user_rows[0]
     display_name = " ".join(filter(None, [user["first_name"], user["last_name"]]))
     posts = optional_rows(
-        "SELECT id, kind, status, text, public_id, created_at FROM posts "
+        "SELECT id, kind, status, text, public_id, created_at, chat_id, chat_type, message_id, "
+        "content_type, message_date, edit_date, text_chars, text_words, metadata FROM posts "
         "WHERE user_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
     )
     comments = optional_rows(
@@ -667,11 +685,19 @@ def user_detail_page(current_user: str, user_id: int) -> str:
         "SELECT id, reason, created_at FROM reports "
         "WHERE reporter_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
     )
+    user_actions = optional_rows(
+        "SELECT actor, action, target, created_at FROM dashboard_actions "
+        "WHERE actor=? OR target=? ORDER BY created_at DESC LIMIT 500",
+        (str(user_id), str(user_id)),
+    )
     posts_html = "".join(
         f"<tr><td>#{esc(row['id'])}</td><td>{esc(row['kind'])}</td>"
         f"<td>{esc(row['status'])}</td><td>{esc((row['text'] or '')[:240])}</td>"
-        f"<td>{esc(fmt_time(row['created_at']))}</td></tr>" for row in posts
-    ) or '<tr><td colspan="5">Нет заявок</td></tr>'
+        f"<td>{esc(fmt_time(row['message_date'] or row['created_at'], True))}</td>"
+        f"<td>{esc(row['chat_id'])}</td><td>{esc(row['chat_type'])}</td>"
+        f"<td>{esc(row['message_id'])}</td><td>{esc(row['text_chars'] or len(row['text'] or ''))}/"
+        f"{esc(row['text_words'] or len((row['text'] or '').split()))}</td></tr>" for row in posts
+    ) or '<tr><td colspan="10">Нет заявок</td></tr>'
     comments_html = "".join(
         f"<tr><td>#{esc(row['id'])}</td><td>{esc(row['public_id'])}</td>"
         f"<td>{esc(row['text'])}</td><td>{esc(fmt_time(row['created_at']))}</td></tr>"
@@ -695,6 +721,11 @@ def user_detail_page(current_user: str, user_id: int) -> str:
         f"<td>{esc(row['post_id'])}</td><td>{esc(fmt_time(row['created_at']))}</td></tr>"
         for row in warns
     ) or '<tr><td colspan="4">Нет предупреждений</td></tr>'
+    actions_html = "".join(
+        f"<tr><td>{esc(row['actor'])}</td><td>{esc(row['action'])}</td>"
+        f"<td>{esc(row['target'])}</td><td>{esc(fmt_time(row['created_at'], True))}</td></tr>"
+        for row in user_actions
+    ) or '<tr><td colspan="4">Нет действий</td></tr>'
     role = dashboard_role(current_user)
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -712,10 +743,11 @@ border-radius:99px;background:#304664;color:#d7e8ff}}</style></head><body><main>
 <a href="/?view=users">← К пользователям</a><h1>{esc(display_name or "Пользователь")}
 <span class="badge">{esc(role)}</span></h1><p class="muted">Telegram ID: <code>{esc(user_id)}</code>
  · @{esc(user["username"]) if user["username"] else "—"} · Язык: {esc(user["ui_lang"] or user["language_code"])}</p>
-<section><h2>Профиль</h2><p>Premium: {"да" if user["is_premium"] else "нет"} · Первый контакт:
-{esc(fmt_time(user["first_seen"]))} · Последний контакт: {esc(fmt_time(user["last_seen"]))}</p></section>
-<section><h2>Заявки ({len(posts)})</h2><div class="table"><table><tr><th>ID</th><th>Тип</th>
-<th>Статус</th><th>Текст</th><th>Дата</th></tr>{posts_html}</table></div></section>
+<section><h2>Профиль пользователя</h2><p>Telegram ID: <code>{esc(user_id)}</code> · Имя: {esc(display_name or "—")} · Username: @{esc(user["username"] or "—")}<br>
+Язык Telegram: {esc(user["language_code"] or "—")} · Язык панели: {esc(user["ui_lang"] or "—")} · Premium: {"да" if user["is_premium"] else "нет"}<br>
+Первый контакт: {esc(fmt_time(user["first_seen"], True))} · Последний контакт: {esc(fmt_time(user["last_seen"], True))}</p></section>
+<section><h2>Сообщения и заявки ({len(posts)})</h2><div class="table"><table><tr><th>ID</th><th>Тип</th>
+<th>Статус</th><th>Текст</th><th>Время</th><th>Chat ID</th><th>Chat type</th><th>Message ID</th><th>Символы/слова</th></tr>{posts_html}</table></div></section>
 <section><h2>Жалобы ({len(reports)})</h2><div class="table"><table><tr><th>ID</th><th>Причина</th>
 <th>Дата</th></tr>{reports_html}</table></div></section>
 <section><h2>Комментарии ({len(comments)})</h2><div class="table"><table><tr><th>ID</th>
@@ -725,6 +757,9 @@ border-radius:99px;background:#304664;color:#d7e8ff}}</style></head><body><main>
 <section><h2>Баны ({len(bans)}) и предупреждения ({len(warns)})</h2><div class="table">
 <table><tr><th>User ID</th><th>Причина</th><th>Дата</th></tr>{bans_html}</table><br>
 <table><tr><th>ID</th><th>Причина</th><th>Пост</th><th>Дата</th></tr>{warns_html}</table>
+</div></section>
+<section><h2>Журнал действий по пользователю ({len(user_actions)})</h2><div class="table">
+<table><tr><th>Кто</th><th>Действие</th><th>Цель</th><th>Время</th></tr>{actions_html}</table>
 </div></section></main></body></html>"""
 
 
@@ -1210,19 +1245,32 @@ class Handler(BaseHTTPRequestHandler):
                     for post in payload.get("posts", []):
                         conn.execute(
                             """INSERT INTO posts
-                               (id, user_id, kind, text, status, public_id, created_at)
-                               VALUES (?, ?, ?, ?, ?, ?, ?)
+                               (id, user_id, kind, text, status, public_id, created_at, chat_id, chat_type,
+                                message_id, content_type, message_date, edit_date, text_chars, text_words, metadata)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                ON CONFLICT(id) DO UPDATE SET
                                 user_id=COALESCE(excluded.user_id, posts.user_id),
                                 kind=COALESCE(excluded.kind, posts.kind),
                                 text=COALESCE(excluded.text, posts.text),
                                 status=COALESCE(excluded.status, posts.status),
                                 public_id=COALESCE(excluded.public_id, posts.public_id),
-                                created_at=COALESCE(excluded.created_at, posts.created_at)""",
+                                created_at=COALESCE(excluded.created_at, posts.created_at),
+                                chat_id=COALESCE(excluded.chat_id, posts.chat_id),
+                                chat_type=COALESCE(excluded.chat_type, posts.chat_type),
+                                message_id=COALESCE(excluded.message_id, posts.message_id),
+                                content_type=COALESCE(excluded.content_type, posts.content_type),
+                                message_date=COALESCE(excluded.message_date, posts.message_date),
+                                edit_date=COALESCE(excluded.edit_date, posts.edit_date),
+                                text_chars=COALESCE(excluded.text_chars, posts.text_chars),
+                                text_words=COALESCE(excluded.text_words, posts.text_words),
+                                metadata=COALESCE(excluded.metadata, posts.metadata)""",
                             (
                                 post["id"], post.get("user_id"), post.get("kind"),
                                 post.get("text"), post.get("status"),
                                 post.get("public_id"), post.get("created_at"),
+                                post.get("chat_id"), post.get("chat_type"), post.get("message_id"),
+                                post.get("content_type"), post.get("message_date"), post.get("edit_date"),
+                                post.get("text_chars"), post.get("text_words"), post.get("metadata"),
                             ),
                         )
                     if DATABASE_URL and payload.get("posts"):

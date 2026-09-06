@@ -468,7 +468,18 @@ async def _mg_timeout(mgid: str):
 
     post_id = await db.add_post(
         user_id=uid, kind="media_group", text=first["caption"],
-        file_id=first["file_id"], media_group_id=mgid
+        file_id=first["file_id"], media_group_id=mgid,
+        message_meta={
+            "chat_id": msg.chat.id,
+            "chat_type": str(msg.chat.type),
+            "message_id": msg.message_id,
+            "content_type": "ContentType." + str(getattr(msg.content_type, "value", msg.content_type)).upper(),
+            "message_date": int(msg.date.timestamp()) if msg.date else int(time.time()),
+            "edit_date": int(msg.edit_date.timestamp()) if msg.edit_date else None,
+            "text_chars": len(first["caption"] or ""),
+            "text_words": len((first["caption"] or "").split()),
+            "metadata": json.dumps({"media_group_id": mgid}, ensure_ascii=False),
+        },
     )
     for it in data['items'][1:]:
         await db.add_media_group_item(post_id, it["kind"], it["file_id"], it["caption"])
@@ -480,7 +491,25 @@ async def _mg_timeout(mgid: str):
 
 async def _show_preview(message: Message, state: FSMContext, text: Optional[str], file_id: Optional[str], kind: str):
     lang = await _lang(message.from_user.id)
-    await state.update_data(preview_text=text, preview_file_id=file_id, preview_kind=kind)
+    await state.update_data(
+        preview_text=text, preview_file_id=file_id, preview_kind=kind,
+        preview_message_meta={
+            "chat_id": message.chat.id,
+            "chat_type": str(message.chat.type),
+            "message_id": message.message_id,
+            "content_type": "ContentType." + str(getattr(message.content_type, "value", message.content_type)).upper(),
+            "message_date": int(message.date.timestamp()) if message.date else int(time.time()),
+            "edit_date": int(message.edit_date.timestamp()) if message.edit_date else None,
+            "text_chars": len(text or ""),
+            "text_words": len((text or "").split()),
+            "metadata": json.dumps({
+                "forwarded": bool(message.forward_origin),
+                "protected": bool(getattr(message, "has_protected_content", False)),
+                "media_group_id": message.media_group_id,
+                "via_bot": getattr(getattr(message, "via_bot", None), "username", None),
+            }, ensure_ascii=False),
+        },
+    )
     caption = f"<b>{t(lang, 'preview_title')}</b>" + chr(10) + chr(10) + f"{t(lang, 'preview_text')}"
     if text:
         caption += chr(10) + chr(10) + f"{text}"
@@ -543,8 +572,12 @@ async def cb_preview_send(callback: CallbackQuery, state: FSMContext):
     text = data.get("preview_text")
     file_id = data.get("preview_file_id")
     kind = data.get("preview_kind")
+    message_meta = data.get("preview_message_meta")
 
-    post_id = await db.add_post(user_id=uid, kind=kind or "text", text=text, file_id=file_id)
+    post_id = await db.add_post(
+        user_id=uid, kind=kind or "text", text=text, file_id=file_id,
+        message_meta=message_meta,
+    )
     await _audit(uid, "Bot post submitted", post_id)
     await state.clear()
     await callback.message.delete()
@@ -1108,7 +1141,8 @@ async def _sync_dashboard():
                 "is_premium, ui_lang, first_seen, last_seen FROM users"
             )
             posts = await db._fetchall(
-                "SELECT id, user_id, kind, text, status, public_id, created_at FROM posts"
+                "SELECT id, user_id, kind, text, status, public_id, created_at, chat_id, chat_type, "
+                "message_id, content_type, message_date, edit_date, text_chars, text_words, metadata FROM posts"
             )
             user_payload = [
                 {key: row[key] for key in row.keys()} for row in users
