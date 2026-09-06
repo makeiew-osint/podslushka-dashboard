@@ -1264,7 +1264,11 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 .table-wrap{{overflow:auto;background:linear-gradient(145deg,#1b2940,#172438);border:1px solid #2d4565;border-radius:14px;box-shadow:7px 8px 0 #080f1e,0 12px 30px #03091435;transform:translateZ(4px)}}table{{border-collapse:collapse;width:100%;min-width:850px}}th,td{{padding:13px 14px;text-align:left;border-bottom:1px solid #2b405f}}th{{color:#8fc0ff;background:#18263b;position:sticky;top:0;font-size:12px;text-transform:uppercase;letter-spacing:.3px}}tr:last-child td{{border-bottom:0}}tr:hover{{background:#243650}}code{{color:#a7f3d0}}.status{{padding:4px 9px;border-radius:20px;background:#304664;color:#d7e8ff;font-size:12px}}body.light .card,body.light .toolbar,body.light .insight-card,body.light .table-wrap{{background:linear-gradient(145deg,#ffffff 0%,#f3f7ff 100%);border-color:#c6d6ee;box-shadow:7px 8px 0 #b5c7e2,0 12px 30px #7894bd33}}body.light .card b,body.light .insight-head .muted{{color:#596f91}}body.light .card strong{{color:#203a68}}body.light .insight-card{{background:linear-gradient(145deg,#fafdff,#e9f2ff)}}body.light .chart{{border-color:#c5d5eb}}body.light .chart-bar{{background:linear-gradient(180deg,#6d81ed,#36b9b4);box-shadow:0 0 15px #4d83d544}}body.light .event-list li small{{color:#607697}}body.light .event-dot{{background:#0da9a8;box-shadow:0 0 10px #0da9a888}}body.light th{{background:linear-gradient(180deg,#e8f1ff,#d8e6fa);color:#385582}}body.light td{{border-color:#d8e3f2}}body.light tr:hover{{background:#e2edfc}}body.light input,body.light select{{background:var(--input);color:var(--text);border-color:#b8cce7}}body.light input:focus,body.light select:focus{{border-color:#718bea;box-shadow:0 0 0 3px #718bea2b,0 4px 0 #c2d2ee}}body.light .status{{background:#dcecff;color:#315481}}body.light .button-link{{color:#fff}}body.light .text-link{{color:#3d5eaf}}
 .ai-analysis-button{{font-size:12px;padding:8px 11px;white-space:nowrap;background:linear-gradient(145deg,#29d4c4,#3477e8);box-shadow:0 4px 0 #145c79,0 8px 16px #27d3c244}}.ai-analysis-button:hover{{box-shadow:0 6px 0 #145c79,0 12px 20px #27d3c255}}.ai-card{{position:fixed;z-index:100;inset:0;display:grid;place-items:center;padding:22px;background:#050817aa;backdrop-filter:blur(8px);pointer-events:none;opacity:0;transition:opacity .18s}}.ai-card.open{{opacity:1;pointer-events:auto}}.ai-card-panel{{width:min(680px,100%);max-height:min(760px,90vh);overflow:auto;padding:25px;background:linear-gradient(145deg,#263267,#141d3d);border:1px solid #6685d8;border-radius:20px;box-shadow:14px 16px 0 #050611,0 25px 70px #000c,0 0 40px #27d3c244;transform:translateZ(18px) rotateX(1deg)}}.ai-card-head{{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:16px}}.ai-card-head h2{{margin:0;color:#fff}}.ai-close{{padding:6px 10px!important;background:#273457!important;box-shadow:0 3px 0 #101a33!important}}.ai-loading,.ai-error{{padding:17px;border-radius:12px;background:#101a35;color:#bfd0f3;line-height:1.55}}.ai-error{{color:#ffb8c2;border:1px solid #a84d72}}.ai-result-grid{{display:grid;gap:12px}}.ai-result-block{{padding:14px;border:1px solid #4a629d;border-radius:12px;background:#19254a}}.ai-result-block b{{display:block;color:#89f0df;font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}}.ai-result-block p{{margin:0;line-height:1.55;color:#f4f6ff}}.ai-result-block ul{{margin:0;padding-left:21px;color:#f4f6ff;line-height:1.55}}@media(max-width:700px){{.ai-card-panel{{padding:18px}}}}
 .empty{{display:none;color:#94a3b8;padding:16px}}.inline{{display:inline}}.inline button{{margin:2px 4px 2px 0}}.owner-form{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 16px}}.owner-form input{{min-width:220px}}section{{scroll-margin-top:20px}}
-@media(max-width:1150px){{.cards{{grid-template-columns:repeat(3,1fr)}}.insights{{grid-template-columns:1fr}}}}@media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:20px 12px 40px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:15px}}.theme-switch{{width:auto;margin:0 0 15px}}.nav{{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}}.nav a{{padding:10px 8px;font-size:12px;min-width:0}}.nav a .icon{{width:16px}}.topbar{{display:block}}.topbar>div:last-child{{display:flex;gap:8px;margin-top:15px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}.toolbar input,.toolbar select{{min-width:0;flex:1;width:100%}}.filter-tabs{{width:100%;overflow:auto;flex-wrap:nowrap}}h1{{font-size:25px}}h2{{font-size:19px;margin-top:30px}}.table-wrap{{margin-right:-4px;border-radius:10px}}.ai-card{{padding:10px}}.ai-card-panel{{max-height:94vh}}}}
+@media(max-width:1150px){{.cards{{grid-template-columns:repeat(3,1fr)}}.insights{{grid-template-columns:1fr}}}}@keyframes pageIn{{from{{opacity:0;transform:translateY(14px) scale(.985)}}to{{opacity:1;transform:none}}}}@keyframes cardIn{{from{{opacity:0;transform:translateY(18px) rotateX(5deg)}}to{{opacity:1;transform:translateY(0) rotateX(0)}}}}@keyframes pulseStatus{{0%,100%{{box-shadow:0 0 0 0 #42e6c700}}50%{{box-shadow:0 0 0 7px #42e6c722}}}}@keyframes newRow{{0%{{background:#27d3c455}}100%{{background:transparent}}}}@keyframes scan{{0%{{transform:translateX(-110%)}}100%{{transform:translateX(110%)}}}}@keyframes spin3d{{to{{transform:rotate(360deg)}}}}
+.content{{animation:pageIn .48s cubic-bezier(.2,.75,.25,1) both}}.card,.insight-card,.toolbar,.table-wrap{{animation:cardIn .55s cubic-bezier(.2,.75,.25,1) both}}.card:nth-child(2){{animation-delay:.06s}}.card:nth-child(3){{animation-delay:.12s}}.card:nth-child(4){{animation-delay:.18s}}.card:nth-child(5){{animation-delay:.24s}}.card:nth-child(6){{animation-delay:.3s}}.live-pill{{animation:pulseStatus 2.4s ease-in-out infinite}}.chart-bar{{transform-origin:bottom;animation:chartRise .7s cubic-bezier(.2,.8,.2,1) both}}@keyframes chartRise{{from{{height:0!important;opacity:0}}to{{opacity:1}}}}
+.post-row.new-row{{animation:newRow 1.8s ease-out}}.ai-loading{{position:relative;overflow:hidden}}.ai-loading:after{{content:"";position:absolute;inset:0 auto 0 0;width:42%;background:linear-gradient(90deg,transparent,#27d3c244,transparent);animation:scan 1.35s ease-in-out infinite}}.ai-loading:before{{content:"";display:inline-block;width:15px;height:15px;margin-right:9px;vertical-align:-2px;border:2px solid #89f0df66;border-top-color:#89f0df;border-radius:50%;animation:spin3d .8s linear infinite}}.ai-card.open .ai-card-panel{{animation:cardIn .32s cubic-bezier(.2,.8,.2,1) both}}button,a.button-link{{overflow:hidden}}button:after,a.button-link:after{{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 25%,#ffffff55 48%,transparent 70%);transform:translateX(-120%);pointer-events:none}}button:hover:after,a.button-link:hover:after{{animation:buttonShine .7s ease}}@keyframes buttonShine{{to{{transform:translateX(120%)}}}}
+@media(prefers-reduced-motion:reduce){{*,*::before,*::after{{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.001ms!important}}}}
+@media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:20px 12px 40px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:15px}}.theme-switch{{width:auto;margin:0 0 15px}}.nav{{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}}.nav a{{padding:10px 8px;font-size:12px;min-width:0}}.nav a .icon{{width:16px}}.topbar{{display:block}}.topbar>div:last-child{{display:flex;gap:8px;margin-top:15px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}.toolbar input,.toolbar select{{min-width:0;flex:1;width:100%}}.filter-tabs{{width:100%;overflow:auto;flex-wrap:nowrap}}h1{{font-size:25px}}h2{{font-size:19px;margin-top:30px}}.table-wrap{{margin-right:-4px;border-radius:10px}}.ai-card{{padding:10px}}.ai-card-panel{{max-height:94vh}}}}
 </style></head><body><div class="layout">
 <aside class="sidebar"><div class="brand"><span class="logo">◈</span><span>Podslushka DB</span></div><button type="button" class="theme-switch" id="theme-switch">☀️ Светлая тема</button><div class="menu-title">Навигация</div><nav class="nav">
 <a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a>
@@ -1291,6 +1295,44 @@ if (themeSwitch) themeSwitch.addEventListener('click', () => {{
   localStorage.setItem('podslushka-theme', next);
   applyTheme(next);
 }});
+function animateCounters() {{
+  document.querySelectorAll('.card strong').forEach(node => {{
+    const target = Number((node.textContent || '').replace(/\\s/g, ''));
+    if (!Number.isFinite(target) || target < 0 || target > 100000000) return;
+    const started = performance.now();
+    const duration = 650;
+    function tick(now) {{
+      const progress = Math.min(1, (now - started) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      node.textContent = Math.round(target * eased).toLocaleString('ru-RU');
+      if (progress < 1) requestAnimationFrame(tick);
+    }}
+    node.textContent = '0';
+    requestAnimationFrame(tick);
+  }});
+}}
+function bind3dCards() {{
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.querySelectorAll('.card,.insight-card').forEach(card => {{
+    card.addEventListener('pointermove', event => {{
+      if (event.pointerType === 'touch') return;
+      const rect = card.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / rect.width - .5;
+      const y = (event.clientY - rect.top) / rect.height - .5;
+      card.style.transform = `translateY(-4px) rotateX(${{-y * 5}}deg) rotateY(${{x * 5}}deg)`;
+    }});
+    card.addEventListener('pointerleave', () => {{ card.style.transform = ''; }});
+  }});
+}}
+function animateRows() {{
+  document.querySelectorAll('.post-row').forEach((row, index) => {{
+    row.style.animationDelay = `${{Math.min(index, 8) * 45}}ms`;
+    row.classList.add('new-row');
+  }});
+}}
+animateCounters();
+bind3dCards();
+animateRows();
 const search = document.getElementById('search');
 const status = document.getElementById('status');
 const detailSearch = document.getElementById('detail-search');
