@@ -585,8 +585,8 @@ def request_gemini_analysis(text: str) -> dict:
             methods = item.get("supportedGenerationMethods", [])
             if name.startswith("models/") and "generateContent" in methods:
                 models.append(name.removeprefix("models/"))
-        logging.info("Gemini model discovery found %d compatible models: %s",
-                     len(models), ", ".join(models[:20]) or "none")
+        logging.warning("Gemini model discovery found %d compatible models: %s",
+                        len(models), ", ".join(models[:20]) or "none")
     except urllib.error.HTTPError as exc:
         try:
             provider_error = exc.read().decode("utf-8", errors="replace")[:500]
