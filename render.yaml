@@ -10,3 +10,7 @@ services:
         value: 3.12.8
       - key: HOST
         value: 0.0.0.0
+      - key: OWNER_USERNAME
+        sync: false
+      - key: OWNER_PASSWORD
+        sync: false

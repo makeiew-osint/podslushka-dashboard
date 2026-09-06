@@ -19,6 +19,8 @@ DB_PATH = ROOT / "podslushka.db"
 HOST = os.getenv("HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1")
 PORT = int(os.getenv("PORT", "8765"))
 SESSIONS: dict[str, str] = {}
+OWNER_USERNAME = os.getenv("OWNER_USERNAME", "")
+OWNER_PASSWORD = os.getenv("OWNER_PASSWORD", "")
 
 
 def esc(value) -> str:
@@ -43,9 +45,17 @@ def init_auth() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
                 created_at INTEGER NOT NULL
             )
         """)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(dashboard_users)")}
+        if "status" not in columns:
+            conn.execute("ALTER TABLE dashboard_users ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'")
+        conn.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, username TEXT, language_code TEXT, is_premium INTEGER DEFAULT 0, ui_lang TEXT, first_seen INTEGER, last_seen INTEGER)")
+        conn.execute("CREATE TABLE IF NOT EXISTS posts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, kind TEXT, text TEXT, status TEXT DEFAULT 'pending', created_at INTEGER, public_id INTEGER)")
+        conn.execute("CREATE TABLE IF NOT EXISTS bans (user_id INTEGER PRIMARY KEY, reason TEXT, created_at INTEGER)")
+        conn.execute("CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, reporter_id INTEGER, reason TEXT, created_at INTEGER)")
         conn.commit()
 
 
@@ -68,6 +78,10 @@ def auth_user(handler: BaseHTTPRequestHandler) -> str | None:
     token = next((item.split("=", 1)[1] for item in cookie.split("; ")
                   if item.startswith("session=")), None)
     return SESSIONS.get(token) if token else None
+
+
+def is_owner(username: str | None) -> bool:
+    return bool(username and OWNER_USERNAME and username == OWNER_USERNAME)
 
 
 def auth_page(message: str = "") -> str:
@@ -112,7 +126,7 @@ color:white;font-weight:800;font-size:15px;cursor:pointer;box-shadow:0 8px 20px 
 <label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Введите пароль" required autocomplete="current-password"><button type="button" class="toggle">◉</button></div><button class="submit" type="submit">Войти в панель →</button></form>
 <form class="form" id="register" method="post" action="/register"><label class="field">Логин</label><input name="username" placeholder="Придумайте логин" required minlength="3" autocomplete="username">
 <label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Минимум 8 символов" required minlength="8" autocomplete="new-password"><button type="button" class="toggle">◉</button></div><button class="submit" type="submit">Создать аккаунт →</button></form>
-<p class="hint">Доступ только для авторизованных пользователей</p></section></div>
+<p class="hint">Доступ только для авторизованных пользователей · заявки подтверждает владелец</p></section></div>
 <script>
 document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {{
  document.querySelectorAll('.tab,.form').forEach(el => el.classList.remove('active'));
@@ -127,7 +141,7 @@ document.querySelectorAll('.toggle').forEach(btn => btn.addEventListener('click'
 </script></body></html>"""
 
 
-def page() -> str:
+def page(current_user: str = "") -> str:
     stats = {
         "users": scalar("SELECT COUNT(*) FROM users"),
         "posts": scalar("SELECT COUNT(*) FROM posts"),
@@ -176,6 +190,15 @@ def page() -> str:
         "</tr>"
         for row in posts
     )
+    approval = ""
+    if is_owner(current_user):
+        pending = db_rows("SELECT username, created_at FROM dashboard_users WHERE status='pending' ORDER BY created_at")
+        rows = "".join(
+            f"<tr><td>{esc(row['username'])}</td><td>{datetime.fromtimestamp(row['created_at']).strftime('%d.%m.%Y %H:%M')}</td>"
+            f"<td><form method='post' action='/approve'><input type='hidden' name='username' value='{esc(row['username'])}'><button>Одобрить</button></form></td></tr>"
+            for row in pending
+        )
+        approval = f"<h2>Заявки на доступ</h2><div class='table-wrap'><table><tr><th>Логин</th><th>Дата</th><th></th></tr>{rows or '<tr><td colspan=3>Новых заявок нет</td></tr>'}</table></div>"
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta http-equiv="refresh" content="30">
 <title>Podslushka DB</title><style>
@@ -204,6 +227,7 @@ button{{background:#2563eb;color:white;border:0;border-radius:8px;padding:9px 14
 </div>
 <h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>{user_rows}</table><div class="empty" id="users-empty">Ничего не найдено</div></div>
 <h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th></tr>{post_rows}</table><div class="empty" id="posts-empty">Ничего не найдено</div></div>
+{approval}
 <script>
 const search = document.getElementById('search');
 const status = document.getElementById('status');
@@ -256,7 +280,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if path == "/":
-            body = page().encode("utf-8")
+            body = page(auth_user(self) or "").encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
         elif path == "/backup":
@@ -288,19 +312,34 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     with sqlite3.connect(DB_PATH) as conn:
                         conn.execute(
-                            "INSERT INTO dashboard_users (username, password_hash, created_at) VALUES (?, ?, ?)",
+                            "INSERT INTO dashboard_users (username, password_hash, status, created_at) VALUES (?, ?, 'pending', ?)",
                             (username, password_hash(password), int(datetime.now().timestamp())),
                         )
                         conn.commit()
                 except sqlite3.IntegrityError:
                     error = "Такой логин уже зарегистрирован."
+        elif path == "/approve":
+            if not is_owner(auth_user(self)):
+                self.send_error(403)
+                return
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.execute("UPDATE dashboard_users SET status='approved' WHERE username=?", (username,))
+                conn.commit()
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.end_headers()
+            return
         elif path == "/login":
             with sqlite3.connect(DB_PATH) as conn:
                 row = conn.execute(
-                    "SELECT password_hash FROM dashboard_users WHERE username = ?", (username,)
+                    "SELECT password_hash, status FROM dashboard_users WHERE username = ?", (username,)
                 ).fetchone()
-            if not row or not verify_password(password, row[0]):
-                error = "Неверный логин или пароль."
+            owner_login = (
+                username == OWNER_USERNAME and OWNER_PASSWORD
+                and secrets.compare_digest(password, OWNER_PASSWORD)
+            )
+            if not owner_login and (not row or row[1] != "approved" or not verify_password(password, row[0])):
+                error = "Неверный логин, пароль или доступ ещё не одобрен владельцем."
         else:
             self.send_error(404)
             return
