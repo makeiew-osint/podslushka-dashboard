@@ -188,6 +188,9 @@ class Database:
         indexes = [
             "CREATE INDEX IF NOT EXISTS idx_posts_user ON posts(user_id);",
             "CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status);",
+            "CREATE INDEX IF NOT EXISTS idx_posts_created_status ON posts(created_at, status);",
+            "CREATE INDEX IF NOT EXISTS idx_posts_user_created ON posts(user_id, created_at);",
+            "CREATE INDEX IF NOT EXISTS idx_users_last_seen ON users(last_seen);",
             "CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at);",
             "CREATE INDEX IF NOT EXISTS idx_posts_media_group ON posts(media_group_id);",
             "CREATE INDEX IF NOT EXISTS idx_media_group_post ON media_group_items(post_id);",

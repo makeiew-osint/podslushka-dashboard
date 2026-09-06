@@ -362,6 +362,9 @@ def init_auth() -> None:
         conn.execute("CREATE TABLE IF NOT EXISTS votes (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id INTEGER, user_id INTEGER, vote INTEGER, created_at INTEGER)")
         conn.execute("CREATE TABLE IF NOT EXISTS warns (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, reason TEXT, post_id INTEGER, admin_id INTEGER, created_at INTEGER)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_actions_created ON dashboard_actions(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_created_status ON posts(created_at, status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_user_created ON posts(user_id, created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_last_seen ON users(last_seen)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_logs(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_expiry ON dashboard_sessions(expires_at)")
         if DATABASE_URL:
@@ -812,8 +815,8 @@ def page(current_user: str = "", section: str = "overview") -> str:
         "SELECT COUNT(*) FROM users WHERE last_seen >= ?", (active_since,)
     )
     activity_rows = optional_rows(
-        "SELECT created_at, status, COUNT(*) AS total FROM posts "
-        "WHERE created_at >= ? GROUP BY created_at, status ORDER BY created_at",
+        "SELECT created_at, status FROM posts "
+        "WHERE created_at >= ? ORDER BY created_at DESC LIMIT 5000",
         (active_since,),
     )
     daily = {}
@@ -821,7 +824,7 @@ def page(current_user: str = "", section: str = "overview") -> str:
         day = datetime.fromtimestamp(int(row_value(row, "created_at", 0))).strftime("%d.%m")
         daily.setdefault(day, {"total": 0, "published": 0, "pending": 0, "rejected": 0})
         status_name = str(row_value(row, "status", 1) or "")
-        total = int(row_value(row, "total", 2) or 0)
+        total = 1
         daily[day]["total"] += total
         if status_name in daily[day]:
             daily[day][status_name] += total
@@ -833,13 +836,13 @@ def page(current_user: str = "", section: str = "overview") -> str:
         SELECT u.*, COUNT(p.id) AS posts_count
         FROM users u LEFT JOIN posts p ON p.user_id = u.user_id
         GROUP BY u.user_id ORDER BY u.last_seen DESC LIMIT 500
-    """)
+    """) if section in {"overview", "users", "user-search"} else []
     posts = db_rows("""
         SELECT p.id, p.user_id, p.kind, p.status, p.public_id, p.text, p.created_at,
                u.username, u.first_name
         FROM posts p LEFT JOIN users u ON u.user_id = p.user_id
-        ORDER BY p.created_at DESC LIMIT 100
-    """)
+        ORDER BY p.created_at DESC LIMIT 50
+    """) if section in {"overview", "posts"} else []
 
     cards = "".join(
         f'<div class="card"><b>{label}</b><strong>{value}</strong></div>'
@@ -887,7 +890,7 @@ def page(current_user: str = "", section: str = "overview") -> str:
                MAX(p.created_at) AS last_post_at
         FROM users u LEFT JOIN posts p ON p.user_id = u.user_id
         GROUP BY u.user_id ORDER BY u.last_seen DESC LIMIT 500
-    """)
+    """) if section in {"users", "user-search"} else []
     user_detail_rows = "".join(
         f"<tr class='detail-user-row'><td><a class=\"button-link\" href=\"/user?id={esc(row['user_id'])}\"><code>{esc(row['user_id'])}</code></a></td>"
         f"<td>{esc(row['first_name'])} {esc(row['last_name'])}</td>"
