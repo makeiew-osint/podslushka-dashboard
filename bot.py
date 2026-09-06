@@ -652,8 +652,11 @@ async def cb_approve(callback: CallbackQuery):
         await callback.answer(t(lang, "admin_not_found"))
         return
 
-    public_id = await db.approve(post_id)
+    public_id = await db.next_public_id()
     try:
+        channel_id = cfg.channel_id
+        if not str(channel_id).startswith(("@", "-100")):
+            channel_id = "@" + str(channel_id)
         text = post["text"] or ""
         pub_text = f"#{public_id}" + chr(10) + chr(10) + text if text else f"#{public_id}"
         fid = post["file_id"]
@@ -661,19 +664,19 @@ async def cb_approve(callback: CallbackQuery):
         msg = None
 
         if kind == "text":
-            msg = await bot.send_message(cfg.channel_id, pub_text)
+            msg = await bot.send_message(channel_id, pub_text)
         elif kind == "photo":
-            msg = await bot.send_photo(cfg.channel_id, fid, caption=pub_text)
+            msg = await bot.send_photo(channel_id, fid, caption=pub_text)
         elif kind == "video":
-            msg = await bot.send_video(cfg.channel_id, fid, caption=pub_text)
+            msg = await bot.send_video(channel_id, fid, caption=pub_text)
         elif kind == "voice":
-            msg = await bot.send_voice(cfg.channel_id, fid, caption=pub_text)
+            msg = await bot.send_voice(channel_id, fid, caption=pub_text)
         elif kind == "audio":
-            msg = await bot.send_audio(cfg.channel_id, fid, caption=pub_text)
+            msg = await bot.send_audio(channel_id, fid, caption=pub_text)
         elif kind == "document":
-            msg = await bot.send_document(cfg.channel_id, fid, caption=pub_text)
+            msg = await bot.send_document(channel_id, fid, caption=pub_text)
         elif kind == "animation":
-            msg = await bot.send_animation(cfg.channel_id, fid, caption=pub_text)
+            msg = await bot.send_animation(channel_id, fid, caption=pub_text)
         elif kind == "media_group":
             items = await db.get_media_group_items(post_id)
             media = []
@@ -688,12 +691,13 @@ async def cb_approve(callback: CallbackQuery):
                     media.append(InputMediaAudio(media=it["file_id"], caption=cap))
                 elif k == "document":
                     media.append(InputMediaDocument(media=it["file_id"], caption=cap))
-            msgs = await bot.send_media_group(cfg.channel_id, media=media)
+            msgs = await bot.send_media_group(channel_id, media=media)
             msg = msgs[0] if msgs else None
         else:
-            msg = await bot.send_message(cfg.channel_id, pub_text)
+            msg = await bot.send_message(channel_id, pub_text)
 
         if msg:
+            await db.approve(post_id, public_id)
             await db.set_channel_message_id(post_id, msg.message_id)
 
         await db.log_admin_action(admin_id, "approve", post_id)
@@ -712,7 +716,13 @@ async def cb_approve(callback: CallbackQuery):
             pass
     except Exception as e:
         logging.error(f"Publish error: {e}")
-        await callback.answer(t(lang, "admin_publish_error", error=e), show_alert=True)
+        target = cfg.channel_id
+        if not str(target).startswith(("@", "-100")):
+            target = "@" + str(target)
+        await callback.answer(
+            t(lang, "admin_publish_error", error=f"{e} (канал: {target})"),
+            show_alert=True,
+        )
 
 
 @dp.callback_query(F.data.startswith("admin:reject:"))

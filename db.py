@@ -386,11 +386,13 @@ class Database:
         """)
         return await cur.fetchall()
 
-    async def approve(self, post_id: int) -> int:
-        now = int(time.time())
+    async def next_public_id(self) -> int:
         cur = await self._execute("SELECT MAX(public_id) as max_id FROM posts")
         row = await cur.fetchone()
-        public_id = (row["max_id"] or 0) + 1
+        return (row["max_id"] or 0) + 1
+
+    async def approve(self, post_id: int, public_id: int) -> int:
+        now = int(time.time())
         await self._execute("""
             UPDATE posts SET status='published', public_id=?, moderated_at=?
             WHERE id=?
