@@ -146,7 +146,34 @@ class Database:
         ]
         for sql in tables + indexes:
             await self._execute(sql)
+        await self._migrate_columns()
         await self._commit()
+
+    async def _migrate_columns(self):
+        migrations = {
+            "posts": {
+                "file_id": "TEXT",
+                "media_group_id": "TEXT",
+                "reject_reason": "TEXT",
+                "moderated_by": "INTEGER",
+                "moderated_at": "INTEGER",
+                "scheduled_at": "INTEGER",
+                "hash": "TEXT",
+                "channel_message_id": "INTEGER",
+                "is_pinned": "INTEGER DEFAULT 0",
+            },
+            "users": {
+                "ui_lang": "TEXT",
+            },
+        }
+        for table, columns in migrations.items():
+            cursor = await self._execute(f"PRAGMA table_info({table})")
+            existing = {row[1] for row in await cursor.fetchall()}
+            for name, definition in columns.items():
+                if name not in existing:
+                    await self._execute(
+                        f"ALTER TABLE {table} ADD COLUMN {name} {definition}"
+                    )
 
     # ── Users ──
     async def upsert_user(self, user_id: int, first_name: str | None, last_name: str | None,
