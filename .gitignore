@@ -1,0 +1,6 @@
+.env
+podslushka.db
+backups/
+venv/
+__pycache__/
+*.pyc

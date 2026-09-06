@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: podslushka-dashboard
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python db_viewer.py
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
