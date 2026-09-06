@@ -8,6 +8,8 @@ import os
 import secrets
 import shutil
 import sqlite3
+import subprocess
+import sys
 import threading
 import webbrowser
 from datetime import datetime
@@ -25,27 +27,25 @@ OWNER_USERNAME = os.getenv("OWNER_USERNAME", "")
 OWNER_PASSWORD = os.getenv("OWNER_PASSWORD", "")
 SYNC_SECRET = os.getenv("DASHBOARD_SYNC_SECRET", "")
 BOT_STATUS = {"state": "disabled", "error": ""}
+BOT_PROCESS = None
 
 
 def start_embedded_bot() -> None:
+    global BOT_PROCESS
     if os.getenv("RUN_BOT_IN_WEB", "").lower() not in {"1", "true", "yes"}:
         return
     BOT_STATUS["state"] = "starting"
-
-    def run() -> None:
-        try:
-            import asyncio
-            from bot import main as bot_main
-            BOT_STATUS["state"] = "running"
-            asyncio.run(bot_main())
-        except Exception as exc:
-            BOT_STATUS["state"] = "error"
-            BOT_STATUS["error"] = str(exc)[-500:]
-            logging.exception("Embedded Telegram bot stopped")
-        else:
-            BOT_STATUS["state"] = "stopped"
-
-    threading.Thread(target=run, name="telegram-bot", daemon=True).start()
+    try:
+        BOT_PROCESS = subprocess.Popen(
+            [sys.executable, str(ROOT / "bot.py")],
+            cwd=str(ROOT),
+            env=os.environ.copy(),
+        )
+        BOT_STATUS["state"] = "running"
+    except OSError as exc:
+        BOT_STATUS["state"] = "error"
+        BOT_STATUS["error"] = str(exc)[-500:]
+        logging.exception("Embedded Telegram bot failed to start")
 
 
 def esc(value) -> str:
@@ -586,3 +586,6 @@ if __name__ == "__main__":
         server.serve_forever()
     except KeyboardInterrupt:
         server.server_close()
+    finally:
+        if BOT_PROCESS and BOT_PROCESS.poll() is None:
+            BOT_PROCESS.terminate()
