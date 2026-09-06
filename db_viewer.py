@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import csv
 import html
 import hashlib
+import hmac
+import io
 import json
 import logging
 import os
@@ -11,6 +14,10 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import webbrowser
 from contextlib import contextmanager
 from datetime import datetime
@@ -32,9 +39,30 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 HOST = os.getenv("HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1")
 PORT = int(os.getenv("PORT", "8765"))
 SESSIONS: dict[str, str] = {}
+OAUTH_STATES: dict[str, tuple[str, int]] = {}
 OWNER_USERNAME = os.getenv("OWNER_USERNAME", "")
 OWNER_PASSWORD = os.getenv("OWNER_PASSWORD", "")
 SYNC_SECRET = os.getenv("DASHBOARD_SYNC_SECRET", "")
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
+TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+OAUTH_BASE_URL = os.getenv("OAUTH_BASE_URL", "").strip().rstrip("/")
+OAUTH_SIGNING_SECRET = (
+    os.getenv("OAUTH_SIGNING_SECRET", "").strip()
+    or SYNC_SECRET
+    or OWNER_PASSWORD
+    or GOOGLE_CLIENT_SECRET
+    or TELEGRAM_BOT_TOKEN
+)
+SESSION_TTL = 60 * 60 * 12
+ROLE_PERMISSIONS = {
+    "owner": {"overview", "users", "posts", "user-search", "access", "owners", "actions", "export"},
+    "admin": {"overview", "users", "posts", "user-search", "actions", "export"},
+    "moderator": {"overview", "users", "posts", "user-search", "export"},
+    "read-only": {"overview", "users", "posts", "user-search", "export"},
+    "user": {"overview", "users", "posts", "user-search"},
+}
 BOT_STATUS = {"state": "disabled", "error": ""}
 BOT_PROCESS = None
 
@@ -121,6 +149,97 @@ def scalar(query: str):
     return next(iter(row.values())) if isinstance(row, dict) else row[0]
 
 
+def row_value(row, key: str, index: int = 0):
+    return row[key] if isinstance(row, dict) else row[index]
+
+
+def table_columns(table: str) -> set[str]:
+    """Return columns without assuming the bot and dashboard schemas are identical."""
+    if DATABASE_URL:
+        rows = db_rows(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='public' AND table_name=?", (table,)
+        )
+        return {row["column_name"] for row in rows}
+    return {row[1] for row in db_rows(f"PRAGMA table_info({table})")}
+
+
+def optional_rows(query: str, params=()):
+    try:
+        return db_rows(query, params)
+    except DB_ERRORS:
+        return []
+
+
+def dashboard_role(username: str | None) -> str:
+    if not username:
+        return ""
+    if OWNER_USERNAME and username == OWNER_USERNAME:
+        return "owner"
+    try:
+        with db_connect(readonly=True) as conn:
+            row = conn.execute(
+                "SELECT role, status FROM dashboard_users WHERE username=?", (username,)
+            ).fetchone()
+        if row and row_value(row, "status", 1) == "approved":
+            role = str(row_value(row, "role", 0) or "read-only").lower()
+            return {"readonly": "read-only", "read_only": "read-only", "user": "read-only"}.get(role, role)
+    except DB_ERRORS:
+        return ""
+    return ""
+
+
+def can_access(username: str | None, section: str) -> bool:
+    return section in ROLE_PERMISSIONS.get(dashboard_role(username), set())
+
+
+def oauth_state(provider: str) -> str:
+    nonce = secrets.token_urlsafe(24)
+    issued = int(time.time())
+    payload = f"{provider}:{nonce}:{issued}"
+    signature = hmac_digest(payload, OAUTH_SIGNING_SECRET)
+    OAUTH_STATES[nonce] = (provider, issued)
+    return f"{nonce}.{signature}"
+
+
+def hmac_digest(value: str, secret: str) -> str:
+    return hmac.new(
+        (secret or "dashboard-state").encode("utf-8"),
+        value.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def consume_oauth_state(value: str, provider: str) -> bool:
+    try:
+        nonce, signature = value.split(".", 1)
+        expected_provider, issued = OAUTH_STATES.pop(nonce)
+    except (ValueError, KeyError):
+        return False
+    if expected_provider != provider or int(time.time()) - issued > 600:
+        return False
+    expected = hmac_digest(f"{provider}:{nonce}:{issued}", OAUTH_SIGNING_SECRET)
+    return secrets.compare_digest(signature, expected)
+
+
+def oauth_redirect(provider: str) -> str:
+    return f"{OAUTH_BASE_URL}/auth/{provider}/callback"
+
+
+def telegram_login_valid(query: dict[str, list[str]]) -> bool:
+    supplied = query.get("hash", [""])[0]
+    if not supplied or not TELEGRAM_BOT_USERNAME or not TELEGRAM_BOT_TOKEN:
+        return False
+    fields = [f"{key}={query[key][0]}" for key in sorted(query) if key != "hash"]
+    secret = hashlib.sha256(TELEGRAM_BOT_TOKEN.encode("utf-8")).digest()
+    expected = hmac.new(secret, "\n".join(fields).encode("utf-8"), hashlib.sha256).hexdigest()
+    try:
+        auth_date = int(query.get("auth_date", ["0"])[0] or 0)
+    except (TypeError, ValueError):
+        return False
+    return auth_date > int(time.time()) - 86400 and secrets.compare_digest(supplied, expected)
+
+
 def init_auth() -> None:
     with db_connect() as conn:
         conn.execute("""
@@ -158,6 +277,11 @@ def init_auth() -> None:
         conn.execute("CREATE TABLE IF NOT EXISTS posts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, kind TEXT, text TEXT, status TEXT DEFAULT 'pending', created_at INTEGER, public_id INTEGER)")
         conn.execute("CREATE TABLE IF NOT EXISTS bans (user_id INTEGER PRIMARY KEY, reason TEXT, created_at INTEGER)")
         conn.execute("CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, reporter_id INTEGER, reason TEXT, created_at INTEGER)")
+        # These tables are also created by db.py. IF NOT EXISTS keeps PostgreSQL authoritative
+        # and never replaces or truncates the bot schema when the dashboard starts.
+        conn.execute("CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id INTEGER, user_id INTEGER, text TEXT, created_at INTEGER)")
+        conn.execute("CREATE TABLE IF NOT EXISTS votes (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id INTEGER, user_id INTEGER, vote INTEGER, created_at INTEGER)")
+        conn.execute("CREATE TABLE IF NOT EXISTS warns (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, reason TEXT, post_id INTEGER, admin_id INTEGER, created_at INTEGER)")
         conn.commit()
 
 
@@ -191,7 +315,11 @@ def is_owner(username: str | None) -> bool:
         row = conn.execute(
             "SELECT role, status FROM dashboard_users WHERE username=?", (username,)
         ).fetchone()
-    return bool(row and row[0] == "owner" and row[1] == "approved")
+    return bool(
+        row
+        and row_value(row, "role", 0) == "owner"
+        and row_value(row, "status", 1) == "approved"
+    )
 
 
 def log_action(actor: str, action: str, target: str = "") -> None:
@@ -204,6 +332,13 @@ def log_action(actor: str, action: str, target: str = "") -> None:
 
 
 def auth_page(message: str = "") -> str:
+    google_link = (f'<a class="button oauth-button" href="/auth/google">Google OAuth</a>'
+                   if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and OAUTH_BASE_URL else
+                   '<span class="oauth-disabled">Google OAuth disabled: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and OAUTH_BASE_URL.</span>')
+    telegram_link = (f'<script async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login="{esc(TELEGRAM_BOT_USERNAME)}" data-size="large" data-auth-url="{esc(oauth_redirect("telegram"))}" data-request-access="write"></script>'
+                     if TELEGRAM_BOT_USERNAME and TELEGRAM_BOT_TOKEN and OAUTH_BASE_URL else
+                     '<span class="oauth-disabled">Telegram Login disabled: set TELEGRAM_BOT_USERNAME, BOT_TOKEN and OAUTH_BASE_URL.</span>')
+    oauth_links = f'<div class="oauth"><div class="oauth-title">Connected sign-in options</div>{google_link}{telegram_link}<p class="hint">OAuth verifies identity only; account linking is not enabled.</p></div>'
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Вход · Podslushka</title><style>
@@ -215,7 +350,7 @@ color:var(--text);font:15px Inter,Segoe UI,Arial,sans-serif;perspective:1400px}}
 border-radius:24px;background:linear-gradient(145deg,#1c2045dd,#10152ddd);box-shadow:28px 34px 0 #050611aa,0 24px 80px #000b,0 0 0 1px #8d7cff44;backdrop-filter:blur(18px);transform:rotateX(2deg) rotateY(-2deg);transform-style:preserve-3d}}
 .intro{{padding:48px 42px;background:linear-gradient(145deg,#29235f,#131a3a);position:relative;overflow:hidden;transform:translateZ(18px)}}
 .intro:before{{content:"";position:absolute;pointer-events:none;width:180px;height:180px;border-radius:50%;right:35px;top:35px;background:radial-gradient(circle at 30% 25%,#fff8,#7b61ff66 18%,#21175c 65%);box-shadow:inset -20px -24px 25px #08061d99,0 20px 40px #0007;transform:translateZ(35px);opacity:.8}}
-.intro:after{{content:"";position:absolute;width:260px;height:260px;border-radius:50%;right:-100px;bottom:-120px;background:#27d3c222;box-shadow:0 0 70px #27d3c233}}
+.intro:after{{content:"";position:absolute;pointer-events:none;width:260px;height:260px;border-radius:50%;right:-100px;bottom:-120px;background:#27d3c222;box-shadow:0 0 70px #27d3c233}}
 .brand{{display:flex;align-items:center;gap:12px;font-weight:800;font-size:22px;letter-spacing:-.5px}}
 .logo{{width:44px;height:44px;display:grid;place-items:center;border-radius:13px;background:linear-gradient(135deg,#a98bff,#6450ed);font-size:23px;box-shadow:7px 8px 0 #34268d,0 12px 24px #7b61ff88;transform:translateZ(30px)}}
 .intro h1{{font-size:35px;line-height:1.08;margin:58px 0 16px;letter-spacing:-1.5px}}
@@ -224,15 +359,15 @@ border-radius:24px;background:linear-gradient(145deg,#1c2045dd,#10152ddd);box-sh
 .auth{{padding:42px 40px;background:#111c2e;transform:translateZ(10px);box-shadow:inset 1px 0 #ffffff0d}}.auth h2{{margin:0 0 8px;font-size:25px}}
 .sub{{color:var(--muted);margin:0 0 26px}}.error{{min-height:22px;margin:0 0 9px;color:#ff9eaa;font-size:13px}}
 .tabs{{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:4px;margin-bottom:22px;background:#0b1423;border-radius:10px}}
-.tab{{border:0;background:transparent;color:var(--muted);padding:10px;border-radius:7px;font-weight:700;cursor:pointer}}
-.tab.active{{background:#263e63;color:#fff}}.form{{display:none}}.form.active{{display:block}}
+.tab{{border:0;background:transparent;color:var(--muted);padding:10px;border-radius:7px;font-weight:700;cursor:pointer;transition:.18s;box-shadow:0 3px 0 #080a1b}}
+.tab.active{{background:#263e63;color:#fff;transform:translateY(-1px);box-shadow:0 4px 0 #101b31}}.tab:active,.toggle:active{{transform:translateY(2px);box-shadow:0 1px 0 #080f1e}}.form{{display:none}}.form.active{{display:block}}
 .field{{display:block;margin:15px 0 6px;color:#a9bbd3;font-size:13px;font-weight:600}}
 .input-wrap{{position:relative}}input{{width:100%;padding:13px 43px 13px 14px;border-radius:10px;border:1px solid var(--line);
 background:#0c1729;color:#fff;outline:none;font-size:15px;transition:.2s}}input:focus{{border-color:var(--blue2);box-shadow:0 0 0 3px #27d3c233,0 6px 0 #176d78;transform:translateY(-2px)}}
-.toggle{{position:absolute;right:10px;top:9px;border:0;background:transparent;color:#7f95b5;cursor:pointer;font-size:17px}}
+.toggle{{position:absolute;right:10px;top:9px;border:0;background:#1b2b46;color:#9fb8d8;cursor:pointer;font-size:17px;border-radius:7px;padding:4px 7px;box-shadow:0 3px 0 #080f1e;transition:.18s}}
 .submit{{width:100%;margin-top:22px;padding:13px;border:0;border-radius:10px;background:linear-gradient(135deg,var(--blue),#3e6fe8);
 color:white;font-weight:800;font-size:15px;cursor:pointer;background:linear-gradient(135deg,#7b61ff,#d15bff);box-shadow:0 6px 0 #4934a5,0 12px 20px #7b61ff55;transition:.2s}}
-.submit:hover{{transform:translateY(-2px);filter:brightness(1.12)}}.submit:active{{transform:translateY(3px);box-shadow:0 2px 0 #4934a5}}.hint{{margin:20px 0 0;text-align:center;color:#858ab1;font-size:12px}}
+.submit:hover{{transform:translateY(-2px);filter:brightness(1.12)}}.submit:active{{transform:translateY(3px);box-shadow:0 2px 0 #4934a5}}.submit:focus-visible,.tab:focus-visible,.toggle:focus-visible,.oauth-button:focus-visible{{outline:3px solid var(--blue2);outline-offset:3px}}.oauth{{display:grid;gap:10px;margin-top:22px;padding-top:18px;border-top:1px solid #334466}}.oauth-title{{color:#a9bbd3;font-size:12px;font-weight:700}}.oauth-button{{display:block;text-align:center;text-decoration:none;padding:11px;border-radius:10px;background:linear-gradient(135deg,#2675ea,#1d4fc2);box-shadow:0 5px 0 #12347f}}.oauth-disabled{{color:#f0b7bd;font-size:12px;line-height:1.4}}.hint{{margin:20px 0 0;text-align:center;color:#858ab1;font-size:12px}}
 @media(max-width:700px){{.shell{{grid-template-columns:1fr;max-width:460px}}.intro{{padding:30px}}.intro h1{{margin:28px 0 12px;font-size:29px}}.features{{display:none}}.auth{{padding:30px}}}}
 </style></head><body><div class="shell">
 <section class="intro"><div class="brand"><span class="logo">◈</span><span>Podslushka DB</span></div>
@@ -245,7 +380,7 @@ color:white;font-weight:800;font-size:15px;cursor:pointer;background:linear-grad
 <form class="form active" id="login" method="post" action="/login"><label class="field">Логин</label><input name="username" placeholder="Введите логин" required autocomplete="username">
 <label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Введите пароль" required autocomplete="current-password"><button type="button" class="toggle">◉</button></div><button class="submit" type="submit">Войти в панель →</button></form>
 <form class="form" id="register" method="post" action="/register"><label class="field">Логин</label><input name="username" placeholder="Придумайте логин" required minlength="3" autocomplete="username">
-<label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Минимум 8 символов" required minlength="8" autocomplete="new-password"><button type="button" class="toggle">◉</button></div><button class="submit" type="submit">Создать аккаунт →</button></form>
+<label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Минимум 8 символов" required minlength="8" autocomplete="new-password"><button type="button" class="toggle">◉</button></div><button class="submit" type="submit">Создать аккаунт →</button></form>{oauth_links}
 <p class="hint">Доступ только для авторизованных пользователей · заявки подтверждает владелец</p></section></div>
 <script>
 document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {{
@@ -261,9 +396,110 @@ document.querySelectorAll('.toggle').forEach(btn => btn.addEventListener('click'
 </script></body></html>"""
 
 
+def fmt_time(value, with_seconds: bool = False) -> str:
+    try:
+        if not value:
+            return "—"
+        pattern = "%d.%m.%Y %H:%M:%S" if with_seconds else "%d.%m.%Y %H:%M"
+        return datetime.fromtimestamp(float(value)).strftime(pattern)
+    except (TypeError, ValueError, OSError):
+        return "—"
+
+
+def user_detail_page(current_user: str, user_id: int) -> str:
+    if not can_access(current_user, "users"):
+        return ""
+    user_rows = optional_rows("SELECT * FROM users WHERE user_id=?", (user_id,))
+    if not user_rows:
+        return ""
+    user = user_rows[0]
+    display_name = " ".join(filter(None, [user["first_name"], user["last_name"]]))
+    posts = optional_rows(
+        "SELECT id, kind, status, text, public_id, created_at FROM posts "
+        "WHERE user_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
+    )
+    comments = optional_rows(
+        "SELECT id, public_id, text, created_at FROM comments "
+        "WHERE user_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
+    )
+    votes = optional_rows(
+        "SELECT id, public_id, vote, created_at FROM votes "
+        "WHERE user_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
+    )
+    bans = optional_rows("SELECT user_id, reason, created_at FROM bans WHERE user_id=?", (user_id,))
+    warns = optional_rows(
+        "SELECT id, reason, post_id, created_at FROM warns "
+        "WHERE user_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
+    )
+    reports = optional_rows(
+        "SELECT id, reason, created_at FROM reports "
+        "WHERE reporter_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
+    )
+    posts_html = "".join(
+        f"<tr><td>#{esc(row['id'])}</td><td>{esc(row['kind'])}</td>"
+        f"<td>{esc(row['status'])}</td><td>{esc((row['text'] or '')[:240])}</td>"
+        f"<td>{esc(fmt_time(row['created_at']))}</td></tr>" for row in posts
+    ) or '<tr><td colspan="5">Нет заявок</td></tr>'
+    comments_html = "".join(
+        f"<tr><td>#{esc(row['id'])}</td><td>{esc(row['public_id'])}</td>"
+        f"<td>{esc(row['text'])}</td><td>{esc(fmt_time(row['created_at']))}</td></tr>"
+        for row in comments
+    ) or '<tr><td colspan="4">Нет комментариев</td></tr>'
+    votes_html = "".join(
+        f"<tr><td>#{esc(row['id'])}</td><td>{esc(row['public_id'])}</td>"
+        f"<td>{esc(row['vote'])}</td><td>{esc(fmt_time(row['created_at']))}</td></tr>"
+        for row in votes
+    ) or '<tr><td colspan="4">Нет голосов</td></tr>'
+    reports_html = "".join(
+        f"<tr><td>#{esc(row['id'])}</td><td>{esc(row['reason'])}</td>"
+        f"<td>{esc(fmt_time(row['created_at']))}</td></tr>" for row in reports
+    ) or '<tr><td colspan="3">Нет жалоб</td></tr>'
+    bans_html = "".join(
+        f"<tr><td>{esc(row['user_id'])}</td><td>{esc(row['reason'])}</td>"
+        f"<td>{esc(fmt_time(row['created_at']))}</td></tr>" for row in bans
+    ) or '<tr><td colspan="3">Нет банов</td></tr>'
+    warns_html = "".join(
+        f"<tr><td>#{esc(row['id'])}</td><td>{esc(row['reason'])}</td>"
+        f"<td>{esc(row['post_id'])}</td><td>{esc(fmt_time(row['created_at']))}</td></tr>"
+        for row in warns
+    ) or '<tr><td colspan="4">Нет предупреждений</td></tr>'
+    role = dashboard_role(current_user)
+    return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Пользователь {esc(user_id)} · Podslushka</title><style>
+body{{margin:0;background:#090b1c;color:#f5f4ff;font:14px Segoe UI,Arial,sans-serif;padding:28px}}
+main{{max-width:1200px;margin:auto}}a,button{{display:inline-block;color:#fff;text-decoration:none;
+border:0;border-radius:10px;padding:10px 15px;font-weight:700;background:linear-gradient(135deg,#7b61ff,#3e6fe8);
+box-shadow:0 5px 0 #34268d;cursor:pointer;transition:.18s}}a:hover,button:hover{{transform:translateY(-2px);
+filter:brightness(1.1)}}a:focus-visible,button:focus-visible{{outline:3px solid #27d3c2;outline-offset:3px}}
+section{{margin-top:22px;background:#171936;border:1px solid #353866;border-radius:14px;padding:18px;
+box-shadow:7px 8px 0 #050611}}h1{{margin:18px 0 4px}}h2{{margin:0 0 12px}}table{{border-collapse:collapse;
+width:100%;min-width:650px}}.table{{overflow:auto}}th,td{{padding:10px;border-bottom:1px solid #353866;
+text-align:left}}th{{color:#8fc0ff}}.muted{{color:#a5a8c7}}.badge{{display:inline-block;padding:5px 9px;
+border-radius:99px;background:#304664;color:#d7e8ff}}</style></head><body><main>
+<a href="/?view=users">← К пользователям</a><h1>{esc(display_name or "Пользователь")}
+<span class="badge">{esc(role)}</span></h1><p class="muted">Telegram ID: <code>{esc(user_id)}</code>
+ · @{esc(user["username"]) if user["username"] else "—"} · Язык: {esc(user["ui_lang"] or user["language_code"])}</p>
+<section><h2>Профиль</h2><p>Premium: {"да" if user["is_premium"] else "нет"} · Первый контакт:
+{esc(fmt_time(user["first_seen"]))} · Последний контакт: {esc(fmt_time(user["last_seen"]))}</p></section>
+<section><h2>Заявки ({len(posts)})</h2><div class="table"><table><tr><th>ID</th><th>Тип</th>
+<th>Статус</th><th>Текст</th><th>Дата</th></tr>{posts_html}</table></div></section>
+<section><h2>Жалобы ({len(reports)})</h2><div class="table"><table><tr><th>ID</th><th>Причина</th>
+<th>Дата</th></tr>{reports_html}</table></div></section>
+<section><h2>Комментарии ({len(comments)})</h2><div class="table"><table><tr><th>ID</th>
+<th>Публикация</th><th>Текст</th><th>Дата</th></tr>{comments_html}</table></div></section>
+<section><h2>Голоса ({len(votes)})</h2><div class="table"><table><tr><th>ID</th><th>Публикация</th>
+<th>Голос</th><th>Дата</th></tr>{votes_html}</table></div></section>
+<section><h2>Баны ({len(bans)}) и предупреждения ({len(warns)})</h2><div class="table">
+<table><tr><th>User ID</th><th>Причина</th><th>Дата</th></tr>{bans_html}</table><br>
+<table><tr><th>ID</th><th>Причина</th><th>Пост</th><th>Дата</th></tr>{warns_html}</table>
+</div></section></main></body></html>"""
+
+
 def page(current_user: str = "", section: str = "overview") -> str:
-    owner = is_owner(current_user)
-    if not owner:
+    role = dashboard_role(current_user)
+    owner = role == "owner"
+    if not can_access(current_user, section):
         section = "overview"
     stats = {
         "users": scalar("SELECT COUNT(*) FROM users"),
@@ -295,7 +531,7 @@ def page(current_user: str = "", section: str = "overview") -> str:
     )
     user_rows = "".join(
         "<tr class=\"user-row\">"
-        f"<td><code>{esc(row['user_id'])}</code></td>"
+        f"<td><a class=\"button-link\" href=\"/user?id={esc(row['user_id'])}\"><code>{esc(row['user_id'])}</code></a></td>"
         f"<td>{esc(row['first_name'])} {esc(row['last_name'])}</td>"
         f"<td>{('@' + row['username']) if row['username'] else '—'}</td>"
         f"<td>{esc(row['ui_lang'] or row['language_code'])}</td>"
@@ -320,7 +556,7 @@ def page(current_user: str = "", section: str = "overview") -> str:
         GROUP BY u.user_id ORDER BY u.last_seen DESC LIMIT 500
     """)
     user_detail_rows = "".join(
-        f"<tr class='detail-user-row'><td><code>{esc(row['user_id'])}</code></td>"
+        f"<tr class='detail-user-row'><td><a class=\"button-link\" href=\"/user?id={esc(row['user_id'])}\"><code>{esc(row['user_id'])}</code></a></td>"
         f"<td>{esc(row['first_name'])} {esc(row['last_name'])}</td>"
         f"<td>{('@' + row['username']) if row['username'] else '—'}</td>"
         f"<td>{esc(row['language_code'])}</td><td>{esc(row['ui_lang'])}</td>"
@@ -362,10 +598,10 @@ def page(current_user: str = "", section: str = "overview") -> str:
 *{{box-sizing:border-box}}html{{scroll-behavior:smooth}}body{{margin:0;background:radial-gradient(circle at 78% 0,#714dff2b,transparent 30%),radial-gradient(circle at 20% 100%,#17d6c51d,transparent 28%),var(--bg);color:var(--text);font:14px Inter,Segoe UI,Arial,sans-serif}}
 .layout{{display:flex;min-height:100vh;perspective:1500px}}.sidebar{{position:fixed;inset:0 auto 0 0;width:255px;padding:25px 16px;background:linear-gradient(180deg,#171943,#0d1028);border-right:1px solid #38366d;z-index:50;pointer-events:auto;box-shadow:10px 0 24px #02071188,12px 0 45px #6e52ff18}}
 .brand{{display:flex;align-items:center;gap:11px;padding:4px 10px 28px;font-size:19px;font-weight:800;letter-spacing:-.4px}}.logo{{display:grid;place-items:center;width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,#a98bff,#6450ed);box-shadow:5px 6px 0 #34268d,0 8px 22px #7b61ff88;font-size:19px;transform:translateZ(16px)}}
-.menu-title{{padding:0 11px 9px;color:#7085a3;text-transform:uppercase;font-size:10px;font-weight:800;letter-spacing:1px}}.nav{{display:grid;gap:5px}}.nav a{{display:flex;align-items:center;gap:11px;padding:12px 11px;border:1px solid transparent;border-radius:10px;color:#adc0d9;text-decoration:none;font-weight:600;transition:.18s}}.nav a:hover,.nav a.active{{color:#fff;background:linear-gradient(135deg,#353276,#202957);border-color:#695ce0;box-shadow:5px 6px 0 #0a1027,0 0 22px #7b61ff33;transform:translate(-2px,-2px)}}.nav a{{position:relative;z-index:60;display:flex;pointer-events:auto;transition:.18s;transform-style:preserve-3d}}.nav .icon{{width:20px;text-align:center;font-size:16px}}
+.menu-title{{padding:0 11px 9px;color:#7085a3;text-transform:uppercase;font-size:10px;font-weight:800;letter-spacing:1px}}.nav{{display:grid;gap:7px}}.nav a{{position:relative;z-index:60;display:flex;align-items:center;gap:11px;padding:12px 11px;border:1px solid transparent;border-radius:10px;color:#adc0d9;text-decoration:none;font-weight:600;transition:.18s;transform-style:preserve-3d;pointer-events:auto}}.nav a:hover,.nav a.active{{color:#fff;background:linear-gradient(135deg,#353276,#202957);border-color:#695ce0;box-shadow:5px 6px 0 #0a1027,0 0 22px #7b61ff33;transform:translate(-2px,-2px)}}.nav a:focus-visible{{outline:3px solid var(--blue2);outline-offset:3px}}.nav .icon{{width:20px;text-align:center;font-size:16px}}
 .sidebar-footer{{position:absolute;bottom:22px;left:25px;right:25px;color:#6f85a3;font-size:11px;line-height:1.55}}.content{{width:100%;margin-left:255px;padding:34px clamp(22px,4vw,58px) 60px}}.topbar{{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:25px}}h1{{margin:0 0 7px;font-size:30px;letter-spacing:-.8px}}h2{{margin:42px 0 15px;font-size:21px;letter-spacing:-.3px}}.muted{{color:var(--muted)}}
 .cards{{display:grid;grid-template-columns:repeat(6,1fr);gap:13px;margin:0 0 27px}}.card{{background:linear-gradient(145deg,#252953,#171a39);border:1px solid #454783;border-radius:15px;padding:17px;box-shadow:7px 8px 0 #080a1b,0 12px 30px #03091455,0 0 24px #7b61ff12;transition:.2s;transform:translateZ(8px)}}.card:hover{{transform:translateY(-5px) rotateX(3deg) rotateY(-2deg);box-shadow:9px 12px 0 #080a1b,0 18px 34px #03091488,0 0 30px #7b61ff2b}}.card b{{display:block;color:#a7aad0;font-size:12px;font-weight:600}}.card strong{{display:block;font-size:28px;margin-top:9px;color:#f9f8ff}}
-.toolbar{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 25px;padding:15px;background:linear-gradient(145deg,#191c3b,#11142c);border:1px solid #393d70;border-radius:14px;box-shadow:7px 8px 0 #080a1b,0 10px 28px #03091455}}input,select{{background:#0e192b;color:#e2e8f0;border:1px solid #3a5272;border-radius:9px;padding:11px 13px;min-width:220px;outline:none}}input:focus,select:focus{{border-color:var(--blue);box-shadow:0 0 0 3px #4f8cff22}}button{{position:relative;z-index:60;pointer-events:auto;background:linear-gradient(135deg,var(--blue),#3e6fe8);color:white;border:0;border-radius:9px;padding:10px 15px;font-weight:700;cursor:pointer;transition:.18s}}button:hover{{filter:brightness(1.1);transform:translateY(-1px)}}.danger{{background:linear-gradient(135deg,#c84d5a,#a83240)}}
+.toolbar{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 25px;padding:15px;background:linear-gradient(145deg,#191c3b,#11142c);border:1px solid #393d70;border-radius:14px;box-shadow:7px 8px 0 #080a1b,0 10px 28px #03091455}}input,select{{background:#0e192b;color:#e2e8f0;border:1px solid #3a5272;border-radius:9px;padding:11px 13px;min-width:220px;outline:none}}input:focus,select:focus{{border-color:var(--blue);box-shadow:0 0 0 3px #4f8cff22}}button,input[type=submit],a.button-link{{position:relative;z-index:60;pointer-events:auto;display:inline-block;background:linear-gradient(145deg,#876eff,#3e6fe8);color:white;border:0;border-radius:9px;padding:10px 15px;font-weight:700;cursor:pointer;transition:transform .18s,filter .18s,box-shadow .18s;text-decoration:none;box-shadow:0 5px 0 #34268d,0 10px 18px #7b61ff33;transform:translateY(0);transform-style:preserve-3d}}button:hover,input[type=submit]:hover,a.button-link:hover{{filter:brightness(1.1);transform:translateY(-2px);box-shadow:0 7px 0 #34268d,0 14px 24px #7b61ff44}}button:active,input[type=submit]:active,a.button-link:active{{transform:translateY(3px);box-shadow:0 2px 0 #34268d}}button:focus-visible,input[type=submit]:focus-visible,a.button-link:focus-visible{{outline:3px solid var(--blue2);outline-offset:3px}}button:disabled,input[type=submit]:disabled{{opacity:.5;cursor:not-allowed;transform:none;box-shadow:0 3px 0 #252848}}.danger{{background:linear-gradient(135deg,#c84d5a,#a83240);box-shadow:0 5px 0 #702933,0 10px 18px #c84d5a33}}.button-link code{{color:inherit}}
 .table-wrap{{overflow:auto;background:linear-gradient(145deg,#1b2940,#172438);border:1px solid #2d4565;border-radius:14px;box-shadow:7px 8px 0 #080f1e,0 12px 30px #03091435;transform:translateZ(4px)}}table{{border-collapse:collapse;width:100%;min-width:850px}}th,td{{padding:13px 14px;text-align:left;border-bottom:1px solid #2b405f}}th{{color:#8fc0ff;background:#18263b;position:sticky;top:0;font-size:12px;text-transform:uppercase;letter-spacing:.3px}}tr:last-child td{{border-bottom:0}}tr:hover{{background:#243650}}code{{color:#a7f3d0}}.status{{padding:4px 9px;border-radius:20px;background:#304664;color:#d7e8ff;font-size:12px}}
 .empty{{display:none;color:#94a3b8;padding:16px}}.inline{{display:inline}}.inline button{{margin:2px 4px 2px 0}}.owner-form{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 16px}}.owner-form input{{min-width:220px}}section{{scroll-margin-top:20px}}
 @media(max-width:1150px){{.cards{{grid-template-columns:repeat(3,1fr)}}}}@media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:25px 16px 45px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:17px}}.nav{{grid-template-columns:repeat(2,1fr)}}.nav a{{padding:10px;font-size:12px}}.topbar{{display:block}}.cards{{grid-template-columns:repeat(2,1fr);gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}h1{{font-size:25px}}}}
@@ -375,9 +611,9 @@ def page(current_user: str = "", section: str = "overview") -> str:
 <a class="{'active' if section == 'user-search' else ''}" href="/?view=user-search"><span class="icon">⌕</span>Поиск пользователей</a>
 {('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else '')}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
-<main class="content"><div class="topbar"><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации</div></div><a href="/logout"><button class="danger">Выйти</button></a></div>
+<main class="content"><div class="topbar"><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div><div><a class="button-link" href="/export/users.csv">↓ CSV</a> <a href="/logout"><button class="danger">Выйти</button></a></div></div>
 {('<section id="overview"><div class="cards">' + cards + '</div></section>' if section == 'overview' else '')}
-{('<div class="toolbar"><input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off"><select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select><button onclick="location.reload()">↻ Обновить</button><a href="/backup"><button>↓ Резервная копия</button></a></div>' if section == 'overview' else '')}
+{('<div class="toolbar"><input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off"><select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select><button type="button" onclick="refreshPage()">↻ Обновить</button><a class="button-link" href="/backup">↓ Резервная копия</a></div>' if section == 'overview' else '')}
 {('<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_rows + '</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section><section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th></tr>' + post_rows + '</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>' if section == 'overview' else '')}
 {('<section id="users"><h2>Все пользователи</h2><div class="toolbar"><input id="detail-search" placeholder="Поиск по ID, имени, username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'users' else '')}
 {('<section id="posts"><h2>Все заявки</h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th></tr>' + post_rows + '</table></div></section>' if section == 'posts' else '')}
@@ -437,8 +673,15 @@ function bindControls() {{
 bindControls();
 async function refreshPage() {{
   const scrollY = window.scrollY;
-  const oldSearch = search ? search.value : '';
-  const oldStatus = status ? status.value : '';
+  const focusKey = document.activeElement && (document.activeElement.id || document.activeElement.name);
+  const formState = {{}};
+  document.querySelectorAll('input,select,textarea').forEach(field => {{
+    const key = field.id || field.name;
+    if (!key) return;
+    formState[key] = field.type === 'checkbox' || field.type === 'radio'
+      ? field.checked : field.value;
+  }});
+  const oldHash = location.hash;
   try {{
     const response = await fetch(location.href, {{cache: 'no-store'}});
     if (!response.ok) return;
@@ -448,13 +691,19 @@ async function refreshPage() {{
     const current = document.querySelector('.content');
     if (next && current) {{
       current.replaceWith(next);
-      const nextSearch = document.getElementById('search');
-      const nextStatus = document.getElementById('status');
-      if (nextSearch) nextSearch.value = oldSearch;
-      if (nextStatus) nextStatus.value = oldStatus;
+      document.querySelectorAll('input,select,textarea').forEach(field => {{
+        const key = field.id || field.name;
+        if (!(key in formState)) return;
+        if (field.type === 'checkbox' || field.type === 'radio') field.checked = formState[key];
+        else field.value = formState[key];
+      }});
       window.scrollTo(0, scrollY);
-      location.hash = '';
+      if (oldHash) location.hash = oldHash.slice(1);
       bindControls();
+      if (focusKey) {{
+        const focused = document.getElementById(focusKey) || document.querySelector(`[name="${{CSS.escape(focusKey)}}"]`);
+        if (focused) focused.focus({{preventScroll: true}});
+      }}
     }}
   }} catch (_) {{}}
 }}
@@ -477,6 +726,15 @@ setInterval(watchForUpdates, 1500);
 
 
 class Handler(BaseHTTPRequestHandler):
+    def send_html(self, content: str, status: int = 200) -> None:
+        body = content.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -489,6 +747,70 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/")
             self.send_header("Set-Cookie", "session=; Max-Age=0; HttpOnly; SameSite=Strict")
             self.end_headers()
+            return
+        # OAuth endpoints are deliberately available before a dashboard session.
+        # A verified identity is shown to the user, but is not silently converted into
+        # a dashboard account until an explicit account-linking backend exists.
+        if path == "/auth/google":
+            if not (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and OAUTH_BASE_URL):
+                self.send_html(auth_page("Google OAuth is disabled: set the OAuth environment variables."))
+                return
+            state = oauth_state("google")
+            query = urllib.parse.urlencode({
+                "client_id": GOOGLE_CLIENT_ID,
+                "redirect_uri": oauth_redirect("google"),
+                "response_type": "code",
+                "scope": "openid email profile",
+                "state": state,
+                "access_type": "offline",
+                "prompt": "select_account",
+            })
+            self.send_response(302)
+            self.send_header("Location", "https://accounts.google.com/o/oauth2/v2/auth?" + query)
+            self.end_headers()
+            return
+        if path == "/auth/google/callback":
+            query = parse_qs(parsed.query)
+            if not consume_oauth_state(query.get("state", [""])[0], "google"):
+                self.send_html(auth_page("OAuth state expired or invalid. Start sign-in again."), 400)
+                return
+            code = query.get("code", [""])[0]
+            if not code:
+                self.send_html(auth_page("Google did not return an authorization code."), 400)
+                return
+            try:
+                payload = urllib.parse.urlencode({
+                    "code": code,
+                    "client_id": GOOGLE_CLIENT_ID,
+                    "client_secret": GOOGLE_CLIENT_SECRET,
+                    "redirect_uri": oauth_redirect("google"),
+                    "grant_type": "authorization_code",
+                }).encode("utf-8")
+                request = urllib.request.Request("https://oauth2.googleapis.com/token", data=payload, method="POST")
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    token_data = json.loads(response.read().decode("utf-8"))
+                access_token = token_data.get("access_token")
+                if not access_token:
+                    raise ValueError("Google did not return an access token")
+                request = urllib.request.Request(
+                    "https://openidconnect.googleapis.com/v1/userinfo",
+                    headers={"Authorization": "Bearer " + access_token},
+                )
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    identity = json.loads(response.read().decode("utf-8"))
+                email = identity.get("email") or "verified Google account"
+                self.send_html(auth_page(f"Google verified {esc(email)}. Account linking is not enabled; use an approved username and password."))
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                logging.warning("Google OAuth failed: %s", exc)
+                self.send_html(auth_page("Google sign-in failed. Check the callback URL and OAuth keys."), 400)
+            return
+        if path == "/auth/telegram/callback":
+            if not telegram_login_valid(parse_qs(parsed.query)):
+                self.send_html(auth_page("Telegram Login is disabled or the signature is invalid."), 400)
+                return
+            query = parse_qs(parsed.query)
+            telegram_name = query.get("username", query.get("first_name", ["Telegram user"]))[0]
+            self.send_html(auth_page(f"Telegram verified {esc(telegram_name)}. Automatic access is disabled; use an approved username and password."))
             return
         if not auth_user(self):
             body = auth_page().encode("utf-8")
@@ -516,6 +838,54 @@ class Handler(BaseHTTPRequestHandler):
             body = json.dumps(BOT_STATUS).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/user":
+            try:
+                user_id = int(parse_qs(parsed.query).get("id", [""])[0])
+            except ValueError:
+                self.send_error(400, "A numeric user id is required")
+                return
+            body = user_detail_page(auth_user(self) or "", user_id)
+            if not body:
+                self.send_error(404)
+                return
+            self.send_html(body)
+            return
+        if path == "/export/users.csv":
+            if not can_access(auth_user(self), "export"):
+                self.send_error(403)
+                return
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(["user_id", "first_name", "last_name", "username", "language_code",
+                             "ui_lang", "is_premium", "posts", "banned", "warns", "last_seen"])
+            rows = db_rows(
+                """SELECT u.user_id, u.first_name, u.last_name, u.username,
+                          u.language_code, u.ui_lang, u.is_premium,
+                          COUNT(DISTINCT p.id) AS posts_count,
+                          CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS banned,
+                          COUNT(DISTINCT w.id) AS warns_count, u.last_seen
+                   FROM users u
+                   LEFT JOIN posts p ON p.user_id=u.user_id
+                   LEFT JOIN bans b ON b.user_id=u.user_id
+                   LEFT JOIN warns w ON w.user_id=u.user_id
+                   GROUP BY u.user_id, u.first_name, u.last_name, u.username,
+                            u.language_code, u.ui_lang, u.is_premium, b.user_id, u.last_seen
+                   ORDER BY u.user_id"""
+            )
+            for row in rows:
+                writer.writerow([row[key] for key in (
+                    "user_id", "first_name", "last_name", "username", "language_code",
+                    "ui_lang", "is_premium", "posts_count", "banned", "warns_count", "last_seen"
+                )])
+            body = output.getvalue().encode("utf-8-sig")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition", "attachment; filename=podslushka-users.csv")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -566,14 +936,18 @@ class Handler(BaseHTTPRequestHandler):
                                 is_premium, ui_lang, first_seen, last_seen)
                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                                ON CONFLICT(user_id) DO UPDATE SET
-                                first_name=excluded.first_name, last_name=excluded.last_name,
-                                username=excluded.username, language_code=excluded.language_code,
-                                is_premium=excluded.is_premium, ui_lang=excluded.ui_lang,
-                                first_seen=excluded.first_seen, last_seen=excluded.last_seen""",
+                                 first_name=COALESCE(excluded.first_name, users.first_name),
+                                 last_name=COALESCE(excluded.last_name, users.last_name),
+                                 username=COALESCE(excluded.username, users.username),
+                                 language_code=COALESCE(excluded.language_code, users.language_code),
+                                 is_premium=COALESCE(excluded.is_premium, users.is_premium),
+                                 ui_lang=COALESCE(excluded.ui_lang, users.ui_lang),
+                                 first_seen=COALESCE(excluded.first_seen, users.first_seen),
+                                 last_seen=COALESCE(excluded.last_seen, users.last_seen)""",
                             (
                                 user["user_id"], user.get("first_name"), user.get("last_name"),
                                 user.get("username"), user.get("language_code"),
-                                user.get("is_premium", 0), user.get("ui_lang"),
+                                user.get("is_premium"), user.get("ui_lang"),
                                 user.get("first_seen"), user.get("last_seen"),
                             ),
                         )
@@ -583,12 +957,15 @@ class Handler(BaseHTTPRequestHandler):
                                (id, user_id, kind, text, status, public_id, created_at)
                                VALUES (?, ?, ?, ?, ?, ?, ?)
                                ON CONFLICT(id) DO UPDATE SET
-                                user_id=excluded.user_id, kind=excluded.kind,
-                                text=excluded.text, status=excluded.status,
-                                public_id=excluded.public_id, created_at=excluded.created_at""",
+                                user_id=COALESCE(excluded.user_id, posts.user_id),
+                                kind=COALESCE(excluded.kind, posts.kind),
+                                text=COALESCE(excluded.text, posts.text),
+                                status=COALESCE(excluded.status, posts.status),
+                                public_id=COALESCE(excluded.public_id, posts.public_id),
+                                created_at=COALESCE(excluded.created_at, posts.created_at)""",
                             (
-                                post["id"], post["user_id"], post.get("kind", "text"),
-                                post.get("text"), post.get("status", "pending"),
+                                post["id"], post.get("user_id"), post.get("kind"),
+                                post.get("text"), post.get("status"),
                                 post.get("public_id"), post.get("created_at"),
                             ),
                         )
@@ -692,7 +1069,11 @@ class Handler(BaseHTTPRequestHandler):
                 username == OWNER_USERNAME and OWNER_PASSWORD
                 and secrets.compare_digest(password, OWNER_PASSWORD)
             )
-            if not owner_login and (not row or row[1] != "approved" or not verify_password(password, row[0])):
+            if not owner_login and (
+                not row
+                or row_value(row, "status", 1) != "approved"
+                or not verify_password(password, row_value(row, "password_hash", 0))
+            ):
                 error = "Неверный логин, пароль или доступ ещё не одобрен владельцем."
         else:
             self.send_error(404)
@@ -713,7 +1094,8 @@ class Handler(BaseHTTPRequestHandler):
             log_action(username, "Вошёл в панель", "")
         self.send_response(302)
         self.send_header("Location", "/")
-        self.send_header("Set-Cookie", f"session={token}; HttpOnly; SameSite=Strict")
+        secure = "; Secure" if OAUTH_BASE_URL.startswith("https://") else ""
+        self.send_header("Set-Cookie", f"session={token}; HttpOnly; SameSite=Strict{secure}")
         self.end_headers()
 
     def log_message(self, *_):
