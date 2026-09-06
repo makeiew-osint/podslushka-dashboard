@@ -98,7 +98,9 @@ class Database:
                 edit_date INTEGER,
                 text_chars INTEGER DEFAULT 0,
                 text_words INTEGER DEFAULT 0,
-                metadata TEXT
+                metadata TEXT,
+                ai_analysis TEXT,
+                ai_analyzed_at BIGINT
             )""",
             """CREATE TABLE IF NOT EXISTS media_group_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -229,6 +231,8 @@ class Database:
                 "text_chars": "INTEGER DEFAULT 0",
                 "text_words": "INTEGER DEFAULT 0",
                 "metadata": "TEXT",
+                "ai_analysis": "TEXT",
+                "ai_analyzed_at": "BIGINT",
             },
             "users": {
                 "ui_lang": "TEXT",

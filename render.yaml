@@ -20,6 +20,10 @@ services:
         sync: false
       - key: DASHBOARD_SYNC_URL
         value: https://podslushka-dashboard.onrender.com
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_MODEL
+        sync: false
       - key: TELEGRAM_BOT_USERNAME
         value: schoolmboy202648_bot_bot
       - key: GOOGLE_CLIENT_ID
