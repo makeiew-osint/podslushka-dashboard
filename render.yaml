@@ -14,3 +14,5 @@ services:
         sync: false
       - key: OWNER_PASSWORD
         sync: false
+      - key: DASHBOARD_SYNC_SECRET
+        sync: false

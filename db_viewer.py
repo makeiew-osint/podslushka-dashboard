@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import hashlib
+import json
 import os
 import secrets
 import shutil
@@ -21,6 +22,7 @@ PORT = int(os.getenv("PORT", "8765"))
 SESSIONS: dict[str, str] = {}
 OWNER_USERNAME = os.getenv("OWNER_USERNAME", "")
 OWNER_PASSWORD = os.getenv("OWNER_PASSWORD", "")
+SYNC_SECRET = os.getenv("DASHBOARD_SYNC_SECRET", "")
 
 
 def esc(value) -> str:
@@ -299,6 +301,20 @@ search.addEventListener('input', filterRows);
 status.addEventListener('change', filterRows);
 filterRows();
 }}
+async function watchForUpdates() {{
+  try {{
+    const response = await fetch('/api/state', {{cache: 'no-store'}});
+    if (!response.ok) return;
+    const state = await response.json();
+    const current = document.body.dataset.lastUpdate || '';
+    if (current && state.updated !== current) location.reload();
+    document.body.dataset.lastUpdate = state.updated || '';
+  }} catch (_) {{
+    // A temporary network failure is retried on the next poll.
+  }}
+}}
+watchForUpdates();
+setInterval(watchForUpdates, 1500);
 </script>
 </body></html>"""
 
@@ -321,6 +337,17 @@ class Handler(BaseHTTPRequestHandler):
             body = auth_page().encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/api/state":
+            updated = scalar("SELECT MAX(created_at) FROM posts") or 0
+            updated = max(updated, scalar("SELECT MAX(last_seen) FROM users") or 0)
+            body = json.dumps({"updated": str(updated)}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -348,7 +375,61 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         length = int(self.headers.get("Content-Length", "0"))
-        fields = parse_qs(self.rfile.read(length).decode("utf-8"))
+        raw_body = self.rfile.read(length)
+        if path == "/api/sync":
+            if not SYNC_SECRET or not secrets.compare_digest(
+                self.headers.get("X-Sync-Secret", ""), SYNC_SECRET
+            ):
+                self.send_error(403)
+                return
+            try:
+                payload = json.loads(raw_body.decode("utf-8"))
+                with sqlite3.connect(DB_PATH) as conn:
+                    for user in payload.get("users", []):
+                        conn.execute(
+                            """INSERT INTO users
+                               (user_id, first_name, last_name, username, language_code,
+                                is_premium, ui_lang, first_seen, last_seen)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               ON CONFLICT(user_id) DO UPDATE SET
+                                first_name=excluded.first_name, last_name=excluded.last_name,
+                                username=excluded.username, language_code=excluded.language_code,
+                                is_premium=excluded.is_premium, ui_lang=excluded.ui_lang,
+                                first_seen=excluded.first_seen, last_seen=excluded.last_seen""",
+                            (
+                                user["user_id"], user.get("first_name"), user.get("last_name"),
+                                user.get("username"), user.get("language_code"),
+                                user.get("is_premium", 0), user.get("ui_lang"),
+                                user.get("first_seen"), user.get("last_seen"),
+                            ),
+                        )
+                    for post in payload.get("posts", []):
+                        conn.execute(
+                            """INSERT INTO posts
+                               (id, user_id, kind, text, status, public_id, created_at)
+                               VALUES (?, ?, ?, ?, ?, ?, ?)
+                               ON CONFLICT(id) DO UPDATE SET
+                                user_id=excluded.user_id, kind=excluded.kind,
+                                text=excluded.text, status=excluded.status,
+                                public_id=excluded.public_id, created_at=excluded.created_at""",
+                            (
+                                post["id"], post["user_id"], post.get("kind", "text"),
+                                post.get("text"), post.get("status", "pending"),
+                                post.get("public_id"), post.get("created_at"),
+                            ),
+                        )
+                    conn.commit()
+                body = b'{"ok":true}'
+            except (ValueError, KeyError, TypeError, sqlite3.Error):
+                self.send_error(400, "Invalid sync payload")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        fields = parse_qs(raw_body.decode("utf-8"))
         username = fields.get("username", [""])[0].strip()
         password = fields.get("password", [""])[0]
         error = ""

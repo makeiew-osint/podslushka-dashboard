@@ -1,7 +1,10 @@
 import asyncio
 import html
+import json
 import logging
+import os
 import time
+import urllib.request
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 
@@ -1036,7 +1039,44 @@ async def st_report(message: Message, state: FSMContext):
 
 
 async def main():
-    await dp.start_polling(bot)
+    sync_task = asyncio.create_task(_sync_dashboard())
+    try:
+        await dp.start_polling(bot)
+    finally:
+        sync_task.cancel()
+        await asyncio.gather(sync_task, return_exceptions=True)
+
+
+async def _sync_dashboard():
+    if not cfg.dashboard_sync_url or not cfg.dashboard_sync_secret:
+        logging.info("Dashboard sync is disabled")
+        return
+    while True:
+        try:
+            users = await db._conn.execute_fetchall(
+                "SELECT user_id, first_name, last_name, username, language_code, "
+                "is_premium, ui_lang, first_seen, last_seen FROM users"
+            )
+            posts = await db._conn.execute_fetchall(
+                "SELECT id, user_id, kind, text, status, public_id, created_at FROM posts"
+            )
+            payload = json.dumps({
+                "users": [dict(row) for row in users],
+                "posts": [dict(row) for row in posts],
+            }).encode("utf-8")
+            request = urllib.request.Request(
+                cfg.dashboard_sync_url.rstrip("/") + "/api/sync",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Sync-Secret": cfg.dashboard_sync_secret,
+                },
+                method="POST",
+            )
+            await asyncio.to_thread(urllib.request.urlopen, request, 10)
+        except (OSError, TimeoutError, TypeError, ValueError) as exc:
+            logging.warning("Dashboard sync failed: %s", exc)
+        await asyncio.sleep(2)
 
 
 if __name__ == "__main__":

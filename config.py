@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     media_group_timeout: float = 3.0
     queue_alert_threshold: int = 20
     backup_chat_id: Optional[int] = None
+    dashboard_sync_url: Optional[str] = None
+    dashboard_sync_secret: Optional[str] = None
 
     @field_validator("admin_ids", mode="before")
     @classmethod
