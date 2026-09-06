@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+import base64
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -38,10 +39,11 @@ DB_PATH = ROOT / "podslushka.db"
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 HOST = os.getenv("HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1")
 PORT = int(os.getenv("PORT", "8765"))
-SESSIONS: dict[str, str] = {}
+SESSIONS: dict[str, str] = {}  # legacy in-process cache; DB sessions are authoritative
 OAUTH_STATES: dict[str, tuple[str, int]] = {}
 OWNER_USERNAME = os.getenv("OWNER_USERNAME", "")
 OWNER_PASSWORD = os.getenv("OWNER_PASSWORD", "")
+OWNER_2FA_SECRET = os.getenv("OWNER_2FA_SECRET", "").strip()
 SYNC_SECRET = os.getenv("DASHBOARD_SYNC_SECRET", "")
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
 TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
@@ -56,6 +58,8 @@ OAUTH_SIGNING_SECRET = (
     or TELEGRAM_BOT_TOKEN
 )
 SESSION_TTL = 60 * 60 * 12
+LOGIN_WINDOW = 15 * 60
+LOGIN_MAX_ATTEMPTS = 8
 ROLE_PERMISSIONS = {
     "owner": {"overview", "users", "posts", "user-search", "access", "owners", "actions", "export"},
     "admin": {"overview", "users", "posts", "user-search", "actions", "export"},
@@ -266,12 +270,38 @@ def init_auth() -> None:
             conn.execute("ALTER TABLE dashboard_users ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'")
         if "role" not in columns:
             conn.execute("ALTER TABLE dashboard_users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+        for name, definition in {
+            "oauth_provider": "TEXT",
+            "oauth_subject": "TEXT",
+            "email": "TEXT",
+            "display_name": "TEXT",
+            "totp_secret": "TEXT",
+        }.items():
+            if name not in columns:
+                conn.execute(f"ALTER TABLE dashboard_users ADD COLUMN {name} {definition}")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_oauth "
+            "ON dashboard_users(oauth_provider, oauth_subject)"
+        )
         conn.execute("""CREATE TABLE IF NOT EXISTS dashboard_actions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             actor TEXT NOT NULL,
             action TEXT NOT NULL,
             target TEXT,
             created_at INTEGER NOT NULL
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS dashboard_sessions (
+            token TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL,
+            ip TEXT,
+            user_agent TEXT
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS login_attempts (
+            key TEXT PRIMARY KEY,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            window_started INTEGER NOT NULL
         )""")
         conn.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, username TEXT, language_code TEXT, is_premium INTEGER DEFAULT 0, ui_lang TEXT, first_seen INTEGER, last_seen INTEGER)")
         conn.execute("CREATE TABLE IF NOT EXISTS posts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, kind TEXT, text TEXT, status TEXT DEFAULT 'pending', created_at INTEGER, public_id INTEGER)")
@@ -282,6 +312,8 @@ def init_auth() -> None:
         conn.execute("CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id INTEGER, user_id INTEGER, text TEXT, created_at INTEGER)")
         conn.execute("CREATE TABLE IF NOT EXISTS votes (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id INTEGER, user_id INTEGER, vote INTEGER, created_at INTEGER)")
         conn.execute("CREATE TABLE IF NOT EXISTS warns (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, reason TEXT, post_id INTEGER, admin_id INTEGER, created_at INTEGER)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_actions_created ON dashboard_actions(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_expiry ON dashboard_sessions(expires_at)")
         conn.commit()
 
 
@@ -292,7 +324,10 @@ def password_hash(password: str, salt: bytes | None = None) -> str:
 
 
 def verify_password(password: str, stored: str) -> bool:
-    salt_hex, digest_hex = stored.split("$", 1)
+    try:
+        salt_hex, digest_hex = stored.split("$", 1)
+    except (AttributeError, ValueError):
+        return False
     expected = hashlib.pbkdf2_hmac(
         "sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), 200_000
     ).hex()
@@ -303,7 +338,28 @@ def auth_user(handler: BaseHTTPRequestHandler) -> str | None:
     cookie = handler.headers.get("Cookie", "")
     token = next((item.split("=", 1)[1] for item in cookie.split("; ")
                   if item.startswith("session=")), None)
-    return SESSIONS.get(token) if token else None
+    if not token:
+        return None
+    cached = SESSIONS.get(token)
+    now = int(time.time())
+    try:
+        with db_connect() as conn:
+            conn.execute("DELETE FROM dashboard_sessions WHERE expires_at <= ?", (now,))
+            row = conn.execute(
+                """SELECT s.username FROM dashboard_sessions s
+                   LEFT JOIN dashboard_users u ON u.username=s.username
+                   WHERE s.token=? AND s.expires_at>?
+                     AND (u.status='approved' OR s.username=?)""",
+                (token, now, OWNER_USERNAME),
+            ).fetchone()
+            if row:
+                username = row_value(row, "username", 0)
+                SESSIONS[token] = username
+                return username
+    except DB_ERRORS:
+        return cached
+    SESSIONS.pop(token, None)
+    return None
 
 
 def is_owner(username: str | None) -> bool:
@@ -331,6 +387,146 @@ def log_action(actor: str, action: str, target: str = "") -> None:
         conn.commit()
 
 
+def create_session(username: str, handler: BaseHTTPRequestHandler) -> str:
+    token = secrets.token_urlsafe(32)
+    now = int(time.time())
+    with db_connect() as conn:
+        conn.execute(
+            """INSERT INTO dashboard_sessions
+               (token, username, created_at, expires_at, ip, user_agent)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                token, username, now, now + SESSION_TTL,
+                handler.client_address[0] if handler.client_address else "",
+                handler.headers.get("User-Agent", "")[:500],
+            ),
+        )
+        conn.commit()
+    SESSIONS[token] = username
+    return token
+
+
+def destroy_session(handler: BaseHTTPRequestHandler) -> str | None:
+    cookie = handler.headers.get("Cookie", "")
+    token = next((item.split("=", 1)[1] for item in cookie.split("; ")
+                  if item.startswith("session=")), None)
+    if token:
+        with db_connect() as conn:
+            conn.execute("DELETE FROM dashboard_sessions WHERE token=?", (token,))
+            conn.commit()
+        SESSIONS.pop(token, None)
+    return token
+
+
+def rate_limit_key(handler: BaseHTTPRequestHandler, username: str) -> str:
+    ip = handler.client_address[0] if handler.client_address else "unknown"
+    return f"{ip}:{username.lower()[:160]}"
+
+
+def login_allowed(handler: BaseHTTPRequestHandler, username: str) -> bool:
+    key = rate_limit_key(handler, username)
+    now = int(time.time())
+    with db_connect() as conn:
+        row = conn.execute("SELECT attempts, window_started FROM login_attempts WHERE key=?", (key,)).fetchone()
+        if not row:
+            return True
+        attempts = int(row_value(row, "attempts", 0) or 0)
+        started = int(row_value(row, "window_started", 1) or now)
+        return now - started >= LOGIN_WINDOW or attempts < LOGIN_MAX_ATTEMPTS
+
+
+def record_login_attempt(handler: BaseHTTPRequestHandler, username: str, success: bool) -> None:
+    key = rate_limit_key(handler, username)
+    now = int(time.time())
+    with db_connect() as conn:
+        row = conn.execute("SELECT attempts, window_started FROM login_attempts WHERE key=?", (key,)).fetchone()
+        if success or not row or now - int(row_value(row, "window_started", 1) or now) >= LOGIN_WINDOW:
+            conn.execute(
+                """INSERT INTO login_attempts(key, attempts, window_started) VALUES (?, ?, ?)
+                   ON CONFLICT(key) DO UPDATE SET attempts=excluded.attempts, window_started=excluded.window_started""",
+                (key, 0 if success else 1, now),
+            )
+        else:
+            conn.execute("UPDATE login_attempts SET attempts=attempts+1 WHERE key=?", (key,))
+        conn.commit()
+
+
+def totp_valid(secret: str, supplied: str) -> bool:
+    if not secret:
+        return True
+    supplied = "".join(ch for ch in (supplied or "") if ch.isdigit())
+    if len(supplied) != 6:
+        return False
+    try:
+        encoded = secret.replace(" ", "").upper()
+        key = base64.b32decode(encoded + "=" * (-len(encoded) % 8), casefold=True)
+    except (ValueError, base64.binascii.Error):
+        return False
+    counter = int(time.time()) // 30
+    for offset in (-1, 0, 1):
+        msg = (counter + offset).to_bytes(8, "big")
+        digest = hmac.new(key, msg, hashlib.sha1).digest()
+        index = digest[-1] & 15
+        code = (int.from_bytes(digest[index:index + 4], "big") & 0x7fffffff) % 1000000
+        if secrets.compare_digest(f"{code:06d}", supplied):
+            return True
+    return False
+
+
+def oauth_account(provider: str, subject: str, email: str = "", display_name: str = "") -> tuple[str, str]:
+    """Find or create a pending dashboard account for a verified OAuth identity."""
+    subject = str(subject or "").strip()
+    if not subject:
+        raise ValueError("OAuth provider returned no stable subject")
+    with db_connect() as conn:
+        row = conn.execute(
+            """SELECT username, status FROM dashboard_users
+               WHERE oauth_provider=? AND oauth_subject=?""",
+            (provider, subject),
+        ).fetchone()
+        if row:
+            username = row_value(row, "username", 0)
+            status = row_value(row, "status", 1)
+            conn.execute(
+                "UPDATE dashboard_users SET email=COALESCE(?, email), display_name=COALESCE(?, display_name) WHERE username=?",
+                (email or None, display_name or None, username),
+            )
+            conn.commit()
+            return username, status
+        username = f"{provider}_{hashlib.sha256(subject.encode('utf-8')).hexdigest()[:24]}"
+        conn.execute(
+            """INSERT INTO dashboard_users
+               (username, password_hash, status, role, oauth_provider, oauth_subject,
+                email, display_name, created_at)
+               VALUES (?, ?, 'pending', 'user', ?, ?, ?, ?, ?)""",
+            (
+                username, password_hash(secrets.token_urlsafe(32)), provider, subject,
+                email or None, display_name or None, int(time.time()),
+            ),
+        )
+        conn.commit()
+    return username, "pending"
+
+
+def complete_oauth(handler: BaseHTTPRequestHandler, provider: str, subject: str,
+                   email: str = "", display_name: str = "") -> None:
+    username, status = oauth_account(provider, subject, email, display_name)
+    if status != "approved":
+        log_action(f"{provider}:{subject[:80]}", "OAuth account pending approval", username)
+        handler.send_html(auth_page(
+            f"Личность подтверждена ({esc(email or display_name or provider)}), "
+            "но доступ ещё не одобрен владельцем."
+        ))
+        return
+    token = create_session(username, handler)
+    log_action(username, f"OAuth {provider} login success", username)
+    handler.send_response(302)
+    handler.send_header("Location", "/")
+    secure = "; Secure" if OAUTH_BASE_URL.startswith("https://") else ""
+    handler.send_header("Set-Cookie", f"session={token}; HttpOnly; SameSite=Strict{secure}")
+    handler.end_headers()
+
+
 def auth_page(message: str = "") -> str:
     google_link = (f'<a class="button oauth-button google-button" href="/auth/google"><span class="oauth-icon google-icon">G</span><span>Продолжить с Google</span></a>'
                    if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and OAUTH_BASE_URL else
@@ -338,7 +534,7 @@ def auth_page(message: str = "") -> str:
     telegram_link = (f'<div class="telegram-button"><span class="oauth-icon telegram-icon">➤</span><span class="telegram-label">Продолжить с Telegram</span><script async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login="{esc(TELEGRAM_BOT_USERNAME)}" data-size="large" data-auth-url="{esc(oauth_redirect("telegram"))}" data-request-access="write"></script></div>'
                      if TELEGRAM_BOT_USERNAME and TELEGRAM_BOT_TOKEN and OAUTH_BASE_URL else
                      '<span class="oauth-disabled">Telegram Login disabled: set TELEGRAM_BOT_USERNAME, BOT_TOKEN and OAUTH_BASE_URL.</span>')
-    oauth_links = f'<div class="oauth"><div class="oauth-title">Connected sign-in options</div>{google_link}{telegram_link}<p class="hint">OAuth verifies identity only; account linking is not enabled.</p></div>'
+    oauth_links = f'<div class="oauth"><div class="oauth-title">Безопасный вход</div>{google_link}{telegram_link}<p class="hint">Новая учётная запись сначала ожидает одобрения владельца.</p></div>'
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Вход · Podslushka</title><style>
@@ -378,7 +574,9 @@ color:white;font-weight:800;font-size:15px;cursor:pointer;background:linear-grad
 <section class="auth"><h2 id="title">Добро пожаловать</h2><p class="sub" id="subtitle">Войдите, чтобы продолжить работу.</p>
 <div class="error">{esc(message)}</div><div class="tabs"><button class="tab active" data-tab="login">Войти</button><button class="tab" data-tab="register">Регистрация</button></div>
 <form class="form active" id="login" method="post" action="/login"><label class="field">Логин</label><input name="username" placeholder="Введите логин" required autocomplete="username">
-<label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Введите пароль" required autocomplete="current-password"><button type="button" class="toggle">◉</button></div><button class="submit" type="submit">Войти в панель →</button></form>
+<label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Введите пароль" required autocomplete="current-password"><button type="button" class="toggle">◉</button></div>
+<label class="field">Код 2FA <span class="muted">(если включён)</span></label><input name="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="Необязательно">
+<button class="submit" type="submit">Войти в панель →</button></form>
 <form class="form" id="register" method="post" action="/register"><label class="field">Логин</label><input name="username" placeholder="Придумайте логин" required minlength="3" autocomplete="username">
 <label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Минимум 8 символов" required minlength="8" autocomplete="new-password"><button type="button" class="toggle">◉</button></div><button class="submit" type="submit">Создать аккаунт →</button></form>{oauth_links}
 <p class="hint">Доступ только для авторизованных пользователей · заявки подтверждает владелец</p></section></div>
@@ -565,32 +763,32 @@ def page(current_user: str = "", section: str = "overview") -> str:
         for row in user_details
     )
     approval = ""
-    if is_owner(current_user):
-        pending = db_rows("SELECT username, created_at FROM dashboard_users WHERE status='pending' ORDER BY created_at")
-        rows = "".join(
-            f"<tr><td>{esc(row['username'])}</td><td>{datetime.fromtimestamp(row['created_at']).strftime('%d.%m.%Y %H:%M')}</td>"
-            f"<td><form class='inline' method='post' action='/approve'><input type='hidden' name='username' value='{esc(row['username'])}'><button>Одобрить</button></form>"
-            f"<form class='inline' method='post' action='/reject'><input type='hidden' name='username' value='{esc(row['username'])}'><button class='danger'>Отклонить</button></form></td></tr>"
-            for row in pending
-        )
-        owners = db_rows("SELECT username, created_at FROM dashboard_users WHERE role='owner' AND status='approved' ORDER BY username")
-        owner_rows = "".join(
-            f"<tr><td>{esc(row['username'])}</td><td>{datetime.fromtimestamp(row['created_at']).strftime('%d.%m.%Y %H:%M')}</td></tr>"
-            for row in owners
-        )
+    if owner or can_access(current_user, "actions"):
         actions = db_rows("SELECT actor, action, target, created_at FROM dashboard_actions ORDER BY created_at DESC LIMIT 100")
         action_rows = "".join(
             f"<tr><td>{datetime.fromtimestamp(row['created_at']).strftime('%d.%m.%Y %H:%M:%S')}</td><td>{esc(row['actor'])}</td><td>{esc(row['action'])}</td><td>{esc(row['target'])}</td></tr>"
             for row in actions
         )
-        access_section = f"""<section id="access"><h2>Заявки на доступ</h2><div class="table-wrap"><table><tr><th>Логин</th><th>Дата</th><th>Действие</th></tr>{rows or '<tr><td colspan=3>Новых заявок нет</td></tr>'}</table></div></section>"""
-        owners_section = f"""<section id="owners"><h2>Владельцы</h2><form class="owner-form" method="post" action="/add-owner"><input name="username" placeholder="Логин нового владельца" required minlength="3"><input name="password" type="password" placeholder="Пароль нового владельца" required minlength="8"><button>Добавить владельца</button></form><div class="table-wrap"><table><tr><th>Логин</th><th>Добавлен</th></tr>{owner_rows or '<tr><td colspan=2>Дополнительных владельцев нет</td></tr>'}</table></div></section>"""
         actions_section = f"""<section id="actions"><h2>Действия администраторов</h2><div class="table-wrap"><table><tr><th>Время</th><th>Администратор</th><th>Действие</th><th>Объект</th></tr>{action_rows or '<tr><td colspan=4>Действий пока нет</td></tr>'}</table></div></section>"""
-        approval = {
-            "access": access_section,
-            "owners": owners_section,
-            "actions": actions_section,
-        }.get(section, "")
+        approval = actions_section if section == "actions" else ""
+        if owner:
+            pending = db_rows("SELECT username, created_at FROM dashboard_users WHERE status='pending' ORDER BY created_at")
+            rows = "".join(
+                f"<tr><td>{esc(row['username'])}</td><td>{datetime.fromtimestamp(row['created_at']).strftime('%d.%m.%Y %H:%M')}</td>"
+                f"<td><form class='inline' method='post' action='/approve'><input type='hidden' name='username' value='{esc(row['username'])}'><button>Одобрить</button></form>"
+                f"<form class='inline' method='post' action='/reject'><input type='hidden' name='username' value='{esc(row['username'])}'><button class='danger'>Отклонить</button></form></td></tr>"
+                for row in pending
+            )
+            owners = db_rows("SELECT username, created_at FROM dashboard_users WHERE role='owner' AND status='approved' ORDER BY username")
+            owner_rows = "".join(
+                f"<tr><td>{esc(row['username'])}</td><td>{datetime.fromtimestamp(row['created_at']).strftime('%d.%m.%Y %H:%M')}</td></tr>"
+                for row in owners
+            )
+            approval = {
+                "access": f"""<section id="access"><h2>Заявки на доступ</h2><div class="table-wrap"><table><tr><th>Логин</th><th>Дата</th><th>Действие</th></tr>{rows or '<tr><td colspan=3>Новых заявок нет</td></tr>'}</table></div></section>""",
+                "owners": f"""<section id="owners"><h2>Владельцы</h2><form class="owner-form" method="post" action="/add-owner"><input name="username" placeholder="Логин нового владельца" required minlength="3"><input name="password" type="password" placeholder="Пароль нового владельца" required minlength="8"><button>Добавить владельца</button></form><div class="table-wrap"><table><tr><th>Логин</th><th>Добавлен</th></tr>{owner_rows or '<tr><td colspan=2>Дополнительных владельцев нет</td></tr>'}</table></div></section>""",
+                "actions": actions_section,
+            }.get(section, "")
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <title>Podslushka DB</title><style>
@@ -739,10 +937,10 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/logout":
-            token = next((item.split("=", 1)[1] for item in self.headers.get("Cookie", "").split("; ")
-                          if item.startswith("session=")), None)
-            if token:
-                SESSIONS.pop(token, None)
+            actor = auth_user(self)
+            token = destroy_session(self)
+            if actor:
+                log_action(actor, "Logout", "")
             self.send_response(302)
             self.send_header("Location", "/")
             self.send_header("Set-Cookie", "session=; Max-Age=0; HttpOnly; SameSite=Strict")
@@ -753,6 +951,7 @@ class Handler(BaseHTTPRequestHandler):
         # a dashboard account until an explicit account-linking backend exists.
         if path == "/auth/google":
             if not (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and OAUTH_BASE_URL):
+                log_action("anonymous", "OAuth google failed", "disabled")
                 self.send_html(auth_page("Google OAuth is disabled: set the OAuth environment variables."))
                 return
             state = oauth_state("google")
@@ -772,10 +971,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/auth/google/callback":
             query = parse_qs(parsed.query)
             if not consume_oauth_state(query.get("state", [""])[0], "google"):
+                log_action("google:unknown", "OAuth google failed", "invalid_state")
                 self.send_html(auth_page("OAuth state expired or invalid. Start sign-in again."), 400)
                 return
             code = query.get("code", [""])[0]
             if not code:
+                log_action("google:unknown", "OAuth google failed", "missing_code")
                 self.send_html(auth_page("Google did not return an authorization code."), 400)
                 return
             try:
@@ -798,19 +999,33 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 with urllib.request.urlopen(request, timeout=10) as response:
                     identity = json.loads(response.read().decode("utf-8"))
-                email = identity.get("email") or "verified Google account"
-                self.send_html(auth_page(f"Google verified {esc(email)}. Account linking is not enabled; use an approved username and password."))
+                if identity.get("email_verified") is False:
+                    raise ValueError("Google email is not verified")
+                complete_oauth(
+                    self, "google", identity.get("sub"),
+                    identity.get("email", ""), identity.get("name", ""),
+                )
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 logging.warning("Google OAuth failed: %s", exc)
+                log_action("google:unknown", "OAuth google failed", str(exc)[:240])
                 self.send_html(auth_page("Google sign-in failed. Check the callback URL and OAuth keys."), 400)
             return
         if path == "/auth/telegram/callback":
-            if not telegram_login_valid(parse_qs(parsed.query)):
+            query = parse_qs(parsed.query)
+            if not telegram_login_valid(query):
+                log_action("telegram:unknown", "OAuth telegram failed", "invalid_signature")
                 self.send_html(auth_page("Telegram Login is disabled or the signature is invalid."), 400)
                 return
-            query = parse_qs(parsed.query)
+            telegram_id = query.get("id", [""])[0]
             telegram_name = query.get("username", query.get("first_name", ["Telegram user"]))[0]
-            self.send_html(auth_page(f"Telegram verified {esc(telegram_name)}. Automatic access is disabled; use an approved username and password."))
+            try:
+                complete_oauth(
+                    self, "telegram", telegram_id,
+                    query.get("username", [""])[0], telegram_name,
+                )
+            except (ValueError,) + DB_ERRORS as exc:
+                log_action(f"telegram:{telegram_id or 'unknown'}", "OAuth telegram failed", str(exc)[:240])
+                self.send_html(auth_page("Telegram sign-in failed. Try again."), 400)
             return
         if not auth_user(self):
             body = auth_page().encode("utf-8")
@@ -859,6 +1074,7 @@ class Handler(BaseHTTPRequestHandler):
             if not can_access(auth_user(self), "export"):
                 self.send_error(403)
                 return
+            log_action(auth_user(self) or "unknown", "Export users CSV", "users")
             output = io.StringIO()
             writer = csv.writer(output)
             writer.writerow(["user_id", "first_name", "last_name", "username", "language_code",
@@ -897,6 +1113,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
         elif path == "/backup":
+            actor = auth_user(self)
+            if not can_access(actor, "export"):
+                self.send_error(403)
+                return
             if DATABASE_URL:
                 body = (
                     "PostgreSQL is persistent and backed up by the managed database service."
@@ -907,6 +1127,7 @@ class Handler(BaseHTTPRequestHandler):
                 target = backup / f"podslushka_{datetime.now():%Y%m%d_%H%M%S}.db"
                 shutil.copy2(DB_PATH, target)
                 body = f"Резервная копия создана: {target.name}".encode("utf-8")
+            log_action(actor or "unknown", "Backup database", "podslushka")
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
         else:
@@ -924,6 +1145,7 @@ class Handler(BaseHTTPRequestHandler):
             if not SYNC_SECRET or not secrets.compare_digest(
                 self.headers.get("X-Sync-Secret", ""), SYNC_SECRET
             ):
+                log_action("bot-sync", "Sync rejected", self.client_address[0] if self.client_address else "")
                 self.send_error(403)
                 return
             try:
@@ -979,7 +1201,12 @@ class Handler(BaseHTTPRequestHandler):
                         )
                     conn.commit()
                 body = b'{"ok":true}'
+                log_action(
+                    "bot-sync", "Sync completed",
+                    f"users={len(payload.get('users', []))},posts={len(payload.get('posts', []))}",
+                )
             except (ValueError, KeyError, TypeError) + DB_ERRORS:
+                log_action("bot-sync", "Sync failed", "invalid_payload")
                 self.send_error(400, "Invalid sync payload")
                 return
             self.send_response(200)
@@ -991,6 +1218,7 @@ class Handler(BaseHTTPRequestHandler):
         fields = parse_qs(raw_body.decode("utf-8"))
         username = fields.get("username", [""])[0].strip()
         password = fields.get("password", [""])[0]
+        otp = fields.get("otp", [""])[0].strip()
         error = ""
         if path == "/register":
             if len(username) < 3 or len(password) < 8:
@@ -1006,6 +1234,7 @@ class Handler(BaseHTTPRequestHandler):
                 except DB_INTEGRITY_ERRORS:
                     error = "Такой логин уже зарегистрирован."
             if not error:
+                log_action(username, "Register access request", username)
                 body = auth_page("Заявка отправлена. Владелец должен одобрить доступ перед входом.").encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1013,26 +1242,31 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
                 return
+            log_action(username or "anonymous", "Register access failed", username)
         elif path == "/approve":
-            if not is_owner(auth_user(self)):
+            actor = auth_user(self)
+            if not is_owner(actor):
+                log_action(actor or "anonymous", "Approve access denied", username)
                 self.send_error(403)
                 return
             with db_connect() as conn:
                 conn.execute("UPDATE dashboard_users SET status='approved' WHERE username=?", (username,))
                 conn.commit()
-            log_action(auth_user(self) or "owner", "Одобрил доступ", username)
+            log_action(actor or "owner", "Approve access", username)
             self.send_response(302)
             self.send_header("Location", "/")
             self.end_headers()
             return
         elif path == "/reject":
-            if not is_owner(auth_user(self)):
+            actor = auth_user(self)
+            if not is_owner(actor):
+                log_action(actor or "anonymous", "Reject access denied", username)
                 self.send_error(403)
                 return
             with db_connect() as conn:
                 conn.execute("UPDATE dashboard_users SET status='rejected' WHERE username=?", (username,))
                 conn.commit()
-            log_action(auth_user(self) or "owner", "Отклонил доступ", username)
+            log_action(actor or "owner", "Reject access", username)
             self.send_response(302)
             self.send_header("Location", "/")
             self.end_headers()
@@ -1040,6 +1274,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/add-owner":
             actor = auth_user(self)
             if not is_owner(actor):
+                log_action(actor or "anonymous", "Add owner denied", username)
                 self.send_error(403)
                 return
             if len(username) < 3 or len(password) < 8:
@@ -1055,26 +1290,41 @@ class Handler(BaseHTTPRequestHandler):
                     log_action(actor or "owner", "Добавил владельца", username)
                 except DB_INTEGRITY_ERRORS:
                     error = "Такой логин уже существует."
+                    log_action(actor or "owner", "Add owner failed", username)
             if not error:
                 self.send_response(302)
                 self.send_header("Location", "/#owners")
                 self.end_headers()
                 return
         elif path == "/login":
-            with db_connect(readonly=True) as conn:
-                row = conn.execute(
-                    "SELECT password_hash, status FROM dashboard_users WHERE username = ?", (username,)
-                ).fetchone()
-            owner_login = (
-                username == OWNER_USERNAME and OWNER_PASSWORD
-                and secrets.compare_digest(password, OWNER_PASSWORD)
-            )
-            if not owner_login and (
-                not row
-                or row_value(row, "status", 1) != "approved"
-                or not verify_password(password, row_value(row, "password_hash", 0))
-            ):
-                error = "Неверный логин, пароль или доступ ещё не одобрен владельцем."
+            if not login_allowed(self, username):
+                log_action(username or "anonymous", "Login rate limited", username)
+                error = "Слишком много попыток входа. Повторите через 15 минут."
+                row = None
+                owner_login = False
+            else:
+                with db_connect(readonly=True) as conn:
+                    row = conn.execute(
+                        "SELECT password_hash, status, totp_secret FROM dashboard_users WHERE username = ?", (username,)
+                    ).fetchone()
+                owner_login = (
+                    username == OWNER_USERNAME and OWNER_PASSWORD
+                    and secrets.compare_digest(password, OWNER_PASSWORD)
+                )
+                configured_totp = OWNER_2FA_SECRET
+                if row and row_value(row, "totp_secret", 2):
+                    configured_totp = row_value(row, "totp_secret", 2)
+                valid_password = owner_login or (
+                    bool(row)
+                    and row_value(row, "status", 1) == "approved"
+                    and verify_password(password, row_value(row, "password_hash", 0))
+                )
+                if not valid_password or not totp_valid(configured_totp, otp):
+                    record_login_attempt(self, username, False)
+                    log_action(username or "anonymous", "Login failed", username)
+                    error = "Неверный логин, пароль, код 2FA или доступ ещё не одобрен владельцем."
+                else:
+                    record_login_attempt(self, username, True)
         else:
             self.send_error(404)
             return
@@ -1086,12 +1336,11 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        token = secrets.token_urlsafe(32)
-        SESSIONS[token] = username
+        token = create_session(username, self)
         if owner_login:
-            log_action(username, "Вошёл как владелец", "")
+            log_action(username, "Login success (owner)", "")
         else:
-            log_action(username, "Вошёл в панель", "")
+            log_action(username, "Login success", "")
         self.send_response(302)
         self.send_header("Location", "/")
         secure = "; Secure" if OAUTH_BASE_URL.startswith("https://") else ""

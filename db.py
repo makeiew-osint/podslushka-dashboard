@@ -118,6 +118,13 @@ class Database:
                 details TEXT,
                 created_at INTEGER
             )""",
+            """CREATE TABLE IF NOT EXISTS dashboard_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor TEXT NOT NULL,
+                action TEXT NOT NULL,
+                target TEXT,
+                created_at INTEGER NOT NULL
+            )""",
             """CREATE TABLE IF NOT EXISTS votes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 public_id INTEGER NOT NULL,
@@ -170,6 +177,7 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_warns_user ON warns(user_id);",
             "CREATE INDEX IF NOT EXISTS idx_reports_public ON reports(public_id);",
             "CREATE INDEX IF NOT EXISTS idx_comments_public ON comments(public_id);",
+            "CREATE INDEX IF NOT EXISTS idx_dashboard_actions_created ON dashboard_actions(created_at);",
         ]
         for sql in tables:
             await self._execute(sql)
@@ -537,6 +545,14 @@ class Database:
         }
 
     # ── Admin logs ──
+    async def log_dashboard_action(self, actor: str, action: str, target: str = ""):
+        await self._execute(
+            """INSERT INTO dashboard_actions (actor, action, target, created_at)
+               VALUES (?, ?, ?, ?)""",
+            (str(actor)[:160], str(action)[:240], str(target)[:500], int(time.time())),
+        )
+        await self._commit()
+
     async def log_admin_action(self, admin_id: int, action: str, post_id: int | None = None, details: str | None = None):
         now = int(time.time())
         await self._execute("""

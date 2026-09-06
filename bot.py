@@ -55,6 +55,13 @@ async def _lang(user_id: int) -> str:
     return l or "ru"
 
 
+async def _audit(actor: Any, action: str, target: Any = ""):
+    try:
+        await db.log_dashboard_action(str(actor), action, str(target))
+    except Exception:
+        logging.exception("Dashboard action audit failed")
+
+
 class UserState(StatesGroup):
     preview = State()
     editing = State()
@@ -314,6 +321,7 @@ async def _build_message_card(msg: Message, lang: str) -> str:
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     u = message.from_user
+    await _audit(u.id, "Bot /start", "telegram_user")
     await db.upsert_user(
         u.id, u.first_name, u.last_name, u.username,
         u.language_code, bool(u.is_premium)
@@ -328,6 +336,7 @@ async def cmd_start(message: Message, state: FSMContext):
 @dp.callback_query(F.data.startswith("lang:"))
 async def cb_lang(callback: CallbackQuery):
     lang = callback.data.split(":")[1]
+    await _audit(callback.from_user.id, "Bot language change", lang)
     await db.set_ui_lang(callback.from_user.id, lang)
     await callback.message.delete()
     await callback.message.answer(t(lang, "welcome", min_len=cfg.min_text_len))
@@ -341,6 +350,7 @@ async def cmd_language(message: Message):
 @dp.message(Command("my_posts"))
 async def cmd_my_posts(message: Message):
     uid = message.from_user.id
+    await _audit(uid, "Bot my_posts", "")
     lang = await _lang(uid)
     posts = await db.user_posts(uid, limit=20)
     if not posts:
@@ -370,6 +380,7 @@ async def handle_incoming(message: Message, state: FSMContext):
     lang = await _lang(uid)
 
     if await db.is_banned(uid):
+        await _audit(uid, "Bot blocked message (banned)", "message")
         await message.answer(t(lang, "banned"))
         return
 
@@ -379,11 +390,13 @@ async def handle_incoming(message: Message, state: FSMContext):
 
     last = await db.last_post_time(uid)
     if last and (time.time() - last) < cfg.cooldown_seconds:
+        await _audit(uid, "Bot rate limit cooldown", "message")
         wait = int(cfg.cooldown_seconds - (time.time() - last))
         await message.answer(t(lang, "wait", wait=wait))
         return
 
     if await db.posts_last_hour(uid) >= cfg.max_posts_per_hour:
+        await _audit(uid, "Bot rate limit hourly", "message")
         await message.answer(t(lang, "flood", limit=cfg.max_posts_per_hour))
         return
 
@@ -394,6 +407,7 @@ async def handle_incoming(message: Message, state: FSMContext):
 
     bad = await db.check_banned_words(txt)
     if bad:
+        await _audit(uid, "Bot banned words rejected", ",".join(bad))
         await message.answer(t(lang, "banned_words", words=", ".join(bad)))
         return
 
@@ -414,6 +428,7 @@ async def handle_incoming(message: Message, state: FSMContext):
         file_id = message.animation.file_id
 
     if await db.find_duplicate(uid, txt, file_id):
+        await _audit(uid, "Bot duplicate rejected", "message")
         await message.answer(t(lang, "duplicate"))
         return
 
@@ -453,6 +468,7 @@ async def _mg_timeout(mgid: str):
         await db.add_media_group_item(post_id, it["kind"], it["file_id"], it["caption"])
 
     await _notify_admins(post_id, msg, is_media_group=True, items=data['items'])
+    await _audit(uid, "Bot post submitted", post_id)
     await msg.answer(t(lang, "sent"))
 
 
@@ -523,6 +539,7 @@ async def cb_preview_send(callback: CallbackQuery, state: FSMContext):
     kind = data.get("preview_kind")
 
     post_id = await db.add_post(user_id=uid, kind=kind or "text", text=text, file_id=file_id)
+    await _audit(uid, "Bot post submitted", post_id)
     await state.clear()
     await callback.message.delete()
     await callback.message.answer(t(lang, "sent"))
@@ -701,6 +718,7 @@ async def cb_approve(callback: CallbackQuery):
             await db.set_channel_message_id(post_id, msg.message_id)
 
         await db.log_admin_action(admin_id, "approve", post_id)
+        await _audit(admin_id, "Bot approve", post_id)
         await callback.answer(t(lang, "admin_approve_ok"))
 
         old_text = callback.message.text or callback.message.caption or ""
@@ -752,6 +770,7 @@ async def st_reject_reason(message: Message, state: FSMContext):
     if post:
         await db.reject(post_id, reason, message.from_user.id)
         await db.log_admin_action(message.from_user.id, "reject", post_id, reason)
+        await _audit(message.from_user.id, "Bot reject", f"{post_id}:{reason or ''}")
         try:
             ul = await db.get_ui_lang(post["user_id"]) or "ru"
             if reason:
@@ -788,6 +807,7 @@ async def st_ban_reason(message: Message, state: FSMContext):
     reason = message.text if message.text != "/skip" else "No reason"
     await db.ban(user_id, reason)
     await db.log_admin_action(message.from_user.id, "ban", post_id, reason)
+    await _audit(message.from_user.id, "Bot ban", user_id)
     await state.clear()
     lang = await _lang(message.from_user.id)
     await message.answer(t(lang, "admin_banned_ok", user_id=user_id, reason=reason))
@@ -805,10 +825,12 @@ async def cb_warn(callback: CallbackQuery):
     user_id = int(parts[3])
     await db.add_warn(user_id, t(lang, "admin_warn"), post_id, admin_id)
     await db.log_admin_action(admin_id, "warn", post_id)
+    await _audit(admin_id, "Bot warn", user_id)
     count = await db.count_warns(user_id)
     await callback.answer(t(lang, "admin_warn_ok", count=count))
     if count >= 3:
         await db.ban(user_id, "Auto-ban for 3 warns")
+        await _audit(admin_id, "Bot auto-ban", user_id)
         await callback.message.answer(t(lang, "admin_auto_ban", user_id=user_id))
 
 
@@ -819,6 +841,7 @@ async def cb_queue(callback: CallbackQuery):
     if admin_id not in cfg.admin_ids:
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
+    await _audit(admin_id, "Bot queue viewed", "")
     pending = await db.list_pending()
     if not pending:
         await callback.message.answer(t(lang, "admin_queue_empty"))
@@ -839,6 +862,7 @@ async def cb_stats(callback: CallbackQuery):
     if admin_id not in cfg.admin_ids:
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
+    await _audit(admin_id, "Bot stats viewed", "")
     s = await db.stats()
     text = t(lang, "admin_stats_title") + chr(10) + chr(10)
     text += t(lang, "admin_users", count=s["users"]) + chr(10)
@@ -862,6 +886,7 @@ async def cmd_queue(message: Message):
     lang = await _lang(admin_id)
     if admin_id not in cfg.admin_ids:
         return
+    await _audit(admin_id, "Bot queue viewed", "")
     pending = await db.list_pending()
     if not pending:
         await message.answer(t(lang, "admin_queue_empty"))
@@ -880,6 +905,7 @@ async def cmd_stats(message: Message):
     lang = await _lang(admin_id)
     if admin_id not in cfg.admin_ids:
         return
+    await _audit(admin_id, "Bot stats viewed", "")
     s = await db.stats()
     text = t(lang, "admin_stats_title") + chr(10) + chr(10)
     text += t(lang, "admin_users", count=s["users"]) + chr(10)
@@ -909,6 +935,7 @@ async def cmd_ban(message: Message, command: CommandObject):
     user_id = int(args[0])
     reason = args[1] if len(args) > 1 else ""
     await db.ban(user_id, reason)
+    await _audit(admin_id, "Bot ban", user_id)
     await message.answer(t(lang, "admin_banned_ok", user_id=user_id, reason=reason))
 
 
@@ -922,6 +949,7 @@ async def cmd_unban(message: Message, command: CommandObject):
         return
     user_id = int(command.args.strip())
     if await db.unban(user_id):
+        await _audit(admin_id, "Bot unban", user_id)
         await message.answer(f"User {user_id} unbanned.")
     else:
         await message.answer("User was not banned.")
@@ -940,6 +968,7 @@ async def cmd_warn(message: Message, command: CommandObject):
     user_id = int(args[0])
     reason = args[1] if len(args) > 1 else ""
     await db.add_warn(user_id, reason, admin_id=admin_id)
+    await _audit(admin_id, "Bot warn", user_id)
     count = await db.count_warns(user_id)
     await message.answer(t(lang, "admin_warn_ok", count=count))
     if count >= 3:
@@ -956,6 +985,7 @@ async def cmd_addword(message: Message, command: CommandObject):
         return
     word = command.args.strip().lower()
     if await db.add_banned_word(word):
+        await _audit(admin_id, "Bot add banned word", word)
         await message.answer(f"Word '{word}' added to ban-list.")
     else:
         await message.answer("Word already exists.")
@@ -970,6 +1000,7 @@ async def cmd_delword(message: Message, command: CommandObject):
         return
     word = command.args.strip().lower()
     await db.remove_banned_word(word)
+    await _audit(admin_id, "Bot remove banned word", word)
     await message.answer(f"Word '{word}' removed from ban-list.")
 
 
@@ -992,6 +1023,7 @@ async def cmd_broadcast(message: Message, command: CommandObject):
         await message.answer("Usage: /broadcast <text>")
         return
     await bot.send_message(cfg.channel_id, command.args)
+    await _audit(message.from_user.id, "Bot broadcast", cfg.channel_id)
     await message.answer("Sent to channel.")
 
 
@@ -1012,6 +1044,7 @@ async def st_comment(message: Message, state: FSMContext):
     data = await state.get_data()
     public_id = data.get("comment_public_id")
     await db.add_comment(public_id, message.from_user.id, message.text)
+    await _audit(message.from_user.id, "Bot comment", public_id)
     await state.clear()
     lang = await _lang(message.from_user.id)
     await message.answer(t(lang, "comment_sent"))
@@ -1034,6 +1067,7 @@ async def st_report(message: Message, state: FSMContext):
     data = await state.get_data()
     public_id = data.get("report_public_id")
     await db.add_report(public_id, message.from_user.id, message.text)
+    await _audit(message.from_user.id, "Bot report", public_id)
     await state.clear()
     lang = await _lang(message.from_user.id)
     await message.answer(t(lang, "report_sent"))
