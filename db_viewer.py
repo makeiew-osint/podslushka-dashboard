@@ -69,6 +69,7 @@ ROLE_PERMISSIONS = {
 }
 BOT_STATUS = {"state": "disabled", "error": ""}
 BOT_PROCESS = None
+BOT_RESTART_LOCK = threading.Lock()
 
 
 def adapt_sql(query: str) -> str:
@@ -122,18 +123,40 @@ def start_embedded_bot() -> None:
     global BOT_PROCESS
     if os.getenv("RUN_BOT_IN_WEB", "").lower() not in {"1", "true", "yes"}:
         return
-    BOT_STATUS["state"] = "starting"
-    try:
-        BOT_PROCESS = subprocess.Popen(
-            [sys.executable, str(ROOT / "bot.py")],
-            cwd=str(ROOT),
-            env=os.environ.copy(),
-        )
-        BOT_STATUS["state"] = "running"
-    except OSError as exc:
-        BOT_STATUS["state"] = "error"
-        BOT_STATUS["error"] = str(exc)[-500:]
-        logging.exception("Embedded Telegram bot failed to start")
+    def supervise() -> None:
+        global BOT_PROCESS
+        while True:
+            with BOT_RESTART_LOCK:
+                BOT_STATUS["state"] = "starting"
+                try:
+                    BOT_PROCESS = subprocess.Popen(
+                        [sys.executable, "-u", str(ROOT / "bot.py")],
+                        cwd=str(ROOT),
+                        env=os.environ.copy(),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                    )
+                    BOT_STATUS["state"] = "running"
+                except OSError as exc:
+                    BOT_STATUS["state"] = "error"
+                    BOT_STATUS["error"] = str(exc)[-500:]
+                    logging.exception("Embedded Telegram bot failed to start")
+                    time.sleep(10)
+                    continue
+            assert BOT_PROCESS.stdout is not None
+            for line in BOT_PROCESS.stdout:
+                message = line.strip()
+                if message:
+                    BOT_STATUS["error"] = message[-500:]
+                    logging.info("Telegram bot: %s", message)
+            exit_code = BOT_PROCESS.wait()
+            BOT_STATUS["state"] = "error"
+            BOT_STATUS["error"] = f"Бот остановился (код {exit_code}). Последняя строка: {BOT_STATUS['error']}"
+            time.sleep(5)
+
+    threading.Thread(target=supervise, name="telegram-bot-supervisor", daemon=True).start()
 
 
 def esc(value) -> str:
