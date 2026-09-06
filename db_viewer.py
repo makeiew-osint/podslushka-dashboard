@@ -287,7 +287,7 @@ def telegram_login_valid(query: dict[str, list[str]]) -> bool:
     return auth_date > int(time.time()) - 86400 and secrets.compare_digest(supplied, expected)
 
 
-def init_auth() -> None:
+def _init_auth_once() -> None:
     with db_connect() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS dashboard_users (
@@ -397,6 +397,30 @@ def init_auth() -> None:
                     f"ALTER TABLE {table} ALTER COLUMN {column} TYPE BIGINT"
                 )
         conn.commit()
+
+
+def init_auth() -> None:
+    """Wait for a managed PostgreSQL slot during Render rolling deploys."""
+    if not DATABASE_URL:
+        _init_auth_once()
+        return
+    delay = 2
+    last_error = None
+    for attempt in range(30):
+        try:
+            _init_auth_once()
+            return
+        except Exception as exc:
+            last_error = exc
+            logging.warning(
+                "PostgreSQL is temporarily unavailable during startup "
+                "(attempt %s/30): %s",
+                attempt + 1,
+                exc,
+            )
+            time.sleep(delay)
+            delay = min(delay + 2, 15)
+    raise RuntimeError("PostgreSQL did not release a connection slot during startup") from last_error
 
 
 def password_hash(password: str, salt: bytes | None = None) -> str:
