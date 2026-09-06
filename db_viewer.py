@@ -49,7 +49,7 @@ SYNC_SECRET = os.getenv("DASHBOARD_SYNC_SECRET", "")
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
 TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview").strip() or "gemini-3-flash-preview"
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
 NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-v4-pro-0813").strip() or "deepseek-ai/deepseek-v4-pro-0813"
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
@@ -603,11 +603,10 @@ def request_gemini_analysis(text: str) -> dict:
             UnicodeDecodeError, json.JSONDecodeError, AttributeError, TypeError) as exc:
         logging.warning("Gemini model discovery failed: %s", type(exc).__name__)
     preferred = [
+        "gemini-3-flash-preview",
         GEMINI_MODEL,
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3.1-pro-preview",
     ]
     models = list(dict.fromkeys(
         [model for model in preferred if model in models] + models
@@ -1753,9 +1752,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             log_action(actor, "AI analysis request", target)
-            if not NVIDIA_API_KEY:
+            if not GEMINI_API_KEY:
                 log_action(actor, "AI analysis error", f"{target}:configuration")
-                send_ai_json({"error": "ИИ-анализ временно недоступен: не настроен NVIDIA_API_KEY."}, 503)
+                send_ai_json({"error": "ИИ-анализ временно недоступен: не настроен GEMINI_API_KEY."}, 503)
                 return
 
             with AI_ANALYSIS_LOCK:
@@ -1786,7 +1785,7 @@ class Handler(BaseHTTPRequestHandler):
                     send_ai_json({"ok": True, "analysis": cached})
                     return
                 try:
-                    analysis = request_nvidia_analysis(text)
+                    analysis = request_gemini_analysis(text)
                 except TimeoutError:
                     log_action(actor, "AI analysis error", f"{target}:timeout")
                     send_ai_json({"error": "Сервис ИИ не ответил вовремя."}, 504)
