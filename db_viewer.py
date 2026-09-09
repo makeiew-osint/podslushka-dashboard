@@ -437,7 +437,12 @@ def scalar(query: str, params=()):
 
 
 def row_value(row, key: str, index: int = 0):
-    return row[key] if isinstance(row, dict) else row[index]
+    if isinstance(row, dict):
+        return row.get(key)
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return row[index]
 
 
 def table_columns(table: str) -> set[str]:
