@@ -1362,6 +1362,36 @@ border-radius:99px;background:#304664;color:#d7e8ff}}@media(max-width:700px){{bo
 </div></section></main></body></html>"""
 
 
+def profile_page(current_user: str) -> str:
+    role = dashboard_role(current_user)
+    if not current_user or not role:
+        return auth_page("Сессия истекла. Войдите снова.")
+    account = db_rows(
+        "SELECT username, role, status, email, display_name, created_at "
+        "FROM dashboard_users WHERE username=?",
+        (current_user,),
+    )
+    row = account[0] if account else {
+        "username": current_user, "role": role, "status": "approved",
+        "email": "", "display_name": "", "created_at": int(time.time()),
+    }
+    bots = managed_bot_rows(current_user)
+    bot_cards = "".join(
+        f"<div class='profile-bot'><b>{esc(bot['name'])}</b><span>{esc(bot['project_name'])} · {esc(bot['school_city'])}</span>"
+        f"<small>Канал: {esc(bot['channel_id'] or '—')} · Worker: {esc(bot['state'] or 'stopped')}</small></div>"
+        for bot in bots
+    ) or "<p class='muted'>Подключённых ботов пока нет.</p>"
+    return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Профиль · Podslushka DB</title>
+<style>
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;padding:28px;background:radial-gradient(circle at 20% 0,#286dff44,transparent 30%),#080d1d;color:#f3f7ff;font:15px Segoe UI,Arial,sans-serif}}main{{max-width:980px;margin:auto}}a,button{{display:inline-block;color:#fff;text-decoration:none;border:0;border-radius:11px;padding:11px 15px;font-weight:700;background:linear-gradient(135deg,#2686ff,#735cf3);box-shadow:5px 6px 0 #0b1733;cursor:pointer}}.profile-head{{display:flex;align-items:center;gap:18px;margin:28px 0}}.avatar{{width:82px;height:82px;display:grid;place-items:center;border-radius:25px;background:linear-gradient(145deg,#2a8cff,#6958ef);font-size:36px;box-shadow:9px 10px 0 #0a1630,0 0 35px #2787ff88;animation:float 4s ease-in-out infinite}}section{{margin-top:18px;padding:22px;border:1px solid #314a7e;border-radius:18px;background:linear-gradient(145deg,#15264a,#101a34);box-shadow:9px 10px 0 #060b18,0 20px 45px #0006;animation:rise .5s both}}.metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}.metric{{padding:15px;border:1px solid #38558e;border-radius:13px;background:#1b2d52}}.metric small,.profile-bot span,.profile-bot small{{display:block;color:#a9bddf}}.metric b{{display:block;font-size:22px;margin-top:7px}}.profile-bot{{display:grid;gap:5px;padding:15px;margin-top:10px;border:1px solid #355489;border-radius:13px;background:#132343}}@keyframes float{{50%{{transform:translateY(-7px) rotate(2deg)}}}}@keyframes rise{{from{{opacity:0;transform:translateY(14px)}}to{{opacity:1;transform:none}}}}@media(max-width:700px){{body{{padding:16px}}.metrics{{grid-template-columns:1fr 1fr}}}}
+</style></head><body><main><a href="/">← В панель</a><div class="profile-head"><div class="avatar">◈</div><div><h1>{esc(row['display_name'] or row['username'])}</h1><p class="muted">{esc(row['username'])} · роль: {esc(row['role'])}</p></div></div>
+<section><h2>Профиль доступа</h2><div class="metrics"><div class="metric"><small>Логин</small><b>{esc(row['username'])}</b></div><div class="metric"><small>Роль</small><b>{esc(row['role'])}</b></div><div class="metric"><small>Статус</small><b>{esc(row['status'])}</b></div><div class="metric"><small>Ботов доступно</small><b>{len(bots)}</b></div></div></section>
+<section><h2>Мои боты</h2>{bot_cards}</section>
+<section><h2>Безопасность</h2><p class="muted">Токены ботов не отображаются. Они хранятся зашифрованными и передаются worker-процессу только во время запуска.</p></section>
+</main></body></html>"""
+
+
 def page(current_user: str = "", section: str = "overview", history_post_id: str = "", selected_bot_id: str = "") -> str:
     role = dashboard_role(current_user)
     owner = role == "owner"
@@ -1516,6 +1546,28 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
                FROM posts p LEFT JOIN users u ON u.user_id=p.user_id
                WHERE p.bot_id=? ORDER BY p.created_at DESC LIMIT 50""",
             (bot_filter,),
+        )
+        user_rows = "".join(
+            "<tr class=\"user-row\">"
+            f"<td><a class=\"button-link\" href=\"/user?id={esc(row['user_id'])}\"><code>{esc(row['user_id'])}</code></a></td>"
+            f"<td>{esc(row['first_name'])} {esc(row['last_name'])}</td>"
+            f"<td>{('@' + row['username']) if row['username'] else '—'}</td>"
+            f"<td>{esc(row['ui_lang'] or row['language_code'])}</td>"
+            f"<td>{esc(row['posts_count'])}</td>"
+            f"<td>{datetime.fromtimestamp(row['last_seen']).strftime('%d.%m.%Y %H:%M') if row['last_seen'] else '—'}</td>"
+            "</tr>"
+            for row in users
+        )
+        post_rows = "".join(
+            f"<tr class=\"post-row\" data-status=\"{esc(row['status'])}\" data-kind=\"{esc(row['kind'])}\">"
+            f"<td>#{esc(row['id'])}</td><td><code>{esc(row['user_id'])}</code></td>"
+            f"<td>{esc(row['first_name'])} {('@' + row['username']) if row['username'] else ''}</td>"
+            f"<td>{esc(row['kind'])}</td><td><span class=\"status\">{esc(row['status'])}</span></td>"
+            f"<td>{esc((row['text'] or '')[:100])}</td>"
+            f"<td><button type=\"button\" class=\"ai-analysis-button\" data-post-id=\"{esc(row['id'])}\">"
+            f"{'ИИ-анализ ✓' if row['ai_analysis'] else 'ИИ-анализ'}</button></td>"
+            "</tr>"
+            for row in posts
         )
     bot_switcher = (
         "<div class='bot-switcher'><span>Активный бот</span>"
@@ -1682,7 +1734,7 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 <a class="{'active' if section == 'user-search' else ''}" href="/?view=user-search"><span class="icon">⌕</span>Поиск пользователей</a>
 {('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Боты</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else ('<a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Мой бот</a>' if can_access(current_user, 'bots') else ''))}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
-<main class="content"><div class="topbar"><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div><div class="topbar-actions"><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
+<main class="content"><div class="topbar"><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div><div class="topbar-actions"><a class="button-link" href="/profile">◉ Профиль</a><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
 {('<section id="overview"><div class="cards">' + cards + '</div><div class="insights"><section class="insight-card chart-card"><div class="insight-head"><div><b>Активность за 7 дней</b><span class="muted">Заявки по дням</span></div><span class="live-pill"><i></i> live</span></div><div class="chart">' + chart_bars + '</div></section><section class="insight-card"><div class="insight-head"><div><b>Центр событий</b><span class="muted">Последние изменения</span></div><a class="text-link" href="/?view=actions">Все события →</a></div><ul class="event-list">' + notification_rows + '</ul></section></div></section>' if section == 'overview' else '')}
 {('<div class="toolbar"><input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off"><select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select><select id="kind"><option value="">Все типы</option><option value="text">Текст</option><option value="photo">Фото</option><option value="video">Видео</option><option value="media_group">Медиагруппа</option></select><div class="filter-tabs"><button type="button" class="filter-tab active" data-status="">Все</button><button type="button" class="filter-tab" data-status="pending">На модерации</button><button type="button" class="filter-tab" data-status="published">Опубликовано</button></div><button type="button" onclick="refreshPage()">↻ Обновить</button><a class="button-link" href="/backup">↓ Резервная копия</a></div>' if section == 'overview' else '')}
 {('<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_rows + '</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section><section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>' if section == 'overview' else '')}
@@ -1938,6 +1990,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/")
             self.send_header("Set-Cookie", "session=; Max-Age=0; HttpOnly; SameSite=Strict")
             self.end_headers()
+            return
+        if path == "/profile":
+            actor = auth_user(self)
+            if not actor:
+                self.send_html(auth_page("Сначала войдите в панель."), 401)
+                return
+            self.send_html(profile_page(actor))
             return
         # OAuth endpoints are deliberately available before a dashboard session.
         # A verified identity is shown to the user, but is not silently converted into
