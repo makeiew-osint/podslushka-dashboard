@@ -1619,6 +1619,35 @@ background:#0c1729;color:#fff;outline:none;font-size:15px;transition:.2s}}input:
 @keyframes loginEnter{{from{{opacity:0;transform:rotateX(9deg) translateY(28px) scale(.96)}}to{{opacity:1;transform:rotateX(1deg) translateY(0) scale(1)}}}}@keyframes loginSweep{{0%,55%{{transform:translateX(-120%)}}78%,100%{{transform:translateX(120%)}}}}@keyframes loginOrb{{50%{{transform:translate3d(-20px,-18px,20px) scale(1.12)}}}}@keyframes loginOrbitLeft{{to{{transform:rotateX(66deg) rotateZ(336deg)}}}}@keyframes loginCube{{to{{transform:rotateX(360deg) rotateY(360deg) rotateZ(180deg)}}}}.auth:after{{content:"";position:absolute;width:82px;height:82px;right:28px;bottom:24px;border:1px solid #58a6ff66;border-radius:22px;transform:rotate(35deg);animation:loginCube 14s linear infinite;pointer-events:none}}.auth{{position:relative;overflow:hidden}}.auth input,.auth .submit,.oauth-button,.telegram-button{{transform-style:preserve-3d}}.auth input:hover{{transform:translateY(-2px) translateZ(5px)}}.auth h2{{text-shadow:0 4px 18px #58a6ff66}}@media(max-width:700px){{.shell{{grid-template-columns:1fr;max-width:460px}}.intro{{padding:30px}}.intro h1{{margin:28px 0 12px;font-size:29px}}.features{{display:none}}.auth{{padding:30px}}.auth-mark{{display:block;margin-bottom:16px}}.auth-mark img{{width:46px;height:46px;object-fit:cover;border-radius:12px;box-shadow:0 0 0 1px #58a6ff66}}}}
 @media(min-width:701px){{body{{padding:32px 20px;background:#0d1117}}.shell{{display:block;width:min(430px,100%);border:0;border-radius:6px;background:transparent;box-shadow:none;transform:none;overflow:visible}}.shell:before,.intro{{display:none}}.auth{{padding:0;background:transparent;box-shadow:none;transform:none;overflow:visible}}.auth-mark{{display:grid;place-items:center;margin:0 auto 18px}}.auth-mark img{{width:64px;height:64px;object-fit:cover;border-radius:16px;box-shadow:0 0 0 1px #30363d,0 10px 24px #010409aa}}.auth h2{{margin:0 0 8px;text-align:center;font-size:25px;font-weight:400;text-shadow:none}}.sub{{margin:0 0 18px;text-align:center}}.tabs{{display:grid;margin:0;border:1px solid #30363d;border-bottom:0;border-radius:6px 6px 0 0;background:#161b22;padding:5px 5px 0}}.tab{{border-radius:6px 6px 0 0;box-shadow:none}}.tab.active{{background:#0d1117;border:1px solid #30363d;border-bottom-color:#0d1117;transform:none}}.form.active{{display:block;padding:20px 22px;border:1px solid #30363d;background:#161b22;border-radius:0 0 6px 6px;box-shadow:0 8px 24px #01040955}}.form input{{margin-bottom:16px;padding:10px 12px;border-radius:6px;background:#0d1117}}.form input:focus{{box-shadow:0 0 0 3px #1f6feb55;transform:none}}.submit{{margin-top:2px;padding:10px;border-radius:6px;box-shadow:0 2px 0 #196c2e}}.oauth-button,.telegram-button{{min-height:38px;border-radius:6px;box-shadow:none}}}}
 @media(min-width:701px){{.shell{{width:min(560px,100%)}}.auth{{filter:drop-shadow(0 18px 38px #01040955)}}.auth-mark{{margin-bottom:20px}}.auth-mark img{{width:84px;height:84px;border-radius:20px}}.auth-mark:after{{content:"Podslushka DB";display:block;margin-top:10px;color:#f0f6fc;font-size:14px;font-weight:700;letter-spacing:.2px}}.auth h2{{font-size:30px;font-weight:500;letter-spacing:-.4px;margin-top:8px}}.sub{{font-size:15px;margin-bottom:26px}}.tabs{{padding:6px 6px 0}}.tab{{padding:13px;font-size:14px}}.form.active{{padding:28px 32px}}.field{{margin-top:17px;font-size:14px}}.form input{{padding:13px 14px;font-size:15px}}.submit{{margin-top:7px;padding:13px;font-size:15px}}.oauth{{margin-top:30px;padding-top:24px;gap:12px}}.oauth-title{{font-size:13px}}.oauth-button,.telegram-button{{min-height:46px;font-size:14px}}.hint{{font-size:13px;line-height:1.5}}}}
+</style>
+<style>
+/* Welcome surface: keep the existing forms, give the entry point a stronger product identity. */
+@media(min-width:701px){{
+  body{{background:radial-gradient(circle at 12% 18%,#315dff55,transparent 32%),radial-gradient(circle at 86% 80%,#12d6bd2b,transparent 30%),#070b16!important}}
+  .shell{{display:grid!important;grid-template-columns:minmax(280px,.92fr) minmax(390px,1.08fr)!important;width:min(980px,100%)!important;min-height:610px;border:1px solid #4c6ca8!important;border-radius:28px!important;background:#0f1930e8!important;box-shadow:0 30px 90px #020611cc,0 0 0 1px #6d8cff22!important;transform:none!important}}
+  .intro{{display:flex!important;flex-direction:column;justify-content:space-between;padding:44px!important;background:linear-gradient(155deg,#152c5b,#11182e 68%,#102f42)!important}}
+  .intro h1{{margin:70px 0 18px!important;font-size:46px!important;letter-spacing:-2px!important}}
+  .intro p{{font-size:16px;max-width:360px}}
+  .features{{margin-top:auto!important;padding-top:35px}}
+  .feature{{padding:11px 0;border-bottom:1px solid #ffffff18}}
+  .auth{{display:flex;flex-direction:column;justify-content:center;padding:48px!important;background:#0b1222f2!important}}
+  .auth h2{{font-size:34px!important;font-weight:750!important;letter-spacing:-1px!important}}
+  .auth .sub{{font-size:15px}}
+  .tabs{{margin-top:10px!important;border:1px solid #344d77!important;border-radius:12px!important;background:#101d35!important;padding:5px!important}}
+  .tab{{padding:12px!important}}
+  .tab.active{{background:#2d4f88!important;border:0!important;color:#fff!important}}
+  .form.active{{padding:22px 0 0!important;border:0!important;background:transparent!important;box-shadow:none!important}}
+  .form input{{background:#0e1a31!important;border:1px solid #39547f!important;border-radius:11px!important}}
+  .submit{{border:0!important;border-radius:11px!important;background:linear-gradient(135deg,#388bff,#6a5cf5)!important;box-shadow:0 8px 18px #477eff3d!important}}
+  .oauth{{margin-top:28px!important;padding-top:22px!important}}
+}}
+.auth-mark img{{transition:transform .25s,box-shadow .25s}}
+.auth-mark img:hover{{transform:rotate(-4deg) scale(1.06);box-shadow:0 0 0 1px #74a7ff,0 14px 35px #377dff66}}
+.setup-card-icon{{width:38px;height:38px;display:grid;place-items:center;margin-bottom:10px;border-radius:12px;background:linear-gradient(135deg,#2f8cff,#765cf5);color:#fff;font-size:20px;box-shadow:0 8px 18px #347cff33}}
+.project-create-card{{position:relative;overflow:hidden}}
+.project-create-card:after{{content:"";position:absolute;width:150px;height:150px;right:-45px;top:-55px;border:1px solid #79b5ff55;border-radius:50%;box-shadow:0 0 35px #318dff33;pointer-events:none}}
+.project-create-card h3{{font-size:18px;margin:0 0 7px}}
+.project-create-card p{{max-width:330px;line-height:1.5}}
 </style></head><body><div class="shell">
 <section class="intro"><div class="brand"><img class="brand-logo" src="/assets/podslushka-logo.png" alt="Podslushka DB"><span>Podslushka DB</span></div>
 <h1>Ваша панель<br>под контролем.</h1><p>Управляйте заявками, пользователями и модерацией в одном защищённом рабочем пространстве.</p>
@@ -2328,6 +2357,14 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         f"<option value='{esc(row['id'])}'>{esc(row['name'])} · {esc(row['school_city'])}</option>"
         for row in projects
     )
+    project_create_card = (
+        "<form class='setup-card project-create-card' method='post' action='/project/create'>"
+        "<div class='setup-card-icon'>✦</div><h3>Создать свой проект</h3>"
+        "<p class='muted'>Создайте отдельное пространство для своей команды и подключите к нему ботов.</p>"
+        "<input name='name' placeholder='Название проекта' required maxlength='120'>"
+        "<input name='school_city' placeholder='Школа, город или описание' required maxlength='160'>"
+        "<button type='submit'>Создать проект и получить токен →</button></form>"
+    ) if current_user else ""
     join_request_html = "".join(
         f"<tr><td>{esc(row['project_name'])}</td><td>{esc(row['username'])}</td><td>{esc(row['telegram_id'])}</td>"
         f"<td>{fmt_time(row['created_at'], True)}</td><td><form class='inline' method='post' action='/project/join/approve'>"
@@ -2406,7 +2443,7 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         f"""<section id="bots" class="bots-panel"><div class="section-head"><div><h2>Подключённые боты</h2>
         <p class="muted">Токены скрыты и хранятся зашифрованными. Доступ ограничен проектом и ролью.</p></div>
         </div>
-        {'<div class="bot-stage"><div class="bot-stage-glow"></div><div class="bot-model"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="bot-stage-label">secure bot workspace</span></div><div class="setup-grid"><form class="setup-card" method="post" action="/project/create"><h3>Новый проект</h3><input name="name" placeholder="Название проекта" required><input name="school_city" placeholder="Школа / город" required><button>Создать проект</button></form><form class="setup-card" method="post" action="/bot/create"><h3>Подключить бота</h3><select name="project_id" required><option value="">Выберите проект</option>' + project_options + '</select><input name="name" placeholder="Название бота" required><label class="field-help"><input name="token" type="password" placeholder="Токен бота" minlength="20" required><button type="button" class="help-button" data-help="Откройте @BotFather в Telegram, выполните /newbot и вставьте выданный токен." aria-label="Как получить токен">?</button></label><label class="field-help"><input name="telegram_admin_id" inputmode="numeric" placeholder="Ваш Telegram ID" required><button type="button" class="help-button" data-help="Напишите @userinfobot в Telegram — он покажет ваш числовой ID." aria-label="Как узнать Telegram ID">?</button></label><label class="field-help"><input name="channel_id" placeholder="@канал или -100..." required><button type="button" class="help-button" data-help="Добавьте бота администратором канала и укажите @username или числовой ID -100..." aria-label="Как узнать ID канала">?</button></label><label class="ai-toggle"><input type="checkbox" name="ai_auto_publish"> ИИ-автопубликация</label><button>Зашифровать и подключить</button></form></div>' if owner else ''}
+        {'<div class="bot-stage"><div class="bot-stage-glow"></div><div class="bot-model"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="bot-stage-label">secure bot workspace</span></div><div class="setup-grid">' + project_create_card + ('<form class="setup-card" method="post" action="/bot/create"><div class="setup-card-icon">◈</div><h3>Подключить бота</h3><select name="project_id" required><option value="">Выберите проект</option>' + project_options + '</select><input name="name" placeholder="Название бота" required><label class="field-help"><input name="token" type="password" placeholder="Токен бота" minlength="20" required><button type="button" class="help-button" data-help="Откройте @BotFather в Telegram, выполните /newbot и вставьте выданный токен." aria-label="Как получить токен">?</button></label><label class="field-help"><input name="telegram_admin_id" inputmode="numeric" placeholder="Ваш Telegram ID" required><button type="button" class="help-button" data-help="Напишите @userinfobot в Telegram — он покажет ваш числовой ID." aria-label="Как узнать Telegram ID">?</button></label><label class="field-help"><input name="channel_id" placeholder="@канал или -100..." required><button type="button" class="help-button" data-help="Добавьте бота администратором канала и укажите @username или числовой ID -100..." aria-label="Как узнать ID канала">?</button></label><label class="ai-toggle"><input type="checkbox" name="ai_auto_publish"> ИИ-автопубликация</label><button>Зашифровать и подключить</button></form>' if owner else '') + '</div>'}
         {bot_status_center}<div class="table-wrap"><table><tr><th>Бот / проект</th><th>Username</th><th>Канал</th>
         <th>Состояние</th><th>Worker</th><th>ИИ-автопубликация</th><th></th></tr>
         {bot_table_html or '<tr><td colspan=7>Ботов пока нет или у вас нет доступа.</td></tr>'}</table></div>
@@ -3892,7 +3929,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if path == "/project/create":
-            if not is_owner(actor):
+            if not actor or not dashboard_role(actor):
                 self.send_error(403)
                 return
             name = fields.get("name", [""])[0].strip()
@@ -3902,11 +3939,18 @@ class Handler(BaseHTTPRequestHandler):
                 return
             join_token = secrets.token_urlsafe(18)
             with db_connect() as conn:
-                conn.execute(
+                cursor = conn.execute(
                     """INSERT INTO projects
                        (name, school_city, owner_username, join_token_hash, created_at)
                        VALUES (?, ?, ?, ?, ?)""",
                     (name, school_city, actor, project_join_hash(join_token), int(time.time())),
+                )
+                project_id = cursor.lastrowid
+                conn.execute(
+                    """INSERT INTO project_members
+                       (project_id, username, member_id, role, status, created_at)
+                       VALUES (?, ?, ?, 'owner', 'approved', ?)""",
+                    (project_id, actor, 0, int(time.time())),
                 )
                 conn.commit()
             log_action(actor or "owner", "Project created", name)
