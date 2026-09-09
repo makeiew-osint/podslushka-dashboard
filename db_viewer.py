@@ -979,11 +979,15 @@ def log_action(actor: str, action: str, target: str = "") -> None:
             numeric_actor = int(actor)
         except (TypeError, ValueError):
             numeric_actor = 0
-        conn.execute(
-            """INSERT INTO admin_logs (admin_id, action, post_id, details, created_at)
-               VALUES (?, ?, NULL, ?, ?)""",
-            (numeric_actor, action, f"actor={actor}; target={target}"[:500], int(datetime.now().timestamp())),
-        )
+        # Legacy admin_logs.admin_id is INTEGER on existing PostgreSQL schemas.
+        # Telegram IDs can exceed the 32-bit range, so do not send those IDs
+        # through the legacy audit table; dashboard_actions keeps the full actor.
+        if -2147483648 <= numeric_actor <= 2147483647:
+            conn.execute(
+                """INSERT INTO admin_logs (admin_id, action, post_id, details, created_at)
+                   VALUES (?, ?, NULL, ?, ?)""",
+                (numeric_actor, action, f"actor={actor}; target={target}"[:500], int(datetime.now().timestamp())),
+            )
         conn.commit()
     if (
         TELEGRAM_BOT_TOKEN
