@@ -443,6 +443,10 @@ def managed_bot_rows(username: str | None):
     )
 
 
+def authorized_bot_ids(username: str | None) -> list[int]:
+    return [int(row["id"]) for row in managed_bot_rows(username)]
+
+
 def oauth_state(provider: str) -> str:
     nonce = secrets.token_urlsafe(24)
     issued = int(time.time())
@@ -1376,6 +1380,14 @@ def profile_page(current_user: str) -> str:
         "email": "", "display_name": "", "created_at": int(time.time()),
     }
     bots = managed_bot_rows(current_user)
+    if not bots and (TELEGRAM_BOT_TOKEN or os.getenv("BOT_TOKEN")):
+        bots = [{
+            "name": "Основной бот",
+            "project_name": "Основной проект",
+            "school_city": "Подключён через Render",
+            "channel_id": os.getenv("CHANNEL_ID", "—"),
+            "state": BOT_STATUS.get("state", "running"),
+        }]
     bot_cards = "".join(
         f"<div class='profile-bot'><b>{esc(bot['name'])}</b><span>{esc(bot['project_name'])} · {esc(bot['school_city'])}</span>"
         f"<small>Канал: {esc(bot['channel_id'] or '—')} · Worker: {esc(bot['state'] or 'stopped')}</small></div>"
@@ -1384,7 +1396,7 @@ def profile_page(current_user: str) -> str:
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Профиль · Podslushka DB</title>
 <style>
-*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;padding:28px;background:radial-gradient(circle at 20% 0,#286dff44,transparent 30%),#080d1d;color:#f3f7ff;font:15px Segoe UI,Arial,sans-serif}}main{{max-width:980px;margin:auto}}a,button{{display:inline-block;color:#fff;text-decoration:none;border:0;border-radius:11px;padding:11px 15px;font-weight:700;background:linear-gradient(135deg,#2686ff,#735cf3);box-shadow:5px 6px 0 #0b1733;cursor:pointer}}.profile-head{{display:flex;align-items:center;gap:18px;margin:28px 0}}.avatar{{width:82px;height:82px;display:grid;place-items:center;border-radius:25px;background:linear-gradient(145deg,#2a8cff,#6958ef);font-size:36px;box-shadow:9px 10px 0 #0a1630,0 0 35px #2787ff88;animation:float 4s ease-in-out infinite}}section{{margin-top:18px;padding:22px;border:1px solid #314a7e;border-radius:18px;background:linear-gradient(145deg,#15264a,#101a34);box-shadow:9px 10px 0 #060b18,0 20px 45px #0006;animation:rise .5s both}}.metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}.metric{{padding:15px;border:1px solid #38558e;border-radius:13px;background:#1b2d52}}.metric small,.profile-bot span,.profile-bot small{{display:block;color:#a9bddf}}.metric b{{display:block;font-size:22px;margin-top:7px}}.profile-bot{{display:grid;gap:5px;padding:15px;margin-top:10px;border:1px solid #355489;border-radius:13px;background:#132343}}@keyframes float{{50%{{transform:translateY(-7px) rotate(2deg)}}}}@keyframes rise{{from{{opacity:0;transform:translateY(14px)}}to{{opacity:1;transform:none}}}}@media(max-width:700px){{body{{padding:16px}}.metrics{{grid-template-columns:1fr 1fr}}}}
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;padding:28px;background:radial-gradient(circle at 12% 0,#286dff66,transparent 27%),radial-gradient(circle at 88% 95%,#00d8d033,transparent 30%),#060b19;color:#f3f7ff;font:15px Segoe UI,Arial,sans-serif;overflow-x:hidden}}body:before,body:after{{content:"";position:fixed;pointer-events:none;border:1px solid #308cff55;filter:drop-shadow(0 0 18px #1686ff66);transform:rotate(35deg);animation:orbit 11s ease-in-out infinite}}body:before{{width:210px;height:210px;right:4%;top:11%;border-radius:38px}}body:after{{width:90px;height:90px;left:7%;bottom:13%;border-radius:50%;animation-delay:-4s}}main{{position:relative;z-index:1;max-width:1080px;margin:auto}}a,button{{display:inline-block;color:#fff;text-decoration:none;border:0;border-radius:11px;padding:11px 15px;font-weight:700;background:linear-gradient(135deg,#2686ff,#735cf3);box-shadow:5px 6px 0 #0b1733;cursor:pointer;transition:.2s}}a:hover,button:hover{{transform:translateY(-3px);filter:brightness(1.12)}}.profile-head{{display:flex;align-items:center;gap:20px;margin:32px 0 28px;padding:25px;border:1px solid #3a65a7;border-radius:24px;background:linear-gradient(110deg,#132b57dd,#111a36dd);box-shadow:12px 14px 0 #050914,0 0 55px #167bff22;backdrop-filter:blur(12px)}}.avatar{{width:92px;height:92px;display:grid;place-items:center;border-radius:28px;background:linear-gradient(145deg,#2a8cff,#6958ef);font-size:40px;box-shadow:9px 10px 0 #0a1630,0 0 35px #2787ff88;animation:float 4s ease-in-out infinite}}.profile-head h1{{margin:0 0 7px;font-size:32px}}.muted{{color:#a9bddf}}section{{margin-top:20px;padding:24px;border:1px solid #314a7e;border-radius:20px;background:linear-gradient(145deg,#15264aee,#101a34ee);box-shadow:9px 10px 0 #060b18,0 20px 45px #0006;animation:rise .5s both}}.metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}.metric{{padding:16px;border:1px solid #38558e;border-radius:15px;background:linear-gradient(145deg,#203766,#172744);box-shadow:4px 5px 0 #0c1730}}.metric small,.profile-bot span,.profile-bot small{{display:block;color:#a9bddf}}.metric b{{display:block;font-size:22px;margin-top:7px}}.profile-bot{{display:grid;gap:6px;padding:17px;margin-top:12px;border:1px solid #3e67a2;border-radius:15px;background:linear-gradient(145deg,#17345d,#11203d);box-shadow:5px 6px 0 #09152b;transition:.25s}}.profile-bot:hover{{transform:translateY(-4px);box-shadow:8px 10px 0 #09152b,0 0 30px #167bff22}}@keyframes float{{50%{{transform:translateY(-7px) rotate(2deg)}}}}@keyframes orbit{{50%{{transform:rotate(62deg) translateY(-18px)}}}}@keyframes rise{{from{{opacity:0;transform:translateY(14px)}}to{{opacity:1;transform:none}}}}@media(max-width:700px){{body{{padding:16px}}.profile-head{{padding:18px;gap:13px}}.profile-head h1{{font-size:25px}}.avatar{{width:70px;height:70px;font-size:30px}}.metrics{{grid-template-columns:1fr 1fr}}section{{padding:18px}}}}
 </style></head><body><main><a href="/">← В панель</a><div class="profile-head"><div class="avatar">◈</div><div><h1>{esc(row['display_name'] or row['username'])}</h1><p class="muted">{esc(row['username'])} · роль: {esc(row['role'])}</p></div></div>
 <section><h2>Профиль доступа</h2><div class="metrics"><div class="metric"><small>Логин</small><b>{esc(row['username'])}</b></div><div class="metric"><small>Роль</small><b>{esc(row['role'])}</b></div><div class="metric"><small>Статус</small><b>{esc(row['status'])}</b></div><div class="metric"><small>Ботов доступно</small><b>{len(bots)}</b></div></div></section>
 <section><h2>Мои боты</h2>{bot_cards}</section>
@@ -1450,6 +1462,19 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         (row for row in available_bots if str(row["id"]) == str(selected_bot_id)),
         available_bots[0] if available_bots else None,
     )
+    if not owner and selected_bot is None and available_bots:
+        selected_bot = available_bots[0]
+    if not owner:
+        bot_ids = authorized_bot_ids(current_user)
+        if bot_ids:
+            marks = ",".join("?" for _ in bot_ids)
+            stats.update({
+                "posts": scalar(f"SELECT COUNT(*) FROM posts WHERE bot_id IN ({marks})", tuple(bot_ids)),
+                "pending": scalar(f"SELECT COUNT(*) FROM posts WHERE status='pending' AND bot_id IN ({marks})", tuple(bot_ids)),
+                "published": scalar(f"SELECT COUNT(*) FROM posts WHERE status='published' AND bot_id IN ({marks})", tuple(bot_ids)),
+            })
+        else:
+            stats.update({"posts": 0, "pending": 0, "published": 0})
     monitoring_items = [
         (
             selected_bot["name"] if selected_bot else "Бот",
@@ -1460,18 +1485,26 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         ("Синхронизация", "настроена" if SYNC_SECRET and os.getenv("DASHBOARD_SYNC_URL") else "не настроена", ""),
         ("ИИ Gemini", "настроен" if GEMINI_API_KEY else "не настроен", GEMINI_MODEL),
     ]
-    users = db_rows("""
+    scoped_ids = authorized_bot_ids(current_user) if not owner else []
+    bot_filter = ""
+    bot_params: tuple = ()
+    if scoped_ids:
+        marks = ",".join("?" for _ in scoped_ids)
+        bot_filter = f" AND p.bot_id IN ({marks})"
+        bot_params = tuple(scoped_ids)
+    users = db_rows(f"""
         SELECT u.*, COUNT(p.id) AS posts_count
-        FROM users u LEFT JOIN posts p ON p.user_id = u.user_id
+        FROM users u LEFT JOIN posts p ON p.user_id = u.user_id{bot_filter}
         GROUP BY u.user_id ORDER BY u.last_seen DESC LIMIT 500
-    """) if section in {"overview", "users", "user-search"} else []
-    posts = db_rows("""
+    """, bot_params) if section in {"overview", "users", "user-search"} and (owner or scoped_ids) else []
+    posts = db_rows(f"""
         SELECT p.id, p.user_id, p.kind, p.status, p.public_id, p.text, p.created_at,
                p.ai_analysis, p.ai_analyzed_at,
                u.username, u.first_name
         FROM posts p LEFT JOIN users u ON u.user_id = p.user_id
+        WHERE 1=1{bot_filter}
         ORDER BY p.created_at DESC LIMIT 50
-    """) if section in {"overview", "posts"} else []
+    """, bot_params) if section in {"overview", "posts"} and (owner or scoped_ids) else []
 
     cards = "".join(
         f'<div class="card"><b>{label}</b><strong>{value}</strong></div>'
@@ -1519,9 +1552,14 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
     user_details = db_rows("""
         SELECT u.*, COUNT(p.id) AS posts_count,
                MAX(p.created_at) AS last_post_at
-        FROM users u LEFT JOIN posts p ON p.user_id = u.user_id
+        FROM users u LEFT JOIN posts p ON p.user_id = u.user_id {user_scope}
         GROUP BY u.user_id ORDER BY u.last_seen DESC LIMIT 500
-    """) if section in {"users", "user-search"} else []
+    """.format(
+        user_scope=(
+            f"AND p.bot_id={int(selected_bot['id'])}" if selected_bot and not owner
+            else ""
+        )
+    )) if section in {"users", "user-search"} else []
     user_detail_rows = "".join(
         f"<tr class='detail-user-row'><td><a class=\"button-link\" href=\"/user?id={esc(row['user_id'])}\"><code>{esc(row['user_id'])}</code></a></td>"
         f"<td>{esc(row['first_name'])} {esc(row['last_name'])}</td>"
@@ -2165,12 +2203,28 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if path == "/user":
+            actor = auth_user(self)
+            if not actor or not can_access(actor, "users"):
+                self.send_error(403)
+                return
             try:
                 user_id = int(parse_qs(parsed.query).get("id", [""])[0])
             except ValueError:
                 self.send_error(400, "A numeric user id is required")
                 return
-            body = user_detail_page(auth_user(self) or "", user_id)
+            if not is_owner(actor):
+                ids = authorized_bot_ids(actor)
+                if not ids:
+                    self.send_error(403)
+                    return
+                marks = ",".join("?" for _ in ids)
+                if not scalar(
+                    f"SELECT COUNT(*) FROM posts WHERE user_id=? AND bot_id IN ({marks})",
+                    (user_id, *ids),
+                ):
+                    self.send_error(403)
+                    return
+            body = user_detail_page(actor, user_id)
             if not body:
                 self.send_error(404)
                 return
@@ -2299,7 +2353,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     with db_connect(readonly=True) as conn:
                         post = conn.execute(
-                            "SELECT text, ai_analysis, ai_analyzed_at FROM posts WHERE id=?",
+                            "SELECT id, bot_id, text, ai_analysis, ai_analyzed_at FROM posts WHERE id=?",
                             (post_id,),
                         ).fetchone()
                 except DB_ERRORS:
@@ -2310,16 +2364,21 @@ class Handler(BaseHTTPRequestHandler):
                     log_action(actor, "AI analysis error", f"{target}:not_found")
                     send_ai_json({"error": "Заявка не найдена."}, 404)
                     return
-                text = str(row_value(post, "text", 0) or "").strip()
+                post_bot_id = row_value(post, "bot_id", 1)
+                if not is_owner(actor) and int(post_bot_id or 0) not in authorized_bot_ids(actor):
+                    log_action(actor, "AI analysis denied", target)
+                    send_ai_json({"error": "У вас нет доступа к этой заявке."}, 403)
+                    return
+                text = str(row_value(post, "text", 2) or "").strip()
                 if not text:
                     log_action(actor, "AI analysis error", f"{target}:empty_text")
                     send_ai_json({"error": "У заявки нет текста для анализа."}, 422)
                     return
                 text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-                cached = cached_ai_analysis(row_value(post, "ai_analysis", 1), text_hash)
+                cached = cached_ai_analysis(row_value(post, "ai_analysis", 3), text_hash)
                 if cached:
                     log_action(actor, "AI analysis success (cached)", target)
-                    cached["analyzed_at"] = int(row_value(post, "ai_analyzed_at", 2) or 0)
+                    cached["analyzed_at"] = int(row_value(post, "ai_analyzed_at", 4) or 0)
                     send_ai_json({"ok": True, "analysis": cached})
                     return
                 try:

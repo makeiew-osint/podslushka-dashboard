@@ -157,7 +157,7 @@ async def _publish_pending_post(post: Any, admin_id: int) -> int:
     elif kind == "animation":
         msg = await bot.send_animation(channel_id, fid, caption=pub_text)
     elif kind == "media_group":
-        items = await db.get_media_group_items(post_id)
+        items = await db.get_media_group_items(post_id, MANAGED_BOT_ID or None)
         media = []
         for index, item in enumerate(items):
             caption = pub_text if index == 0 else None
@@ -176,8 +176,8 @@ async def _publish_pending_post(post: Any, admin_id: int) -> int:
         msg = await bot.send_message(channel_id, pub_text)
     if not msg:
         raise RuntimeError(f"Telegram did not return a message for post {post_id}")
-    await db.approve(post_id, public_id)
-    await db.set_channel_message_id(post_id, msg.message_id)
+    await db.approve(post_id, public_id, MANAGED_BOT_ID or None)
+    await db.set_channel_message_id(post_id, msg.message_id, MANAGED_BOT_ID or None)
     await db.log_admin_action(admin_id, "approve", post_id)
     await _audit(admin_id, "Bot approve", post_id)
     try:
@@ -840,7 +840,7 @@ async def cb_approve(callback: CallbackQuery):
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
     post_id = int(callback.data.split(":")[2])
-    post = await db.get_post(post_id)
+    post = await db.get_post(post_id, MANAGED_BOT_ID or None)
     if not post or post["status"] != "pending":
         await callback.answer(t(lang, "admin_not_found"))
         return
@@ -874,7 +874,7 @@ async def cb_reject(callback: CallbackQuery, state: FSMContext):
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
     post_id = int(callback.data.split(":")[2])
-    post = await db.get_post(post_id)
+    post = await db.get_post(post_id, MANAGED_BOT_ID or None)
     if not post or post["status"] != "pending":
         await callback.answer(t(lang, "admin_not_found"))
         return
@@ -889,9 +889,9 @@ async def st_reject_reason(message: Message, state: FSMContext):
     data = await state.get_data()
     post_id = data.get("reject_post_id")
     reason = message.text if message.text != "/skip" else None
-    post = await db.get_post(post_id)
+    post = await db.get_post(post_id, MANAGED_BOT_ID or None)
     if post:
-        await db.reject(post_id, reason, message.from_user.id)
+        await db.reject(post_id, reason, message.from_user.id, MANAGED_BOT_ID or None)
         await db.log_admin_action(message.from_user.id, "reject", post_id, reason)
         await _audit(message.from_user.id, "Bot reject", f"{post_id}:{reason or ''}")
         try:
@@ -965,7 +965,7 @@ async def cb_queue(callback: CallbackQuery):
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
     await _audit(admin_id, "Bot queue viewed", "", admin_log=True)
-    pending = await db.list_pending()
+    pending = await db.list_pending(MANAGED_BOT_ID or None)
     if not pending:
         await callback.message.answer(t(lang, "admin_queue_empty"))
         return
@@ -993,7 +993,7 @@ async def cb_bulk_confirm(callback: CallbackQuery):
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
     action = "publish" if callback.data.endswith("publish:confirm") else "reject"
-    pending = await db.list_pending()
+    pending = await db.list_pending(MANAGED_BOT_ID or None)
     if not pending:
         await callback.answer("Очередь уже пуста.", show_alert=True)
         return
@@ -1026,7 +1026,7 @@ async def cb_bulk_run(callback: CallbackQuery):
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
     action = "publish" if callback.data.endswith("publish:run") else "reject"
-    pending = await db.list_pending()
+    pending = await db.list_pending(MANAGED_BOT_ID or None)
     if not pending:
         await callback.message.edit_text("Очередь уже пуста.")
         await callback.answer()
@@ -1042,7 +1042,7 @@ async def cb_bulk_run(callback: CallbackQuery):
                 await _publish_pending_post(post, admin_id)
             else:
                 post_id = int(post["id"])
-                await db.reject(post_id, "Массовое отклонение", admin_id)
+                await db.reject(post_id, "Массовое отклонение", admin_id, MANAGED_BOT_ID or None)
                 await db.log_admin_action(admin_id, "reject", post_id, "Массовое отклонение")
                 await _audit(admin_id, "Bot reject", f"{post_id}:Массовое отклонение")
                 try:
@@ -1100,7 +1100,7 @@ async def cmd_queue(message: Message):
     if admin_id not in cfg.admin_ids:
         return
     await _audit(admin_id, "Bot queue viewed", "", admin_log=True)
-    pending = await db.list_pending()
+    pending = await db.list_pending(MANAGED_BOT_ID or None)
     if not pending:
         await message.answer(t(lang, "admin_queue_empty"))
         return

@@ -483,28 +483,46 @@ class Database:
         """, (post_id, kind, file_id, caption))
         await self._commit()
 
-    async def get_media_group_items(self, post_id: int) -> list[aiosqlite.Row]:
-        cur = await self._execute("""
-            SELECT * FROM media_group_items WHERE post_id = ? ORDER BY id
-        """, (post_id,))
+    async def get_media_group_items(self, post_id: int, bot_id: int | None = None) -> list[aiosqlite.Row]:
+        query = """
+            SELECT m.* FROM media_group_items m
+            JOIN posts p ON p.id = m.post_id
+            WHERE m.post_id = ?
+        """
+        params = (post_id,)
+        if bot_id:
+            query += " AND p.bot_id = ?"
+            params += (bot_id,)
+        query += " ORDER BY m.id"
+        cur = await self._execute(query, params)
         return await cur.fetchall()
 
-    async def get_post(self, post_id: int) -> Optional[aiosqlite.Row]:
-        cur = await self._execute("SELECT * FROM posts WHERE id = ?", (post_id,))
+    async def get_post(self, post_id: int, bot_id: int | None = None) -> Optional[aiosqlite.Row]:
+        query = "SELECT * FROM posts WHERE id = ?"
+        params = (post_id,)
+        if bot_id:
+            query += " AND bot_id = ?"
+            params += (bot_id,)
+        cur = await self._execute(query, params)
         return await cur.fetchone()
 
     async def get_post_by_public(self, public_id: int) -> Optional[aiosqlite.Row]:
         cur = await self._execute("SELECT * FROM posts WHERE public_id = ?", (public_id,))
         return await cur.fetchone()
 
-    async def list_pending(self) -> list[aiosqlite.Row]:
-        cur = await self._execute("""
+    async def list_pending(self, bot_id: int | None = None) -> list[aiosqlite.Row]:
+        query = """
             SELECT p.*, u.first_name as user_name, u.username
             FROM posts p
             LEFT JOIN users u ON p.user_id = u.user_id
             WHERE p.status = 'pending'
-            ORDER BY p.created_at
-        """)
+        """
+        params = ()
+        if bot_id:
+            query += " AND p.bot_id = ?"
+            params = (bot_id,)
+        query += " ORDER BY p.created_at"
+        cur = await self._execute(query, params)
         return await cur.fetchall()
 
     async def next_public_id(self) -> int:
@@ -512,25 +530,45 @@ class Database:
         row = await cur.fetchone()
         return (row["max_id"] or 0) + 1
 
-    async def approve(self, post_id: int, public_id: int) -> int:
+    async def approve(self, post_id: int, public_id: int, bot_id: int | None = None) -> int:
         now = int(time.time())
-        await self._execute("""
+        query = """
             UPDATE posts SET status='published', public_id=?, moderated_at=?
-            WHERE id=?
-        """, (public_id, now, post_id))
+            WHERE id=? AND status='pending'
+        """
+        params = (public_id, now, post_id)
+        if bot_id:
+            query += " AND bot_id=?"
+            params += (bot_id,)
+        cur = await self._execute(query, params)
         await self._commit()
+        if cur.rowcount != 1:
+            raise ValueError("Post is not pending or belongs to another bot")
         return public_id
 
-    async def reject(self, post_id: int, reason: str | None = None, admin_id: int | None = None):
+    async def reject(self, post_id: int, reason: str | None = None, admin_id: int | None = None,
+                     bot_id: int | None = None):
         now = int(time.time())
-        await self._execute("""
+        query = """
             UPDATE posts SET status='rejected', reject_reason=?, moderated_by=?, moderated_at=?
-            WHERE id=?
-        """, (reason, admin_id, now, post_id))
+            WHERE id=? AND status='pending'
+        """
+        params = (reason, admin_id, now, post_id)
+        if bot_id:
+            query += " AND bot_id=?"
+            params += (bot_id,)
+        cur = await self._execute(query, params)
         await self._commit()
+        if cur.rowcount != 1:
+            raise ValueError("Post is not pending or belongs to another bot")
 
-    async def set_channel_message_id(self, post_id: int, message_id: int):
-        await self._execute("UPDATE posts SET channel_message_id = ? WHERE id = ?", (message_id, post_id))
+    async def set_channel_message_id(self, post_id: int, message_id: int, bot_id: int | None = None):
+        query = "UPDATE posts SET channel_message_id = ? WHERE id = ?"
+        params = (message_id, post_id)
+        if bot_id:
+            query += " AND bot_id = ?"
+            params += (bot_id,)
+        await self._execute(query, params)
         await self._commit()
 
     async def set_pinned(self, post_id: int, pinned: bool = True):
