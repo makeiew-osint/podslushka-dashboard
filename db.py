@@ -506,6 +506,16 @@ class Database:
         cur = await self._execute(query, params)
         return await cur.fetchone()
 
+    async def managed_bot_ai_enabled(self, bot_id: int) -> bool:
+        if not bot_id:
+            return False
+        cur = await self._execute(
+            "SELECT ai_auto_publish FROM managed_bots WHERE id=? AND enabled=1",
+            (bot_id,),
+        )
+        row = await cur.fetchone()
+        return bool(row and row["ai_auto_publish"])
+
     async def get_post_by_public(self, public_id: int) -> Optional[aiosqlite.Row]:
         cur = await self._execute("SELECT * FROM posts WHERE public_id = ?", (public_id,))
         return await cur.fetchone()

@@ -31,6 +31,8 @@ logging.basicConfig(
 cfg = load_settings()
 db = Database(cfg.db_path, cfg.database_url)
 MANAGED_BOT_ID = int(os.getenv("MANAGED_BOT_ID", "0") or 0)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview").strip()
 
 bot = Bot(token=cfg.bot_token)
 storage = MemoryStorage()
@@ -186,6 +188,52 @@ async def _publish_pending_post(post: Any, admin_id: int) -> int:
     except Exception:
         logging.exception("Could not notify published post owner: %s", post_id)
     return public_id
+
+
+async def _ai_auto_publish(post_id: int, admin_id: int) -> bool:
+    """Publish only when Gemini returns a high-confidence safe decision."""
+    if not GEMINI_API_KEY or not await db.managed_bot_ai_enabled(MANAGED_BOT_ID):
+        return False
+    post = await db.get_post(post_id, MANAGED_BOT_ID or None)
+    text = str(post["text"] or "").strip() if post else ""
+    if not post or not text:
+        return False
+    prompt = (
+        "Classify this anonymous moderation submission. Return JSON only with keys "
+        "publish (boolean), confidence (number 0..1), reason (short string). "
+        "publish=true only if it is clearly harmless and suitable for publication. "
+        "If uncertain, publish=false. Text:\n" + text[:6000]
+    )
+    payload = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
+    }).encode("utf-8")
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    )
+    try:
+        def request():
+            req = urllib.request.Request(
+                url, data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=20) as response:
+                return json.loads(response.read().decode("utf-8"))
+        result = await asyncio.to_thread(request)
+        raw = result["candidates"][0]["content"]["parts"][0]["text"]
+        decision = json.loads(raw)
+        confidence = float(decision.get("confidence", 0))
+        if decision.get("publish") is True and confidence >= 0.92:
+            await _publish_pending_post(post, admin_id)
+            await _audit(admin_id, "AI auto-published", f"{post_id}:{confidence:.2f}")
+            return True
+        await _audit(admin_id, "AI sent to review", f"{post_id}:{confidence:.2f}")
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        logging.exception("AI auto-moderation failed for post %s", post_id)
+        await _audit(admin_id, "AI review fallback", post_id)
+    return False
 
 
 @dp.startup()
@@ -620,7 +668,8 @@ async def _mg_timeout(mgid: str):
     for it in data['items'][1:]:
         await db.add_media_group_item(post_id, it["kind"], it["file_id"], it["caption"])
 
-    await _notify_admins(post_id, msg, is_media_group=True, items=data['items'])
+    if not await _ai_auto_publish(post_id, 0):
+        await _notify_admins(post_id, msg, is_media_group=True, items=data['items'])
     await _audit(uid, "Bot post submitted", post_id)
     await msg.answer(t(lang, "sent"))
 
@@ -719,7 +768,8 @@ async def cb_preview_send(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.delete()
     await callback.message.answer(t(lang, "sent"))
-    await _notify_admins_simple(post_id, uid, text, file_id, kind, callback.from_user)
+    if not await _ai_auto_publish(post_id, 0):
+        await _notify_admins_simple(post_id, uid, text, file_id, kind, callback.from_user)
 
 
 async def _notify_admins_simple(post_id: int, user_id: int, text: Optional[str], file_id: Optional[str], kind: str, from_user: Any):
