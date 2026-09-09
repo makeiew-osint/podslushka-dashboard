@@ -1212,7 +1212,7 @@ border-radius:99px;background:#304664;color:#d7e8ff}}@media(max-width:700px){{bo
 </div></section></main></body></html>"""
 
 
-def page(current_user: str = "", section: str = "overview", history_post_id: str = "") -> str:
+def page(current_user: str = "", section: str = "overview", history_post_id: str = "", selected_bot_id: str = "") -> str:
     role = dashboard_role(current_user)
     owner = role == "owner"
     if not can_access(current_user, section):
@@ -1266,7 +1266,11 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         if last_error_row else (BOT_STATUS.get("error") or database_error or "Нет ошибок")
     )
     monitoring_items = [
-        ("Бот", BOT_STATUS.get("state", "unknown"), BOT_STATUS.get("error", "")),
+        (
+            selected_bot["name"] if selected_bot else "Бот",
+            selected_bot.get("state", BOT_STATUS.get("state", "unknown")) if selected_bot else BOT_STATUS.get("state", "unknown"),
+            selected_bot.get("last_error", "") if selected_bot else BOT_STATUS.get("error", ""),
+        ),
         ("База данных", database_state, f"{database_ms} мс"),
         ("Синхронизация", "настроена" if SYNC_SECRET and os.getenv("DASHBOARD_SYNC_URL") else "не настроена", ""),
         ("ИИ Gemini", "настроен" if GEMINI_API_KEY else "не настроен", GEMINI_MODEL),
@@ -1343,19 +1347,46 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         for row in user_details
     )
     managed_bots = managed_bot_rows(current_user) if section == "bots" else []
+    available_bots = managed_bot_rows(current_user)
+    selected_bot = next(
+        (row for row in available_bots if str(row["id"]) == str(selected_bot_id)),
+        available_bots[0] if available_bots else None,
+    )
+    bot_switcher = (
+        "<div class='bot-switcher'><span>Активный бот</span>"
+        + "".join(
+            f"<a class='{'active' if selected_bot and row['id'] == selected_bot['id'] else ''}' href='/?view={esc(section)}&bot_id={esc(row['id'])}'>{esc(row['name'])}</a>"
+            for row in available_bots
+        )
+        + "</div>"
+        if available_bots else ""
+    )
     projects = db_rows(
         "SELECT id, name, school_city, owner_username, active FROM projects ORDER BY name"
+    ) if owner and section == "bots" else []
+    join_requests = db_rows(
+        """SELECT r.id, r.username, r.telegram_id, r.created_at, p.name AS project_name
+           FROM project_join_requests r JOIN projects p ON p.id=r.project_id
+           WHERE r.status='pending' ORDER BY r.created_at"""
     ) if owner and section == "bots" else []
     project_options = "".join(
         f"<option value='{esc(row['id'])}'>{esc(row['name'])} · {esc(row['school_city'])}</option>"
         for row in projects
+    )
+    join_request_html = "".join(
+        f"<tr><td>{esc(row['project_name'])}</td><td>{esc(row['username'])}</td><td>{esc(row['telegram_id'])}</td>"
+        f"<td>{fmt_time(row['created_at'], True)}</td><td><form class='inline' method='post' action='/project/join/approve'>"
+        f"<input type='hidden' name='request_id' value='{esc(row['id'])}'><button>Одобрить</button></form>"
+        f"<form class='inline' method='post' action='/project/join/reject'><input type='hidden' name='request_id' value='{esc(row['id'])}'><button class='danger'>Отклонить</button></form></td></tr>"
+        for row in join_requests
     )
     managed_bot_html = "".join(
         f"<tr><td><b>{esc(row['name'])}</b><br><span class='muted'>{esc(row['project_name'])} · {esc(row['school_city'])}</span></td>"
         f"<td>@{esc(row['bot_username'] or '—')}</td><td>{esc(row['channel_id'] or '—')}</td>"
         f"<td><span class='status'>{'включён' if row['enabled'] else 'выключен'}</span></td>"
         f"<td>{esc(row['state'] or 'stopped')}</td><td>{'включён' if row['ai_auto_publish'] else 'выключен'}</td>"
-        f"<td><a class='button-link' href='/?view=monitoring&bot_id={esc(row['id'])}'>Мониторинг →</a></td></tr>"
+        f"<td><a class='button-link' href='/?view=monitoring&bot_id={esc(row['id'])}'>Мониторинг →</a>"
+        f"{('<form class=\"inline\" method=\"post\" action=\"/bot/toggle\"><input type=\"hidden\" name=\"bot_id\" value=\"' + esc(row['id']) + '\"><input type=\"hidden\" name=\"enabled\" value=\"' + ('0' if row['enabled'] else '1') + '\"><button>' + ('Выключить' if row['enabled'] else 'Включить') + '</button></form>') if owner else ''}</td></tr>"
         for row in managed_bots
     )
     bots_section = (
@@ -1365,8 +1396,20 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         {'<div class="setup-grid"><form class="setup-card" method="post" action="/project/create"><h3>Новый проект</h3><input name="name" placeholder="Название проекта" required><input name="school_city" placeholder="Школа / город" required><button>Создать проект</button></form><form class="setup-card" method="post" action="/bot/create"><h3>Подключить бота</h3><select name="project_id" required><option value="">Выберите проект</option>' + project_options + '</select><input name="name" placeholder="Название бота" required><input name="token" type="password" placeholder="Токен бота" required><input name="telegram_admin_id" inputmode="numeric" placeholder="Ваш Telegram ID" required><input name="channel_id" placeholder="@канал или -100..." required><label><input type="checkbox" name="ai_auto_publish"> ИИ-автопубликация</label><button>Зашифровать и подключить</button></form></div>' if owner else ''}
         <div class="table-wrap"><table><tr><th>Бот / проект</th><th>Username</th><th>Канал</th>
         <th>Состояние</th><th>Worker</th><th>ИИ-автопубликация</th><th></th></tr>
-        {managed_bot_html or '<tr><td colspan=7>Ботов пока нет или у вас нет доступа.</td></tr>'}</table></div></section>"""
+        {managed_bot_html or '<tr><td colspan=7>Ботов пока нет или у вас нет доступа.</td></tr>'}</table></div>
+        {'<form class="setup-card" method="post" action="/bot/admin/add"><h3>Добавить администратора</h3><select name="bot_id" required><option value="">Выберите бота</option>' + ''.join(f"<option value='{esc(row['id'])}'>{esc(row['name'])}</option>" for row in managed_bots) + '</select><input name="username" placeholder="Логин панели" required><input name="telegram_id" inputmode="numeric" placeholder="Telegram ID" required><button>Назначить администратора</button></form>' if owner and managed_bots else ''}
+        {'<h2>Заявки на вступление</h2><div class="table-wrap"><table><tr><th>Проект</th><th>Логин</th><th>Telegram ID</th><th>Дата</th><th>Действие</th></tr>' + (join_request_html or '<tr><td colspan=5>Новых заявок нет.</td></tr>') + '</table></div>' if owner else ''}
+        </section>"""
         if section == "bots" else ""
+    )
+    project_join_section = (
+        """<section id="join-project"><h2>Подключиться к проекту</h2>
+        <p class="muted">Введите токен проекта и свой Telegram ID. Владелец проекта должен одобрить заявку.</p>
+        <form class="setup-card" method="post" action="/project/join">
+        <input name="telegram_id" inputmode="numeric" placeholder="Ваш Telegram ID" required>
+        <input name="project_token" placeholder="Токен проекта" required>
+        <button>Отправить заявку</button></form></section>"""
+        if current_user and not owner else ""
     )
     approval = ""
     if owner or can_access(current_user, "actions"):
@@ -1464,6 +1507,7 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 .health-grid,.monitoring-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}}.health-item{{display:flex;align-items:center;gap:11px;padding:18px;background:linear-gradient(145deg,#1b2940,#172438);border:1px solid #2d4565;border-radius:14px;box-shadow:6px 7px 0 #080f1e,0 12px 24px #03091435;animation:cardIn .5s both}}.health-item b,.health-item small{{display:block}}.health-item small{{color:#9bb0ca;margin-top:5px}}.health-dot{{width:11px;height:11px;border-radius:50%;background:#f0b35a;box-shadow:0 0 14px #f0b35a}}.health-dot.ok{{background:#42e6c7;box-shadow:0 0 14px #42e6c7}}.health-last{{margin-top:15px;padding:14px 17px;border:1px solid #354777;border-radius:12px;background:#131a35;color:#aebcda}}.history-panel{{margin-bottom:20px}}.history-link{{font-size:11px;padding:7px 10px}}
 .action-hero{{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}}.action-metric{{position:relative;overflow:hidden;padding:18px;border:1px solid #40558b;border-radius:16px;background:linear-gradient(145deg,#263567,#151d3c);box-shadow:7px 8px 0 #080d1d,0 12px 28px #060a1d88;transform-style:preserve-3d;animation:cardIn .55s both}}.action-metric:after{{content:"";position:absolute;width:75px;height:75px;right:-20px;top:-25px;border:1px solid #8d9dff66;border-radius:28px;transform:rotate(35deg) translateZ(20px)}}.action-metric span{{display:block;color:#a8b9dc;font-size:11px;text-transform:uppercase;letter-spacing:.8px}}.action-metric b{{display:block;margin-top:8px;font-size:27px;color:#fff}}.action-shell{{position:relative;overflow:hidden;border:1px solid #46588f!important;background:linear-gradient(145deg,#1d2b4a,#131b35)!important;box-shadow:10px 12px 0 #070b18,0 20px 45px #030713aa!important}}.action-shell:before{{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent,#6c7fff0b,transparent);transform:translateX(-100%);animation:scan 5s ease-in-out infinite;pointer-events:none}}.action-table{{position:relative;z-index:1}}.action-row td:first-child{{color:#a9c5ff;font-variant-numeric:tabular-nums}}.action-row td:nth-child(3){{font-weight:700;color:#d9e4ff}}.action-row td:nth-child(4){{color:#9fb1d4}}.action-badge{{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:99px;background:#263b62;border:1px solid #4d6da9;color:#dbe8ff;box-shadow:0 3px 0 #101a31}}.action-badge.publish{{background:#164d50;border-color:#2baca4;color:#a5fff0}}.action-badge.reject,.action-badge.error{{background:#542a48;border-color:#ba527b;color:#ffc0d6}}.action-badge.login{{background:#3f3765;border-color:#8170d4;color:#e0d9ff}}
 .setup-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0 0 20px}}.setup-card{{display:grid;gap:10px;padding:18px;border:1px solid #40558b;border-radius:16px;background:linear-gradient(145deg,#202d50,#131a34);box-shadow:7px 8px 0 #080d1d,0 16px 30px #03071388;animation:cardIn .55s both}}.setup-card h3{{margin:0;color:#dbe7ff}}.setup-card input,.setup-card select{{width:100%;min-width:0}}.setup-card label{{color:#aebddd;font-size:12px}}
+.bot-switcher{{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 18px;padding:10px 12px;border:1px solid #354979;border-radius:14px;background:#111b34;box-shadow:5px 6px 0 #080d1d;animation:cardIn .45s both}}.bot-switcher span{{color:#9fb4d4;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-right:3px}}.bot-switcher a{{padding:7px 11px;border:1px solid #40558b;border-radius:9px;background:#1b2a4b;color:#bcd0f1;box-shadow:3px 4px 0 #0a1123}}.bot-switcher a.active{{background:linear-gradient(135deg,#2679e9,#6d5cf0);color:#fff;border-color:#80a9ff}}
 .post-row.new-row{{animation:newRow 1.8s ease-out}}.ai-loading{{position:relative;overflow:hidden}}.ai-loading:after{{content:"";position:absolute;inset:0 auto 0 0;width:42%;background:linear-gradient(90deg,transparent,#27d3c244,transparent);animation:scan 1.35s ease-in-out infinite}}.ai-loading:before{{content:"";display:inline-block;width:15px;height:15px;margin-right:9px;vertical-align:-2px;border:2px solid #89f0df66;border-top-color:#89f0df;border-radius:50%;animation:spin3d .8s linear infinite}}.ai-card.open .ai-card-panel{{animation:cardIn .32s cubic-bezier(.2,.8,.2,1) both}}button,a.button-link{{overflow:hidden}}button:after,a.button-link:after{{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 25%,#ffffff55 48%,transparent 70%);transform:translateX(-120%);pointer-events:none}}button:hover:after,a.button-link:hover:after{{animation:buttonShine .7s ease}}@keyframes buttonShine{{to{{transform:translateX(120%)}}}}
 @media(prefers-reduced-motion:reduce){{*,*::before,*::after{{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.001ms!important}}}}
 @media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:20px 12px 40px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:15px}}.theme-switch{{width:auto;margin:0 0 15px}}.nav{{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}}.nav a{{padding:10px 8px;font-size:12px;min-width:0}}.nav a .icon{{width:16px}}.topbar{{display:block}}.topbar>div:last-child{{display:flex;gap:8px;margin-top:15px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}.toolbar input,.toolbar select{{min-width:0;flex:1;width:100%}}.filter-tabs{{width:100%;overflow:auto;flex-wrap:nowrap}}h1{{font-size:25px}}h2{{font-size:19px;margin-top:30px}}.table-wrap{{margin-right:-4px;border-radius:10px}}.health-grid,.monitoring-grid,.action-hero,.setup-grid{{grid-template-columns:1fr}}.action-metric{{padding:13px}}.action-metric b{{font-size:22px}}.ai-card{{padding:10px}}.ai-card-panel{{max-height:94vh}}}}
@@ -1480,7 +1524,7 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 {('<section id="users"><h2>Все пользователи</h2><div class="toolbar"><input id="detail-search" placeholder="Поиск по ID, имени, username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'users' else '')}
 {('<section id="posts"><h2>Все заявки</h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table></div></section>' if section == 'posts' else '')}
 {('<section id="user-search"><h2>Поиск пользователя</h2><div class="toolbar"><input id="detail-search" placeholder="Введите ID, имя или username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'user-search' else '')}
-{approval}{bots_section}{system_section}{monitoring_section}
+{bot_switcher}{approval}{bots_section}{project_join_section}{system_section}{monitoring_section}
 </main></div><div class="ai-card" id="ai-card" aria-hidden="true"><div class="ai-card-panel" role="dialog" aria-modal="true" aria-labelledby="ai-card-title"><div class="ai-card-head"><h2 id="ai-card-title">ИИ-анализ заявки</h2><button type="button" class="ai-close" id="ai-close">Закрыть</button></div><div id="ai-card-body"></div></div></div><script>
 const themeSwitch = document.getElementById('theme-switch');
 function applyTheme(theme) {{
@@ -1949,7 +1993,13 @@ class Handler(BaseHTTPRequestHandler):
             query_data = parse_qs(parsed.query)
             requested_section = query_data.get("view", ["overview"])[0]
             history_post_id = query_data.get("post_id", [""])[0]
-            body = page(auth_user(self) or "", requested_section, history_post_id).encode("utf-8")
+            selected_bot_id = query_data.get("bot_id", [""])[0]
+            body = page(
+                auth_user(self) or "",
+                requested_section,
+                history_post_id,
+                selected_bot_id,
+            ).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
         elif path == "/backup":
@@ -2312,6 +2362,27 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/?view=bots")
             self.end_headers()
             return
+        if path == "/bot/toggle":
+            if not is_owner(actor):
+                self.send_error(403)
+                return
+            try:
+                bot_id = int(fields.get("bot_id", ["0"])[0])
+            except (TypeError, ValueError):
+                self.send_error(400, "Invalid bot id")
+                return
+            enabled = 1 if fields.get("enabled", ["0"])[0] == "1" else 0
+            with db_connect() as conn:
+                conn.execute(
+                    "UPDATE managed_bots SET enabled=?, state=?, updated_at=? WHERE id=?",
+                    (enabled, "starting" if enabled else "stopped", int(time.time()), bot_id),
+                )
+                conn.commit()
+            log_action(actor or "owner", "Managed bot toggled", f"{bot_id}:{enabled}")
+            self.send_response(302)
+            self.send_header("Location", f"/?view=bots&bot_id={bot_id}")
+            self.end_headers()
+            return
         if path == "/project/join":
             if not actor:
                 self.send_error(401)
@@ -2344,6 +2415,48 @@ class Handler(BaseHTTPRequestHandler):
             log_action(actor, "Project join requested", str(row_value(project, "id", 0)))
             self.send_response(302)
             self.send_header("Location", "/?view=overview")
+            self.end_headers()
+            return
+        if path in {"/project/join/approve", "/project/join/reject"}:
+            if not is_owner(actor):
+                self.send_error(403)
+                return
+            try:
+                request_id = int(fields.get("request_id", ["0"])[0])
+            except (TypeError, ValueError):
+                self.send_error(400, "Invalid join request")
+                return
+            new_status = "approved" if path.endswith("approve") else "rejected"
+            with db_connect() as conn:
+                request = conn.execute(
+                    "SELECT project_id, username, telegram_id FROM project_join_requests WHERE id=? AND status='pending'",
+                    (request_id,),
+                ).fetchone()
+                if not request:
+                    self.send_error(404, "Join request not found")
+                    return
+                if new_status == "approved":
+                    conn.execute(
+                        """INSERT INTO project_members
+                           (project_id, username, member_id, role, status, created_at)
+                           VALUES (?, ?, ?, 'admin', 'approved', ?)
+                           ON CONFLICT(project_id, username) DO UPDATE SET
+                           member_id=excluded.member_id, status='approved'""",
+                        (
+                            row_value(request, "project_id", 0),
+                            row_value(request, "username", 1),
+                            row_value(request, "telegram_id", 2),
+                            int(time.time()),
+                        ),
+                    )
+                conn.execute(
+                    "UPDATE project_join_requests SET status=? WHERE id=?",
+                    (new_status, request_id),
+                )
+                conn.commit()
+            log_action(actor or "owner", f"Project join {new_status}", str(request_id))
+            self.send_response(302)
+            self.send_header("Location", "/?view=bots")
             self.end_headers()
             return
         username = fields.get("username", [""])[0].strip()
