@@ -52,3 +52,25 @@ Set it back to false after the deployment starts to announce:
 
 Never publish BOT_TOKEN, MULTIBOT_ENCRYPTION_KEY, OWNER_PASSWORD, or OAuth
 secrets. Change your password from the «Profile» section.
+
+8. Independent monitoring
+
+The repository includes an independent GitHub Actions monitor. It checks the
+website every five minutes and sends Telegram messages only on state changes:
+«Сайт на технических работах» when the site becomes unavailable and
+«Сайт снова работает» after recovery.
+
+Add these repository settings once:
+
+  Secrets:
+    BOT_TOKEN
+    TELEGRAM_UPDATES_CHAT_ID
+
+  Optional variable:
+    SITE_URL
+
+If SITE_URL is not set, the monitor checks:
+https://podslushka-dashboard.onrender.com/
+
+The monitor runs independently from the website, so it can report an outage
+even when the Render web service is completely stopped.
