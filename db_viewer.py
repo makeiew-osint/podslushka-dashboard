@@ -3701,8 +3701,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    init_auth()
+    # Start Telegram polling before dashboard migrations. Render can spend
+    # noticeable time preparing PostgreSQL during a rolling restart; the bot
+    # should not wait for the web UI to finish initializing.
     start_embedded_bot()
+    init_auth()
     start_managed_bot_supervisor()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     public_host = "127.0.0.1" if HOST == "0.0.0.0" else HOST
