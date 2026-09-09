@@ -1690,6 +1690,50 @@ body:before,body:after{{display:none!important}}
 .google-button,.telegram-button{{color:#26354d!important}}
 .hint{{color:#7b8799!important;line-height:1.5!important}}
 @media(max-width:700px){{body{{padding:14px!important;background:#f4f7fb!important}}.shell{{grid-template-columns:1fr!important;border-radius:16px!important}}.intro{{padding:28px!important;min-height:220px!important}}.intro h1{{margin:42px 0 10px!important;font-size:31px!important}}.intro p{{font-size:14px!important}}.features{{display:none!important}}.auth{{padding:30px 24px!important}}.auth h2{{font-size:27px!important}}}}
+</style>
+<style>
+/* Login direction: full-height command center with a branded signal wall and focused workspace. */
+body{{min-height:100vh!important;padding:24px!important;background:#07111f!important;color:#172033!important;overflow:auto!important}}
+body:before{{display:block!important;content:"";position:fixed!important;inset:0!important;pointer-events:none!important;border:0!important;opacity:1!important;filter:none!important;background:radial-gradient(circle at 10% 15%,#1767c933,transparent 28%),radial-gradient(circle at 94% 88%,#00c7ad1c,transparent 25%),linear-gradient(135deg,#07111f 0%,#0b1930 55%,#061522 100%)!important;z-index:0!important}}
+body:after{{display:block!important;content:"";position:fixed!important;pointer-events:none!important;width:540px!important;height:540px!important;right:-150px!important;top:-170px!important;border:1px solid #5a8cff22!important;border-radius:50%!important;filter:none!important;opacity:1!important;transform:none!important;background:transparent!important;animation:none!important;z-index:0!important}}
+.shell{{position:relative!important;z-index:1!important;width:min(1180px,100%)!important;min-height:min(760px,calc(100vh - 48px))!important;display:grid!important;grid-template-columns:minmax(420px,1.02fr) minmax(440px,.98fr)!important;border:1px solid #6c8fbd55!important;border-radius:28px!important;background:#f8fafc!important;box-shadow:0 35px 100px #00000066,0 0 0 8px #ffffff05!important;overflow:hidden!important;transform:none!important;animation:none!important}}
+.shell:before{{display:block!important;content:"";position:absolute!important;inset:0!important;z-index:5!important;pointer-events:none!important;background:linear-gradient(105deg,transparent 30%,#ffffff0a 48%,transparent 65%)!important;transform:none!important;animation:none!important}}
+.intro{{position:relative!important;display:flex!important;flex-direction:column!important;justify-content:space-between!important;padding:56px 56px 48px!important;background:#10254a!important;color:#fff!important;transform:none!important;overflow:hidden!important}}
+.intro:before{{display:block!important;content:"";position:absolute!important;inset:0!important;pointer-events:none!important;background:linear-gradient(90deg,transparent 0 49%,#79a7ff0d 49.1% 49.3%,transparent 49.4%),linear-gradient(0deg,transparent 0 49%,#79a7ff0d 49.1% 49.3%,transparent 49.4%)!important;background-size:72px 72px!important;mask-image:linear-gradient(to bottom,transparent,#000 20%,#000 78%,transparent)!important}}
+.intro:after{{display:block!important;content:"";position:absolute!important;width:400px!important;height:400px!important;right:-170px!important;bottom:-190px!important;border:1px solid #8db5ff55!important;border-radius:50%!important;background:transparent!important;box-shadow:0 0 0 42px #7ce9d20a,0 0 0 84px #7ce9d205!important;animation:none!important}}
+.intro>*{{position:relative!important;z-index:1!important}}
+.brand{{font-size:21px!important;letter-spacing:-.4px!important}}
+.brand-logo{{width:48px!important;height:48px!important;border-radius:14px!important;box-shadow:0 10px 24px #0005!important;transform:none!important}}
+.intro h1{{margin:0 0 20px!important;max-width:470px!important;font-size:clamp(43px,5vw,72px)!important;line-height:.98!important;letter-spacing:-3.4px!important}}
+.intro p{{max-width:420px!important;margin:0!important;color:#b9cbe5!important;font-size:16px!important;line-height:1.7!important}}
+.features{{gap:0!important;margin:40px 0 0!important;max-width:430px!important}}
+.feature{{padding:15px 0!important;border-bottom:1px solid #ffffff1c!important;color:#e5eefb!important}}
+.check{{color:#73e0c5!important}}
+.auth{{position:relative!important;display:flex!important;flex-direction:column!important;justify-content:center!important;padding:64px 74px!important;background:#f8fafc!important;color:#172033!important;box-shadow:none!important;transform:none!important;overflow:visible!important}}
+.auth:after{{display:none!important}}
+.auth-mark{{display:flex!important;align-items:center!important;justify-content:flex-start!important;margin:0 0 34px!important}}
+.auth-mark img{{width:54px!important;height:54px!important;border-radius:15px!important;box-shadow:0 0 0 1px #d7e0eb,0 9px 22px #203b5c20!important;transform:none!important}}
+.auth-mark:after{{content:"Podslushka DB";display:block!important;margin-left:14px!important;color:#18243a!important;font-size:18px!important;font-weight:850!important;letter-spacing:-.4px!important}}
+.auth h2{{color:#142039!important;text-align:left!important;font-size:38px!important;font-weight:850!important;letter-spacing:-1.8px!important;text-shadow:none!important;margin:0 0 10px!important}}
+.sub{{color:#718097!important;text-align:left!important;font-size:16px!important;margin:0 0 30px!important}}
+.tabs{{padding:4px!important;margin:0 0 22px!important;border:1px solid #d8e1ec!important;border-radius:12px!important;background:#edf2f8!important}}
+.tab{{padding:12px!important;color:#748197!important;box-shadow:none!important;font-size:14px!important}}
+.tab.active{{background:#fff!important;color:#1e5eaf!important;border:1px solid #bcd0eb!important;box-shadow:0 3px 8px #243b5a14!important;transform:none!important}}
+.form.active{{padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}}
+.field{{margin:17px 0 8px!important;color:#35445b!important;font-size:13px!important}}
+.form input{{padding:14px!important;background:#fff!important;color:#172033!important;border:1px solid #cad6e4!important;border-radius:10px!important;box-shadow:0 2px 4px #27466b0a!important;transform:none!important}}
+.form input::placeholder{{color:#9aa8ba!important}}
+.form input:focus{{border-color:#3e7ed0!important;box-shadow:0 0 0 4px #3e7ed01c!important;transform:none!important}}
+.toggle{{top:8px!important;right:8px!important;background:#edf2f8!important;color:#496488!important;box-shadow:none!important}}
+.submit{{margin-top:23px!important;padding:14px!important;border:0!important;border-radius:10px!important;background:#2468c2!important;box-shadow:0 9px 20px #2468c233!important;font-size:15px!important}}
+.submit:hover{{filter:brightness(1.07)!important;transform:translateY(-2px)!important}}
+.oauth{{margin-top:30px!important;padding-top:24px!important;border-top:1px solid #dce4ee!important}}
+.oauth-title{{color:#53647b!important;margin-bottom:2px!important}}
+.oauth-button,.telegram-button{{min-height:46px!important;border-radius:10px!important;color:#26364d!important;background:#fff!important;border:1px solid #cad6e4!important;box-shadow:0 3px 8px #243b5a0d!important;transform:none!important}}
+.oauth-button:hover,.telegram-button:hover{{background:#f3f7fc!important;border-color:#9bb6dc!important;filter:none!important;transform:translateY(-2px)!important}}
+.hint{{color:#7d899a!important;line-height:1.55!important}}
+@media(max-width:900px){{body{{padding:12px!important}}.shell{{min-height:0!important;grid-template-columns:1fr!important;max-width:560px!important;border-radius:20px!important}}.intro{{min-height:300px!important;padding:34px 30px!important}}.intro h1{{margin:42px 0 14px!important;font-size:42px!important}}.features{{display:none!important}}.auth{{padding:36px 30px 42px!important}}}}
+@media(max-width:520px){{.intro{{min-height:250px!important;padding:26px 22px!important}}.intro h1{{font-size:35px!important;letter-spacing:-1.8px!important}}.intro p{{font-size:14px!important}}.auth{{padding:28px 20px 34px!important}}.auth h2{{font-size:30px!important}}}}
 </style></head><body><div class="shell">
 <section class="intro"><div class="brand"><img class="brand-logo" src="/assets/podslushka-logo.png" alt="Podslushka DB"><span>Podslushka DB</span></div>
 <h1>Ваша панель<br>под контролем.</h1><p>Управляйте заявками, пользователями и модерацией в одном защищённом рабочем пространстве.</p>
