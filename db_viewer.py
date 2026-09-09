@@ -2201,6 +2201,75 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 .post-row.new-row{{animation:newRow 1.8s ease-out}}.ai-loading{{position:relative;overflow:hidden}}.ai-loading:after{{content:"";position:absolute;inset:0 auto 0 0;width:42%;background:linear-gradient(90deg,transparent,#27d3c244,transparent);animation:scan 1.35s ease-in-out infinite}}.ai-loading:before{{content:"";display:inline-block;width:15px;height:15px;margin-right:9px;vertical-align:-2px;border:2px solid #89f0df66;border-top-color:#89f0df;border-radius:50%;animation:spin3d .8s linear infinite}}.ai-card.open .ai-card-panel{{animation:cardIn .32s cubic-bezier(.2,.8,.2,1) both}}button,a.button-link{{overflow:hidden}}button:after,a.button-link:after{{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 25%,#ffffff55 48%,transparent 70%);transform:translateX(-120%);pointer-events:none}}button:hover:after,a.button-link:hover:after{{animation:buttonShine .7s ease}}@keyframes buttonShine{{to{{transform:translateX(120%)}}}}
 @media(prefers-reduced-motion:reduce){{*,*::before,*::after{{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.001ms!important}}}}
 @media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:20px 12px 40px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:15px}}.theme-switch{{width:auto;margin:0 0 15px}}.nav{{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}}.nav a{{padding:10px 8px;font-size:12px;min-width:0}}.nav a .icon{{width:16px}}.topbar{{display:block}}.topbar>div:last-child{{display:flex;gap:8px;margin-top:15px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}.toolbar input,.toolbar select{{min-width:0;flex:1;width:100%}}.filter-tabs{{width:100%;overflow:auto;flex-wrap:nowrap}}h1{{font-size:25px}}h2{{font-size:19px;margin-top:30px}}.table-wrap{{margin-right:-4px;border-radius:10px}}.health-grid,.monitoring-grid,.action-hero,.setup-grid{{grid-template-columns:1fr}}.action-metric{{padding:13px}}.action-metric b{{font-size:22px}}.ai-card{{padding:10px}}.ai-card-panel{{max-height:94vh}}}}
+/*MINIMAL_UI*/
+body{{padding:0;background:#080d18;color:#e8eef8;font-family:Inter,Segoe UI,Arial,sans-serif;letter-spacing:.01em}}
+body:before,body:after{{opacity:.28;filter:none;border-color:#6ea7ff33;animation:quietDrift 18s ease-in-out infinite}}
+.ambient-scene{{opacity:.55;filter:saturate(.7);pointer-events:none}}
+.ambient-cube{{width:90px;height:90px;opacity:.42;animation:cleanCube 22s linear infinite}}
+.ambient-cube i{{border-color:#8ab8ff66;background:linear-gradient(135deg,#79a7ff16,#66e0ce08);box-shadow:inset 0 0 22px #8ab8ff12}}
+.ambient-orbit{{border-color:#79aaff38;box-shadow:none}}
+.layout{{perspective:1200px}}
+.sidebar{{width:232px;padding:26px 14px;background:#0d1424;border-right:1px solid #1e2d46;box-shadow:none}}
+.brand{{padding:2px 12px 30px;font-size:16px;letter-spacing:.1px}}
+.logo{{width:32px;height:32px;border-radius:10px;background:#192a45;box-shadow:0 0 0 1px #466a9c,0 8px 22px #4f8cff22;animation:logoPulse 5s ease-in-out infinite}}
+.logo:after{{inset:-5px;border-color:#76b7ff44;animation:logoRing 12s linear infinite}}
+.theme-switch{{margin:0 8px 26px;width:calc(100% - 16px);background:#121e33;box-shadow:none;border:1px solid #263c5b;color:#b8c9e2}}
+.menu-title{{padding-left:12px;color:#61738d;font-size:9px;letter-spacing:1.4px}}
+.nav{{gap:3px}}
+.nav a{{padding:10px 12px;border-radius:8px;color:#8fa4c0;font-size:13px}}
+.nav a:hover,.nav a.active{{background:#152640;border-color:#294669;box-shadow:none;transform:translateX(2px)}}
+.nav .icon{{background:#142239;box-shadow:none}}
+.nav a:hover .icon,.nav a.active .icon{{background:#2d659d;box-shadow:0 0 14px #4a9cff44;transform:none}}
+.content{{margin-left:232px;padding:32px clamp(24px,4vw,64px) 70px;max-width:1500px}}
+.topbar{{margin-bottom:30px}}
+h1{{font-size:28px;font-weight:650;letter-spacing:-.7px}}
+h2{{font-size:19px;font-weight:650;letter-spacing:-.2px}}
+.muted{{color:#7f92ad}}
+.cards{{gap:10px;margin-bottom:24px}}
+.card,.insight-card,.toolbar,.table-wrap,.setup-card,.action-metric,.health-item{{background:#101b2d;border:1px solid #233a59;box-shadow:0 12px 30px #02050c55;transform:none}}
+.card{{padding:16px;border-radius:12px}}
+.card:hover,.setup-card:hover,.health-item:hover{{transform:translateY(-3px);box-shadow:0 16px 34px #02050c88}}
+.card b{{color:#7f96b6;font-size:11px}}
+.card strong{{font-size:25px;color:#edf4ff}}
+.insight-card{{min-height:180px;border-radius:12px}}
+.toolbar{{padding:12px;border-radius:11px}}
+input,select{{background:#0b1525;border-color:#284462;color:#dbe7f5;box-shadow:none}}
+input:focus,select:focus{{border-color:#5d9ddd;box-shadow:0 0 0 3px #4c94dc22}}
+button,input[type=submit],a.button-link{{border:1px solid #4d79b1;background:#2863a0;box-shadow:0 4px 0 #163a62,0 8px 20px #1d6eb522;border-radius:8px;transition:transform .2s,background .2s,box-shadow .2s}}
+button:hover,input[type=submit]:hover,a.button-link:hover{{background:#3779bb;box-shadow:0 6px 0 #163a62,0 12px 24px #1d6eb533}}
+.danger{{background:#9e4656;box-shadow:0 4px 0 #632b38,0 8px 18px #9e465622}}
+.table-wrap{{border-radius:12px}}
+th{{background:#122238;color:#7fb0e7;font-size:11px}}
+td{{border-color:#1e334d}}
+tr:hover{{background:#14263e}}
+.status{{background:#1b3551;color:#b9d8f5;border:1px solid #2c557c}}
+.bot-actions{{gap:8px;min-width:200px}}
+.bot-actions .button-link,.bot-actions button{{min-height:36px;padding:8px 11px;font-size:12px}}
+.setup-grid{{gap:14px}}
+.setup-card{{padding:20px;border-radius:14px}}
+.setup-card:before,.setup-card:after{{opacity:.35}}
+.bot-stage{{min-height:185px;margin-bottom:18px;border-color:#2c527d;border-radius:14px;background:radial-gradient(circle at 50% 45%,#4c9bff20,transparent 28%),#0d192b;box-shadow:inset 0 1px #6da7e522,0 14px 30px #02050c66}}
+.bot-stage:before,.bot-stage:after{{border-color:#6ea9d944;box-shadow:none}}
+.bot-stage:before{{width:230px;height:82px;animation:cleanOrbit 12s linear infinite}}
+.bot-stage:after{{width:310px;height:130px;animation:cleanOrbit 18s linear infinite reverse}}
+.bot-stage-glow{{width:92px;height:92px;background:#3a9cff26;filter:blur(22px)}}
+.bot-model{{width:58px;height:58px;animation:prismFloat 7s ease-in-out infinite}}
+.bot-model i{{border-color:#9bc7f788;background:linear-gradient(135deg,#5e9be955,#51e2c414);box-shadow:0 0 18px #4b9cff44,inset 0 0 16px #d9efff18}}
+.bot-stage-label{{color:#8da8c8;text-shadow:none;letter-spacing:1.8px;font-size:10px}}
+.bot-switcher{{background:#0f1a2c;border-color:#233a59;box-shadow:none}}
+.bot-switcher a{{background:#14253d;border-color:#2b4666;box-shadow:none}}
+.bot-switcher a.active{{background:#2e699f;border-color:#6da7df}}
+.help-button{{background:#2863a0!important;box-shadow:0 3px 0 #163a62!important}}
+.setup-card .ai-toggle{{background:#0d1a2c;border-color:#294666}}
+.health-item{{border-radius:12px}}
+.health-item:after{{opacity:.28}}
+@keyframes quietDrift{{50%{{transform:rotate(28deg) translateY(-12px)}}}}
+@keyframes logoPulse{{50%{{transform:translateZ(10px) scale(1.04)}}}}
+@keyframes cleanCube{{to{{transform:rotateX(360deg) rotateY(360deg) rotateZ(90deg)}}}}
+@keyframes cleanOrbit{{to{{transform:rotateX(68deg) rotateZ(360deg)}}}}
+@keyframes prismFloat{{0%,100%{{transform:rotateX(-18deg) rotateY(0deg) translateY(0) scale(1)}}50%{{transform:rotateX(20deg) rotateY(180deg) translateY(-8px) scale(1.04)}}}}
+@media(max-width:700px){{.sidebar{{width:100%;padding:16px;background:#0d1424}}.content{{margin-left:0;padding:22px 14px 46px}}.content{{max-width:none}}.setup-card{{padding:16px}}}}
+@media(prefers-reduced-motion:reduce){{.ambient-scene{{display:none}}}}
 </style></head><body data-monitoring-owner="{'1' if owner else '0'}"><div class="ambient-scene" aria-hidden="true"><div class="ambient-orbit orbit-one"></div><div class="ambient-orbit orbit-two"></div><div class="ambient-sphere"></div><div class="ambient-cube"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="ambient-particle particle-one"></span><span class="ambient-particle particle-two"></span></div><div class="layout">
 <aside class="sidebar"><div class="brand"><span class="logo">◈</span><span>Podslushka DB</span></div><button type="button" class="theme-switch" id="theme-switch">☀️ Светлая тема</button><div class="menu-title">Навигация</div><nav class="nav">
 <a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a><a class="{'active' if section == 'health' else ''}" href="/?view=health"><span class="icon">♥</span>Здоровье системы</a><a class="{'active' if section == 'monitoring' else ''}" href="/?view=monitoring"><span class="icon">◉</span>Мониторинг</a>
