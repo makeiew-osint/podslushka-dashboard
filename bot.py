@@ -248,8 +248,8 @@ async def _on_startup():
             logging.info("Bot started, DB connected")
             return
         except Exception:
-            logging.exception("Bot database connection failed; retrying in 10 seconds")
-            await asyncio.sleep(10)
+            logging.exception("Bot database connection failed; retrying in 2 seconds")
+            await asyncio.sleep(2)
 
 
 @dp.shutdown()

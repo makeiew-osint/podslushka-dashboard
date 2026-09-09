@@ -213,7 +213,9 @@ def start_embedded_bot() -> None:
             exit_code = BOT_PROCESS.wait()
             BOT_STATUS["state"] = "error"
             BOT_STATUS["error"] = f"Бот остановился (код {exit_code}). Последняя строка: {BOT_STATUS['error']}"
-            time.sleep(5)
+            # Retry quickly after a platform restart so enabled bots become
+            # available as soon as the database and worker are ready.
+            time.sleep(1)
 
     threading.Thread(target=supervise, name="telegram-bot-supervisor", daemon=True).start()
 
