@@ -1893,10 +1893,8 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
     )
     selected_bot = next(
         (row for row in available_bots if str(row["id"]) == str(selected_bot_id)),
-        available_bots[0] if available_bots else None,
+        None,
     )
-    if not owner and selected_bot is None and available_bots:
-        selected_bot = available_bots[0]
     if not owner:
         bot_ids = authorized_bot_ids(current_user)
         if bot_ids:
@@ -1998,7 +1996,7 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
             f"AND p.bot_id={int(selected_bot['id'])}" if selected_bot and not owner
             else ""
         )
-    )) if section in {"users", "user-search"} else []
+    )) if section in {"users", "user-search"} and (owner or selected_bot) else []
     user_detail_rows = "".join(
         f"<tr class='detail-user-row'><td><a class=\"button-link\" href=\"/user?id={esc(row['user_id'])}\"><code>{esc(row['user_id'])}</code></a></td>"
         f"<td>{esc(row['first_name'])} {esc(row['last_name'])}</td>"
@@ -2064,6 +2062,11 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
             "</tr>"
             for row in posts
         )
+    elif not owner:
+        users = []
+        posts = []
+        user_rows = ""
+        post_rows = ""
     bot_switcher = (
         "<div class='bot-switcher'><span>Активный бот</span>"
         + "".join(
@@ -2410,7 +2413,7 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 {('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Боты</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'group' else '') + '" href="/?view=group"><span class="icon">✦</span>Группа</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else ('<a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Мой бот</a>' if can_access(current_user, 'bots') else ''))}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
 <main class="content">{impersonation_notice}<div class="topbar"><div class="topbar-title"><button type="button" class="mobile-menu-button" id="mobile-menu-button" aria-label="Открыть меню">☰</button><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div></div><div class="topbar-actions"><select id="refresh-interval" aria-label="Частота обновления"><option value="5">Обновление: 5 сек</option><option value="15">Обновление: 15 сек</option><option value="30">Обновление: 30 сек</option><option value="60">Обновление: 1 мин</option><option value="0">Обновление выключено</option></select><select id="interface-language" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="en">English</option></select><button type="button" id="compact-mode-button">Компактный режим</button><a class="button-link" href="/profile">◉ Профиль</a><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
-{('<section id="overview"><div class="cards">' + cards + '</div><div class="insights"><section class="insight-card chart-card"><div class="insight-head"><div><b>Активность за 7 дней</b><span class="muted">Заявки по дням</span></div><span class="live-pill"><i></i> live</span></div><div class="chart">' + chart_bars + '</div></section><section class="insight-card"><div class="insight-head"><div><b>Центр событий</b><span class="muted">Последние изменения</span></div><a class="text-link" href="/?view=actions">Все события →</a></div><ul class="event-list">' + notification_rows + '</ul></section></div></section>' if section == 'overview' else '')}
+{('<section id="overview"><div class="cards">' + cards + '</div><div class="insights"><section class="insight-card chart-card"><div class="insight-head"><div><b>Активность за 7 дней</b><span class="muted">Заявки по дням</span></div><span class="live-pill"><i></i> live</span></div><div class="chart">' + chart_bars + '</div></section><section class="insight-card"><div class="insight-head"><div><b>Центр событий</b><span class="muted">Последние изменения</span></div><a class="text-link" href="/?view=actions">Все события →</a></div><ul class="event-list">' + notification_rows + '</ul></section></div></section>' if section == 'overview' and (owner or selected_bot) else '')}
 {('<div class="toolbar"><input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off"><select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select><select id="kind"><option value="">Все типы</option><option value="text">Текст</option><option value="photo">Фото</option><option value="video">Видео</option><option value="media_group">Медиагруппа</option></select><div class="filter-tabs"><button type="button" class="filter-tab active" data-status="">Все</button><button type="button" class="filter-tab" data-status="pending">На модерации</button><button type="button" class="filter-tab" data-status="published">Опубликовано</button></div><button type="button" onclick="refreshPage()">↻ Обновить</button><a class="button-link" href="/backup">↓ Резервная копия</a></div>' if section == 'overview' else '')}
 {('<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_rows + '</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section><section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>' if section == 'overview' else '')}
 {('<section id="users"><h2>Все пользователи</h2><div class="toolbar"><input id="detail-search" placeholder="Поиск по ID, имени, username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'users' else '')}
