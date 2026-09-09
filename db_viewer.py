@@ -2248,7 +2248,7 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
                 for row in administrators
             )
             approval = {
-                "access": f"""<section id="access"><h2>Заявки на доступ</h2><div class="table-wrap"><table><tr><th>Логин</th><th>Дата</th><th>Действие</th></tr>{rows or '<tr><td colspan=3>Новых заявок нет</td></tr>'}</table></div></section>""",
+                "access": f"""<section id="access"><div class="section-heading"><div><h2>Заявки на доступ</h2><p class="muted">{len(pending)} ожидают решения</p></div><div class="bulk-actions"><form class="inline" method="post" action="/approve-all"><button type="submit" class="bulk-approve" {'disabled' if not pending else ''}>Одобрить все</button></form><form class="inline" method="post" action="/reject-all" onsubmit="return confirm('Отклонить все ожидающие заявки?');"><button type="submit" class="danger" {'disabled' if not pending else ''}>Отклонить все</button></form></div></div><div class="table-wrap"><table><tr><th>Логин</th><th>Дата</th><th>Действие</th></tr>{rows or '<tr><td colspan=3>Новых заявок нет</td></tr>'}</table></div></section>""",
                 "owners": f"""<section id="owners"><h2>Владельцы</h2><form class="owner-form" method="post" action="/add-owner"><input name="username" placeholder="Логин нового владельца" required minlength="3"><input name="password" type="password" placeholder="Пароль нового владельца" required minlength="8"><button>Добавить владельца</button></form><div class="table-wrap"><table><tr><th>Логин</th><th>Добавлен</th></tr>{owner_rows or '<tr><td colspan=2>Дополнительных владельцев нет</td></tr>'}</table></div><h2>Проверка аккаунтов администраторов</h2><p class="muted">Режим проверки не скрывает действие: вход записывается в журнал, а пароль и токены недоступны.</p><div class="table-wrap"><table><tr><th>Логин</th><th>Роль</th><th>Действие</th></tr>{administrator_rows or '<tr><td colspan=3>Администраторов нет</td></tr>'}</table></div></section>""",
                 "actions": actions_section,
             }.get(section, "")
@@ -2336,7 +2336,7 @@ body.light .theme-switch{{background:#fff;box-shadow:0 2px 0 #8c959f;color:#2429
 body.light .nav a:hover,body.light .nav a.active{{background:#ddf4ff;border-color:#54aeff;box-shadow:0 2px 0 #9ecbff;transform:none}}
 body.light .card strong{{font-size:27px}}
 .ai-analysis-button{{font-size:12px;padding:8px 11px;white-space:nowrap;background:linear-gradient(145deg,#29d4c4,#3477e8);box-shadow:0 4px 0 #145c79,0 8px 16px #27d3c244}}.ai-analysis-button:hover{{box-shadow:0 6px 0 #145c79,0 12px 20px #27d3c255}}.ai-card{{position:fixed;z-index:100;inset:0;display:grid;place-items:center;padding:22px;background:#050817aa;backdrop-filter:blur(8px);pointer-events:none;opacity:0;transition:opacity .18s}}.ai-card.open{{opacity:1;pointer-events:auto}}.ai-card-panel{{width:min(680px,100%);max-height:min(760px,90vh);overflow:auto;padding:25px;background:linear-gradient(145deg,#263267,#141d3d);border:1px solid #6685d8;border-radius:20px;box-shadow:14px 16px 0 #050611,0 25px 70px #000c,0 0 40px #27d3c244;transform:translateZ(18px) rotateX(1deg)}}.ai-card-head{{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:16px}}.ai-card-head h2{{margin:0;color:#fff}}.ai-close{{padding:6px 10px!important;background:#273457!important;box-shadow:0 3px 0 #101a33!important}}.ai-loading,.ai-error{{padding:17px;border-radius:12px;background:#101a35;color:#bfd0f3;line-height:1.55}}.ai-error{{color:#ffb8c2;border:1px solid #a84d72}}.ai-result-grid{{display:grid;gap:12px}}.ai-result-block{{padding:14px;border:1px solid #4a629d;border-radius:12px;background:#19254a}}.ai-result-block b{{display:block;color:#89f0df;font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}}.ai-result-block p{{margin:0;line-height:1.55;color:#f4f6ff}}.ai-result-block ul{{margin:0;padding-left:21px;color:#f4f6ff;line-height:1.55}}@media(max-width:700px){{.ai-card-panel{{padding:18px}}}}
-.empty{{display:none;color:#94a3b8;padding:16px}}.inline{{display:inline;margin:0}}.inline button{{margin:0}}.bot-actions{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:205px}}.bot-actions .button-link,.bot-actions button{{white-space:nowrap;min-height:40px}}.owner-form{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 16px}}.owner-form input{{min-width:220px}}section{{scroll-margin-top:20px}}
+.empty{{display:none;color:#94a3b8;padding:16px}}.inline{{display:inline;margin:0}}.inline button{{margin:0}}.section-heading{{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}}.section-heading h2{{margin-bottom:4px}}.section-heading p{{margin:0 0 12px}}.bulk-actions{{display:flex;gap:8px;flex-wrap:wrap}}.bulk-actions button{{padding:10px 14px}}.bulk-actions button:disabled{{opacity:.45;cursor:not-allowed;filter:none}}.bulk-approve{{background:linear-gradient(135deg,#238636,#2ea043)!important;box-shadow:0 5px 0 #196c2e,0 10px 18px #23863633!important}}.bot-actions{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:205px}}.bot-actions .button-link,.bot-actions button{{white-space:nowrap;min-height:40px}}.owner-form{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 16px}}.owner-form input{{min-width:220px}}section{{scroll-margin-top:20px}}
 @media(max-width:1150px){{.cards{{grid-template-columns:repeat(3,1fr)}}.insights{{grid-template-columns:1fr}}}}@keyframes ambientFloat{{0%,100%{{transform:translate3d(0,0,30px) scale(1)}}50%{{transform:translate3d(-25px,22px,90px) scale(1.08)}}}}@keyframes ambientSpin{{to{{transform:rotateX(66deg) rotateZ(378deg)}}}}@keyframes ambientCube{{to{{transform:rotateX(360deg) rotateY(360deg) rotateZ(180deg)}}}}@keyframes particleDrift{{0%,100%{{transform:translate3d(0,0,0);opacity:.35}}50%{{transform:translate3d(-32px,24px,70px);opacity:1}}}}@keyframes pageIn{{from{{opacity:0;transform:translateY(14px) scale(.985)}}to{{opacity:1;transform:none}}}}@keyframes cardIn{{from{{opacity:0;transform:translateY(18px) rotateX(5deg)}}to{{opacity:1;transform:translateY(0) rotateX(0)}}}}@keyframes pulseStatus{{0%,100%{{box-shadow:0 0 0 0 #42e6c700}}50%{{box-shadow:0 0 0 7px #42e6c722}}}}@keyframes newRow{{0%{{background:#27d3c455}}100%{{background:transparent}}}}@keyframes scan{{0%{{transform:translateX(-110%)}}100%{{transform:translateX(110%)}}}}@keyframes spin3d{{to{{transform:rotate(360deg)}}}}
 .content{{animation:pageIn .48s cubic-bezier(.2,.75,.25,1) both;transform-style:preserve-3d}}.card,.insight-card,.toolbar,.table-wrap{{animation:cardIn .55s cubic-bezier(.2,.75,.25,1) both;transform-style:preserve-3d}}.card:nth-child(2){{animation-delay:.06s}}.card:nth-child(3){{animation-delay:.12s}}.card:nth-child(4){{animation-delay:.18s}}.card:nth-child(5){{animation-delay:.24s}}.card:nth-child(6){{animation-delay:.3s}}.live-pill{{animation:pulseStatus 2.4s ease-in-out infinite}}.chart-bar{{transform-origin:bottom;animation:chartRise .7s cubic-bezier(.2,.8,.2,1) both}}@keyframes chartRise{{from{{height:0!important;opacity:0}}to{{opacity:1}}}}
 .compact-mode .content{{padding-top:18px;padding-bottom:24px}}.compact-mode section{{padding-top:12px!important;padding-bottom:12px!important}}.compact-mode h2{{margin-top:20px;margin-bottom:8px}}.compact-mode .card,.compact-mode .setup-card,.compact-mode .bot-center,.compact-mode .table-wrap{{padding:10px!important}}.compact-mode .bot-stage{{min-height:110px!important}}.compact-mode .insights{{gap:8px}}#compact-mode-button.active{{background:linear-gradient(135deg,#3fb950,#238636)}}.topbar-title{{display:flex;align-items:flex-start;gap:10px;min-width:0}}.mobile-menu-button{{display:none;padding:8px 11px!important;font-size:18px!important}}#refresh-interval,#interface-language{{min-width:0;width:auto;padding:9px 10px;font-size:12px}}.mobile-menu-overlay{{display:none}}
@@ -3150,7 +3150,7 @@ class Handler(BaseHTTPRequestHandler):
             "/bot/admin/add", "/bot/admin/remove", "/bot/token",
             "/bot/toggle", "/bot/restart", "/bot/ai-toggle", "/bot/ai-threshold",
             "/legacy/ai-toggle", "/project/create", "/project/join",
-            "/project/leave", "/approve", "/reject", "/add-owner",
+            "/project/leave", "/approve", "/reject", "/approve-all", "/reject-all", "/add-owner",
         }:
             log_action(auth_user(self) or "unknown", "Impersonation restricted action", path)
             self.send_error(403, "Управляющие действия отключены в режиме проверки")
@@ -3916,6 +3916,29 @@ class Handler(BaseHTTPRequestHandler):
             log_action(actor or "owner", "Reject access", username)
             self.send_response(302)
             self.send_header("Location", "/")
+            self.end_headers()
+            return
+        elif path in {"/approve-all", "/reject-all"}:
+            actor = auth_user(self)
+            if not is_owner(actor):
+                log_action(actor or "anonymous", "Bulk access decision denied", path)
+                self.send_error(403)
+                return
+            new_status = "approved" if path == "/approve-all" else "rejected"
+            action_name = "Bulk approve access" if new_status == "approved" else "Bulk reject access"
+            with db_connect() as conn:
+                pending_rows = conn.execute(
+                    "SELECT username FROM dashboard_users WHERE status='pending'"
+                ).fetchall()
+                conn.execute(
+                    "UPDATE dashboard_users SET status=? WHERE status='pending'",
+                    (new_status,),
+                )
+                conn.commit()
+            for pending_row in pending_rows:
+                log_action(actor, action_name, row_value(pending_row, "username", 0))
+            self.send_response(302)
+            self.send_header("Location", "/?view=access")
             self.end_headers()
             return
         elif path == "/add-owner":
