@@ -114,7 +114,15 @@ class Database:
             """CREATE TABLE IF NOT EXISTS bans (
                 user_id INTEGER PRIMARY KEY,
                 reason TEXT,
-                created_at INTEGER
+                created_at INTEGER,
+                bot_id INTEGER
+            )""",
+            """CREATE TABLE IF NOT EXISTS managed_bans (
+                bot_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                reason TEXT,
+                created_at INTEGER,
+                PRIMARY KEY (bot_id, user_id)
             )""",
             """CREATE TABLE IF NOT EXISTS warns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -122,12 +130,19 @@ class Database:
                 reason TEXT,
                 post_id INTEGER,
                 admin_id INTEGER,
-                created_at INTEGER
+                created_at INTEGER,
+                bot_id INTEGER
             )""",
             """CREATE TABLE IF NOT EXISTS banned_words (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 word TEXT NOT NULL UNIQUE,
                 created_at INTEGER
+            )""",
+            """CREATE TABLE IF NOT EXISTS managed_banned_words (
+                bot_id INTEGER NOT NULL,
+                word TEXT NOT NULL,
+                created_at INTEGER,
+                PRIMARY KEY (bot_id, word)
             )""",
             """CREATE TABLE IF NOT EXISTS admin_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -329,6 +344,12 @@ class Database:
                 "user_id": "INTEGER",
                 "text": "TEXT",
             },
+            "bans": {
+                "bot_id": "INTEGER",
+            },
+            "warns": {
+                "bot_id": "INTEGER",
+            },
         }
         for table, columns in migrations.items():
             if self.database_url:
@@ -439,8 +460,13 @@ class Database:
         """, (user_id, first_name, last_name, username, language_code, int(is_premium), now, now))
         await self._commit()
 
-    async def get_user(self, user_id: int) -> Optional[aiosqlite.Row]:
-        cur = await self._execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    async def get_user(self, user_id: int, bot_id: int | None = None) -> Optional[aiosqlite.Row]:
+        query = "SELECT * FROM users WHERE user_id = ?"
+        params = (user_id,)
+        if bot_id:
+            query += " AND EXISTS (SELECT 1 FROM posts WHERE posts.user_id=users.user_id AND posts.bot_id=?)"
+            params += (bot_id,)
+        cur = await self._execute(query, params)
         return await cur.fetchone()
 
     async def set_ui_lang(self, user_id: int, lang: str):
@@ -453,66 +479,128 @@ class Database:
         return row["ui_lang"] if row else None
 
     # ── Bans ──
-    async def ban(self, user_id: int, reason: str = ""):
+    async def ban(self, user_id: int, reason: str = "", bot_id: int | None = None):
         now = int(time.time())
+        if bot_id:
+            await self._execute(
+                """INSERT INTO managed_bans (bot_id, user_id, reason, created_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(bot_id, user_id) DO UPDATE SET
+                   reason=excluded.reason, created_at=excluded.created_at""",
+                (bot_id, user_id, reason, now),
+            )
+            await self._commit()
+            return
+        scope = None
         if self.database_url:
             await self._execute(
-                """INSERT INTO bans (user_id, reason, created_at) VALUES (?, ?, ?)
+                """INSERT INTO bans (user_id, reason, created_at, bot_id) VALUES (?, ?, ?, ?)
                    ON CONFLICT(user_id) DO UPDATE SET
-                   reason=excluded.reason, created_at=excluded.created_at""",
-                (user_id, reason, now),
+                   reason=excluded.reason, created_at=excluded.created_at, bot_id=excluded.bot_id""",
+                (user_id, reason, now, scope),
             )
         else:
             await self._execute(
-                "INSERT OR REPLACE INTO bans (user_id, reason, created_at) VALUES (?, ?, ?)",
-                (user_id, reason, now),
+                "INSERT OR REPLACE INTO bans (user_id, reason, created_at, bot_id) VALUES (?, ?, ?, ?)",
+                (user_id, reason, now, scope),
             )
         await self._commit()
 
-    async def unban(self, user_id: int) -> bool:
-        cur = await self._execute("DELETE FROM bans WHERE user_id = ?", (user_id,))
+    async def unban(self, user_id: int, bot_id: int | None = None) -> bool:
+        if bot_id:
+            cur = await self._execute(
+                "DELETE FROM managed_bans WHERE bot_id=? AND user_id=?",
+                (bot_id, user_id),
+            )
+            await self._commit()
+            return cur.rowcount > 0
+        query = "DELETE FROM bans WHERE user_id = ?"
+        params = (user_id,)
+        query += "" if not bot_id else " AND bot_id = ?"
+        params += () if not bot_id else (bot_id,)
+        cur = await self._execute(query, params)
         await self._commit()
         return cur.rowcount > 0
 
-    async def is_banned(self, user_id: int) -> bool:
-        cur = await self._execute("SELECT 1 FROM bans WHERE user_id = ?", (user_id,))
+    async def is_banned(self, user_id: int, bot_id: int | None = None) -> bool:
+        if bot_id:
+            cur = await self._execute(
+                "SELECT 1 FROM managed_bans WHERE bot_id=? AND user_id=?",
+                (bot_id, user_id),
+            )
+            return await cur.fetchone() is not None
+        query = "SELECT 1 FROM bans WHERE user_id = ?"
+        params = (user_id,)
+        query += "" if not bot_id else " AND bot_id = ?"
+        params += () if not bot_id else (bot_id,)
+        cur = await self._execute(query, params)
         return await cur.fetchone() is not None
 
-    async def list_bans(self) -> list[aiosqlite.Row]:
-        cur = await self._execute("""
+    async def list_bans(self, bot_id: int | None = None) -> list[aiosqlite.Row]:
+        if bot_id:
+            cur = await self._execute(
+                """SELECT b.*, u.first_name, u.username
+                   FROM managed_bans b LEFT JOIN users u ON b.user_id=u.user_id
+                   WHERE b.bot_id=? ORDER BY b.created_at DESC""",
+                (bot_id,),
+            )
+            return await cur.fetchall()
+        query = """
             SELECT b.*, u.first_name, u.username FROM bans b
             LEFT JOIN users u ON b.user_id = u.user_id
-            ORDER BY b.created_at DESC
-        """)
+        """
+        query += " ORDER BY b.created_at DESC"
+        cur = await self._execute(query)
         return await cur.fetchall()
 
     # ── Warns ──
-    async def add_warn(self, user_id: int, reason: str = "", post_id: int | None = None, admin_id: int | None = None):
+    async def add_warn(self, user_id: int, reason: str = "", post_id: int | None = None,
+                       admin_id: int | None = None, bot_id: int | None = None):
         now = int(time.time())
         await self._execute("""
-            INSERT INTO warns (user_id, reason, post_id, admin_id, created_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (user_id, reason, post_id, admin_id, now))
+            INSERT INTO warns (user_id, reason, post_id, admin_id, created_at, bot_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (user_id, reason, post_id, admin_id, now, bot_id))
         await self._commit()
 
-    async def count_warns(self, user_id: int) -> int:
-        cur = await self._execute("SELECT COUNT(*) as cnt FROM warns WHERE user_id = ?", (user_id,))
+    async def count_warns(self, user_id: int, bot_id: int | None = None) -> int:
+        query = "SELECT COUNT(*) as cnt FROM warns WHERE user_id = ?"
+        params = (user_id,)
+        query += "" if not bot_id else " AND bot_id = ?"
+        params += () if not bot_id else (bot_id,)
+        cur = await self._execute(query, params)
         row = await cur.fetchone()
         return row["cnt"] if row else 0
 
-    async def get_warns(self, user_id: int) -> list[aiosqlite.Row]:
-        cur = await self._execute("""
-            SELECT * FROM warns WHERE user_id = ? ORDER BY created_at DESC
-        """, (user_id,))
+    async def get_warns(self, user_id: int, bot_id: int | None = None) -> list[aiosqlite.Row]:
+        query = "SELECT * FROM warns WHERE user_id = ?"
+        params = (user_id,)
+        query += "" if not bot_id else " AND bot_id = ?"
+        params += () if not bot_id else (bot_id,)
+        cur = await self._execute(query + " ORDER BY created_at DESC", params)
         return await cur.fetchall()
 
-    async def clear_warns(self, user_id: int):
-        await self._execute("DELETE FROM warns WHERE user_id = ?", (user_id,))
+    async def clear_warns(self, user_id: int, bot_id: int | None = None):
+        query = "DELETE FROM warns WHERE user_id = ?"
+        params = (user_id,)
+        query += "" if not bot_id else " AND bot_id = ?"
+        params += () if not bot_id else (bot_id,)
+        await self._execute(query, params)
         await self._commit()
 
     # ── Banned words ──
-    async def add_banned_word(self, word: str):
+    async def add_banned_word(self, word: str, bot_id: int | None = None):
         now = int(time.time())
+        if bot_id:
+            try:
+                await self._execute(
+                    "INSERT INTO managed_banned_words (bot_id, word, created_at) VALUES (?, ?, ?)",
+                    (bot_id, word.lower(), now),
+                )
+                await self._commit()
+                return True
+            except Exception:
+                return False
         try:
             await self._execute("INSERT INTO banned_words (word, created_at) VALUES (?, ?)", (word.lower(), now))
             await self._commit()
@@ -520,19 +608,31 @@ class Database:
         except Exception:
             return False
 
-    async def remove_banned_word(self, word: str):
-        await self._execute("DELETE FROM banned_words WHERE word = ?", (word.lower(),))
+    async def remove_banned_word(self, word: str, bot_id: int | None = None):
+        if bot_id:
+            await self._execute(
+                "DELETE FROM managed_banned_words WHERE bot_id=? AND word=?",
+                (bot_id, word.lower()),
+            )
+        else:
+            await self._execute("DELETE FROM banned_words WHERE word = ?", (word.lower(),))
         await self._commit()
 
-    async def list_banned_words(self) -> list[str]:
-        cur = await self._execute("SELECT word FROM banned_words ORDER BY word")
+    async def list_banned_words(self, bot_id: int | None = None) -> list[str]:
+        if bot_id:
+            cur = await self._execute(
+                "SELECT word FROM managed_banned_words WHERE bot_id=? ORDER BY word",
+                (bot_id,),
+            )
+        else:
+            cur = await self._execute("SELECT word FROM banned_words ORDER BY word")
         rows = await cur.fetchall()
         return [r["word"] for r in rows]
 
-    async def check_banned_words(self, text: str | None) -> list[str]:
+    async def check_banned_words(self, text: str | None, bot_id: int | None = None) -> list[str]:
         if not text:
             return []
-        words = await self.list_banned_words()
+        words = await self.list_banned_words(bot_id)
         found = []
         lower = text.lower()
         for w in words:
@@ -623,8 +723,13 @@ class Database:
         except (TypeError, ValueError):
             return 0.92
 
-    async def get_post_by_public(self, public_id: int) -> Optional[aiosqlite.Row]:
-        cur = await self._execute("SELECT * FROM posts WHERE public_id = ?", (public_id,))
+    async def get_post_by_public(self, public_id: int, bot_id: int | None = None) -> Optional[aiosqlite.Row]:
+        query = "SELECT * FROM posts WHERE public_id = ?"
+        params = (public_id,)
+        if bot_id:
+            query += " AND bot_id = ?"
+            params += (bot_id,)
+        cur = await self._execute(query, params)
         return await cur.fetchone()
 
     async def list_pending(self, bot_id: int | None = None) -> list[aiosqlite.Row]:
@@ -707,23 +812,32 @@ class Database:
         """, (post_id, old_text, new_text, now))
         await self._commit()
 
-    async def last_post_time(self, user_id: int) -> Optional[int]:
-        cur = await self._execute("""
-            SELECT created_at FROM posts WHERE user_id = ? ORDER BY created_at DESC LIMIT 1
-        """, (user_id,))
+    async def last_post_time(self, user_id: int, bot_id: int | None = None) -> Optional[int]:
+        query = "SELECT created_at FROM posts WHERE user_id = ?"
+        params = (user_id,)
+        if bot_id:
+            query += " AND bot_id = ?"
+            params += (bot_id,)
+        cur = await self._execute(query + " ORDER BY created_at DESC LIMIT 1", params)
         row = await cur.fetchone()
         return row["created_at"] if row else None
 
-    async def user_posts(self, user_id: int, limit: int = 10) -> list[aiosqlite.Row]:
-        cur = await self._execute("""
-            SELECT * FROM posts WHERE user_id = ? ORDER BY created_at DESC LIMIT ?
-        """, (user_id, limit))
+    async def user_posts(self, user_id: int, limit: int = 10, bot_id: int | None = None) -> list[aiosqlite.Row]:
+        query = "SELECT * FROM posts WHERE user_id = ?"
+        params = (user_id,)
+        if bot_id:
+            query += " AND bot_id = ?"
+            params += (bot_id,)
+        cur = await self._execute(query + " ORDER BY created_at DESC LIMIT ?", params + (limit,))
         return await cur.fetchall()
 
-    async def user_post_counts(self, user_id: int) -> dict[str, int]:
-        cur = await self._execute("""
-            SELECT status, COUNT(*) as cnt FROM posts WHERE user_id = ? GROUP BY status
-        """, (user_id,))
+    async def user_post_counts(self, user_id: int, bot_id: int | None = None) -> dict[str, int]:
+        query = "SELECT status, COUNT(*) as cnt FROM posts WHERE user_id = ?"
+        params = (user_id,)
+        if bot_id:
+            query += " AND bot_id = ?"
+            params += (bot_id,)
+        cur = await self._execute(query + " GROUP BY status", params)
         rows = await cur.fetchall()
         counts = {"total": 0, "pending": 0, "published": 0, "rejected": 0}
         for r in rows:
@@ -731,45 +845,73 @@ class Database:
             counts["total"] += r["cnt"]
         return counts
 
-    async def user_activity_counts(self, user_id: int) -> dict[str, int]:
-        cur = await self._execute("""
+    async def user_activity_counts(self, user_id: int, bot_id: int | None = None) -> dict[str, int]:
+        params = (user_id, user_id, user_id, user_id)
+        if bot_id:
+            params = (user_id, bot_id, user_id, bot_id, user_id, bot_id, user_id, bot_id)
+            query = """
+            SELECT
+                (SELECT COUNT(*) FROM comments c WHERE c.user_id = ? AND EXISTS
+                    (SELECT 1 FROM posts p WHERE p.public_id = c.public_id AND p.bot_id = ?)) AS comments,
+                (SELECT COUNT(*) FROM reports r WHERE reporter_id = ? AND EXISTS
+                    (SELECT 1 FROM posts p WHERE p.public_id = r.public_id AND p.bot_id = ?)) AS reports,
+                (SELECT COUNT(*) FROM votes v WHERE user_id = ? AND EXISTS
+                    (SELECT 1 FROM posts p WHERE p.public_id = v.public_id AND p.bot_id = ?)) AS votes,
+                (SELECT COUNT(*) FROM warns w WHERE user_id = ? AND w.bot_id = ?) AS warns
+            """
+        else:
+            query = """
             SELECT
                 (SELECT COUNT(*) FROM comments WHERE user_id = ?) AS comments,
                 (SELECT COUNT(*) FROM reports WHERE reporter_id = ?) AS reports,
                 (SELECT COUNT(*) FROM votes WHERE user_id = ?) AS votes,
                 (SELECT COUNT(*) FROM warns WHERE user_id = ?) AS warns
-        """, (user_id, user_id, user_id, user_id))
+            """
+        cur = await self._execute(query, params)
         row = await cur.fetchone()
         return {key: row[key] or 0 for key in ("comments", "reports", "votes", "warns")}
 
-    async def posts_last_hour(self, user_id: int) -> int:
+    async def posts_last_hour(self, user_id: int, bot_id: int | None = None) -> int:
         since = int(time.time()) - 3600
-        cur = await self._execute("""
-            SELECT COUNT(*) as cnt FROM posts WHERE user_id = ? AND created_at > ?
-        """, (user_id, since))
+        query = "SELECT COUNT(*) as cnt FROM posts WHERE user_id = ? AND created_at > ?"
+        params = (user_id, since)
+        if bot_id:
+            query += " AND bot_id = ?"
+            params += (bot_id,)
+        cur = await self._execute(query, params)
         row = await cur.fetchone()
         return row["cnt"] if row else 0
 
-    async def find_duplicate(self, user_id: int, text: str | None, file_id: str | None) -> Optional[aiosqlite.Row]:
+    async def find_duplicate(self, user_id: int, text: str | None, file_id: str | None,
+                             bot_id: int | None = None) -> Optional[aiosqlite.Row]:
         since = int(time.time()) - 600
         content = (text or "") + (file_id or "")
         h = hashlib.md5(content.encode()).hexdigest()
-        cur = await self._execute("""
-            SELECT * FROM posts WHERE user_id = ? AND hash = ? AND created_at > ? LIMIT 1
-        """, (user_id, h, since))
+        query = "SELECT * FROM posts WHERE user_id = ? AND hash = ? AND created_at > ?"
+        params = (user_id, h, since)
+        if bot_id:
+            query += " AND bot_id = ?"
+            params += (bot_id,)
+        cur = await self._execute(query + " LIMIT 1", params)
         return await cur.fetchone()
 
-    async def search_posts(self, query: str, limit: int = 20) -> list[aiosqlite.Row]:
+    async def search_posts(self, query: str, limit: int = 20,
+                           bot_id: int | None = None) -> list[aiosqlite.Row]:
         q = f"%{query}%"
-        cur = await self._execute("""
+        sql = """
             SELECT p.*, u.first_name, u.username FROM posts p
             LEFT JOIN users u ON p.user_id = u.user_id
-            WHERE p.text LIKE ? OR p.file_id LIKE ?
-            ORDER BY p.created_at DESC LIMIT ?
-        """, (q, q, limit))
+            WHERE (p.text LIKE ? OR p.file_id LIKE ?)
+        """
+        params = (q, q)
+        if bot_id:
+            sql += " AND p.bot_id = ?"
+            params += (bot_id,)
+        cur = await self._execute(sql + " ORDER BY p.created_at DESC LIMIT ?", params + (limit,))
         return await cur.fetchall()
 
-    async def search_users(self, query: str, limit: int = 20) -> list[aiosqlite.Row]:
+    async def search_users(self, query: str, limit: int = 20,
+                           bot_id: int | None = None) -> list[aiosqlite.Row]:
         """Search users by Telegram ID, username, or display name."""
         query = (query or "").strip()
         if not query:
@@ -779,29 +921,47 @@ class Database:
         except ValueError:
             user_id = -1
         q = f"%{query.lstrip('@')}%"
-        cur = await self._execute("""
+        sql = """
             SELECT u.*,
-                   (SELECT COUNT(*) FROM posts p WHERE p.user_id=u.user_id) AS posts_count,
-                   (SELECT COUNT(*) FROM posts p WHERE p.user_id=u.user_id AND p.status='published') AS published_count,
-                   (SELECT COUNT(*) FROM posts p WHERE p.user_id=u.user_id AND p.status='pending') AS pending_count,
-                   (SELECT COUNT(*) FROM warns w WHERE w.user_id=u.user_id) AS warns_count,
-                   CASE WHEN EXISTS (SELECT 1 FROM bans b WHERE b.user_id=u.user_id)
+                   (SELECT COUNT(*) FROM posts p WHERE p.user_id=u.user_id {post_scope}) AS posts_count,
+                   (SELECT COUNT(*) FROM posts p WHERE p.user_id=u.user_id AND p.status='published' {post_scope}) AS published_count,
+                   (SELECT COUNT(*) FROM posts p WHERE p.user_id=u.user_id AND p.status='pending' {post_scope}) AS pending_count,
+                   (SELECT COUNT(*) FROM warns w WHERE w.user_id=u.user_id {warn_scope}) AS warns_count,
+                   CASE WHEN EXISTS (SELECT 1 FROM {ban_table} b WHERE b.user_id=u.user_id {ban_scope})
                         THEN 1 ELSE 0 END AS is_banned
             FROM users u
-            WHERE u.user_id = ?
+            WHERE (u.user_id = ?
                OR COALESCE(u.username, '') LIKE ?
                OR COALESCE(u.first_name, '') LIKE ?
-               OR COALESCE(u.last_name, '') LIKE ?
-            ORDER BY u.last_seen DESC
-            LIMIT ?
-        """, (user_id, q, q, q, limit))
+               OR COALESCE(u.last_name, '') LIKE ?)
+        """
+        if bot_id:
+            post_scope = "AND p.bot_id = ?"
+            warn_scope = "AND w.bot_id = ?"
+            ban_scope = "AND b.bot_id = ?"
+            ban_table = "managed_bans"
+            params = (bot_id, bot_id, bot_id, bot_id, bot_id, user_id, q, q, q)
+            sql += " AND EXISTS (SELECT 1 FROM posts scoped WHERE scoped.user_id=u.user_id AND scoped.bot_id=?)"
+            params += (bot_id,)
+        else:
+            post_scope = warn_scope = ban_scope = ""
+            ban_table = "bans"
+            params = (user_id, q, q, q)
+        # The optional scopes are interpolated above before execution.
+        sql = sql.format(
+            post_scope=post_scope,
+            warn_scope=warn_scope,
+            ban_scope=ban_scope,
+            ban_table=ban_table,
+        )
+        cur = await self._execute(sql + " ORDER BY u.last_seen DESC LIMIT ?", params + (limit,))
         return await cur.fetchall()
 
-    async def daily_post_stats(self, days: int = 14) -> list[aiosqlite.Row]:
+    async def daily_post_stats(self, days: int = 14, bot_id: int | None = None) -> list[aiosqlite.Row]:
         """Return compact daily post totals for dashboard charts and /stats."""
         days = max(1, min(int(days), 60))
         since = int(time.time()) - days * 86400
-        cur = await self._execute("""
+        query = """
             SELECT (created_at / 86400) AS day,
                    COUNT(*) AS total,
                    SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) AS published,
@@ -809,9 +969,12 @@ class Database:
                    SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END) AS rejected
             FROM posts
             WHERE created_at >= ?
-            GROUP BY (created_at / 86400)
-            ORDER BY day
-        """, (since,))
+        """
+        params = (since,)
+        if bot_id:
+            query += " AND bot_id = ?"
+            params += (bot_id,)
+        cur = await self._execute(query + " GROUP BY (created_at / 86400) ORDER BY day", params)
         return await cur.fetchall()
 
     async def get_top_posts_week(self, limit: int = 5) -> list[aiosqlite.Row]:
@@ -828,21 +991,24 @@ class Database:
         return await cur.fetchall()
 
     # ── Stats ──
-    async def stats(self) -> dict[str, Any]:
-        cur = await self._execute("""
+    async def stats(self, bot_id: int | None = None) -> dict[str, Any]:
+        post_scope = ""
+        if bot_id:
+            post_scope = " WHERE bot_id = ?"
+        cur = await self._execute(f"""
             SELECT 
-                SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) as pending,
-                SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published,
-                SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END) as rejected,
-                SUM(CASE WHEN status='deleted' THEN 1 ELSE 0 END) as deleted,
+                COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END), 0) as pending,
+                COALESCE(SUM(CASE WHEN status='published' THEN 1 ELSE 0 END), 0) as published,
+                COALESCE(SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END), 0) as rejected,
+                COALESCE(SUM(CASE WHEN status='deleted' THEN 1 ELSE 0 END), 0) as deleted,
                 COUNT(DISTINCT user_id) as authors,
-                (SELECT COUNT(*) FROM users) as users,
-                (SELECT COUNT(*) FROM bans) as bans,
-                (SELECT COUNT(*) FROM warns) as warns,
-                (SELECT COUNT(*) FROM reports) as reports,
+                (SELECT COUNT(*) FROM users u {"WHERE EXISTS (SELECT 1 FROM posts up WHERE up.user_id=u.user_id AND up.bot_id=?)" if bot_id else ""}) as users,
+                (SELECT COUNT(*) FROM {"managed_bans" if bot_id else "bans"} {"WHERE bot_id=?" if bot_id else ""}) as bans,
+                (SELECT COUNT(*) FROM warns {"WHERE bot_id=?" if bot_id else ""}) as warns,
+                (SELECT COUNT(*) FROM reports r {"WHERE EXISTS (SELECT 1 FROM posts rp WHERE rp.public_id=r.public_id AND rp.bot_id=?)" if bot_id else ""}) as reports,
                 MAX(public_id) as last_public_id
-            FROM posts
-        """)
+            FROM posts{post_scope}
+        """, (bot_id,) * 5 if bot_id else ())
         row = await cur.fetchone()
         return {
             "pending": row["pending"] or 0,

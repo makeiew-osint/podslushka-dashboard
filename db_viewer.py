@@ -631,6 +631,25 @@ def oauth_state(provider: str) -> str:
     return f"{nonce}.{signature}"
 
 
+def cookie_value(handler: BaseHTTPRequestHandler, name: str) -> str:
+    """Read one URL-decoded cookie without trusting any client-side state."""
+    for item in handler.headers.get("Cookie", "").split(";"):
+        key, separator, value = item.strip().partition("=")
+        if separator and key == name:
+            return urllib.parse.unquote(value)
+    return ""
+
+
+def oauth_cookie_header(provider: str, state: str, clear: bool = False) -> str:
+    secure = "; Secure" if OAUTH_BASE_URL.startswith("https://") else ""
+    if clear:
+        return f"oauth_state_{provider}=; Max-Age=0; HttpOnly; SameSite=Lax{secure}"
+    return (
+        f"oauth_state_{provider}={urllib.parse.quote(state, safe='')}; "
+        f"Max-Age=600; HttpOnly; SameSite=Lax{secure}"
+    )
+
+
 def hmac_digest(value: str, secret: str) -> str:
     return hmac.new(
         (secret or "dashboard-state").encode("utf-8"),
@@ -639,16 +658,21 @@ def hmac_digest(value: str, secret: str) -> str:
     ).hexdigest()
 
 
-def consume_oauth_state(value: str, provider: str) -> bool:
+def consume_oauth_state(value: str, provider: str, bound_state: str = "") -> bool:
     try:
         nonce, signature = value.split(".", 1)
-        expected_provider, issued = OAUTH_STATES.pop(nonce)
+        expected_provider, issued = OAUTH_STATES[nonce]
     except (ValueError, KeyError):
+        return False
+    if bound_state and not secrets.compare_digest(value, bound_state):
         return False
     if expected_provider != provider or int(time.time()) - issued > 600:
         return False
     expected = hmac_digest(f"{provider}:{nonce}:{issued}", OAUTH_SIGNING_SECRET)
-    return secrets.compare_digest(signature, expected)
+    valid = secrets.compare_digest(signature, expected)
+    if valid:
+        OAUTH_STATES.pop(nonce, None)
+    return valid
 
 
 def oauth_redirect(provider: str) -> str:
@@ -852,13 +876,43 @@ def _init_auth_once() -> None:
                 existing_posts = {row[1] for row in conn.execute("PRAGMA table_info(posts)")}
                 if name not in existing_posts:
                     conn.execute(f"ALTER TABLE posts ADD COLUMN {name} {definition}")
-        conn.execute("CREATE TABLE IF NOT EXISTS bans (user_id INTEGER PRIMARY KEY, reason TEXT, created_at INTEGER)")
-        conn.execute("CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, reporter_id INTEGER, reason TEXT, created_at INTEGER)")
+        conn.execute("CREATE TABLE IF NOT EXISTS bans (user_id INTEGER PRIMARY KEY, reason TEXT, created_at INTEGER, bot_id INTEGER)")
+        conn.execute("""CREATE TABLE IF NOT EXISTS managed_bans (
+            bot_id INTEGER NOT NULL, user_id INTEGER NOT NULL, reason TEXT,
+            created_at INTEGER, PRIMARY KEY (bot_id, user_id)
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS managed_banned_words (
+            bot_id INTEGER NOT NULL, word TEXT NOT NULL, created_at INTEGER,
+            PRIMARY KEY (bot_id, word)
+        )""")
+        conn.execute("CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id INTEGER, reporter_id INTEGER, reason TEXT, created_at INTEGER)")
         # These tables are also created by db.py. IF NOT EXISTS keeps PostgreSQL authoritative
         # and never replaces or truncates the bot schema when the dashboard starts.
         conn.execute("CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id INTEGER, user_id INTEGER, text TEXT, created_at INTEGER)")
         conn.execute("CREATE TABLE IF NOT EXISTS votes (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id INTEGER, user_id INTEGER, vote INTEGER, created_at INTEGER)")
-        conn.execute("CREATE TABLE IF NOT EXISTS warns (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, reason TEXT, post_id INTEGER, admin_id INTEGER, created_at INTEGER)")
+        conn.execute("CREATE TABLE IF NOT EXISTS warns (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, reason TEXT, post_id INTEGER, admin_id INTEGER, created_at INTEGER, bot_id INTEGER)")
+        for table in ("bans", "warns"):
+            if DATABASE_URL:
+                existing = {
+                    row["column_name"] for row in conn.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema='public' AND table_name=?", (table,)
+                    )
+                }
+            else:
+                existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+            if "bot_id" not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN bot_id INTEGER")
+        report_columns = (
+            {row["column_name"] for row in conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema='public' AND table_name='reports'"
+            )}
+            if DATABASE_URL else
+            {row[1] for row in conn.execute("PRAGMA table_info(reports)")}
+        )
+        if "public_id" not in report_columns:
+            conn.execute("ALTER TABLE reports ADD COLUMN public_id INTEGER")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_actions_created ON dashboard_actions(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_created_status ON posts(created_at, status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_user_created ON posts(user_id, created_at)")
@@ -1511,6 +1565,7 @@ def complete_oauth(handler: BaseHTTPRequestHandler, provider: str, subject: str,
     log_action(username, f"OAuth {provider} login success", username)
     handler.send_response(302)
     handler.send_header("Location", "/")
+    handler.send_header("Set-Cookie", oauth_cookie_header(provider, "", clear=True))
     secure = "; Secure" if OAUTH_BASE_URL.startswith("https://") else ""
     handler.send_header("Set-Cookie", f"session={token}; HttpOnly; SameSite=Strict{secure}")
     handler.end_headers()
@@ -1607,42 +1662,90 @@ def fmt_time(value, with_seconds: bool = False) -> str:
         return "—"
 
 
-def user_detail_page(current_user: str, user_id: int) -> str:
+def user_detail_page(current_user: str, user_id: int,
+                     scoped_bot_ids: list[int] | None = None) -> str:
     if not can_access(current_user, "users"):
         return ""
-    user_rows = optional_rows("SELECT * FROM users WHERE user_id=?", (user_id,))
+    scoped = scoped_bot_ids is not None
+    bot_ids = [int(value) for value in (scoped_bot_ids or []) if int(value) > 0]
+    marks = ",".join("?" for _ in bot_ids)
+    scope = f" AND bot_id IN ({marks})" if bot_ids else ""
+    scope_params = tuple(bot_ids)
+    user_query = "SELECT * FROM users WHERE user_id=?"
+    user_params = (user_id,)
+    if scoped:
+        user_query += f" AND EXISTS (SELECT 1 FROM posts WHERE posts.user_id=users.user_id AND posts.bot_id IN ({marks}))"
+        user_params += scope_params
+    user_rows = optional_rows(user_query, user_params)
     if not user_rows:
         return ""
     user = user_rows[0]
     display_name = " ".join(filter(None, [user["first_name"], user["last_name"]]))
     posts = optional_rows(
-        "SELECT id, kind, status, text, public_id, created_at, chat_id, chat_type, message_id, "
+        f"SELECT id, kind, status, text, public_id, created_at, chat_id, chat_type, message_id, "
         "content_type, message_date, edit_date, text_chars, text_words, metadata, "
         "ai_analysis, ai_analyzed_at FROM posts "
-        "WHERE user_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
+        f"WHERE user_id=?{scope if scoped else ''} ORDER BY created_at DESC LIMIT 500",
+        (user_id,) + scope_params,
     )
-    comments = optional_rows(
-        "SELECT id, public_id, text, created_at FROM comments "
-        "WHERE user_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
+    if scoped:
+        comments = optional_rows(
+            f"SELECT c.id, c.public_id, c.text, c.created_at FROM comments c "
+            f"JOIN posts p ON p.public_id=c.public_id WHERE c.user_id=?{scope.replace('bot_id', 'p.bot_id')} "
+            "ORDER BY c.created_at DESC LIMIT 500",
+            (user_id,) + scope_params,
+        )
+        votes = optional_rows(
+            f"SELECT v.id, v.public_id, v.vote, v.created_at FROM votes v "
+            f"JOIN posts p ON p.public_id=v.public_id WHERE v.user_id=?{scope.replace('bot_id', 'p.bot_id')} "
+            "ORDER BY v.created_at DESC LIMIT 500",
+            (user_id,) + scope_params,
+        )
+        reports = optional_rows(
+            f"SELECT r.id, r.reason, r.created_at FROM reports r "
+            f"JOIN posts p ON p.public_id=r.public_id WHERE r.reporter_id=?{scope.replace('bot_id', 'p.bot_id')} "
+            "ORDER BY r.created_at DESC LIMIT 500",
+            (user_id,) + scope_params,
+        )
+    else:
+        comments = optional_rows(
+            "SELECT id, public_id, text, created_at FROM comments "
+            "WHERE user_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
+        )
+        votes = optional_rows(
+            "SELECT id, public_id, vote, created_at FROM votes "
+            "WHERE user_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
+        )
+        reports = optional_rows(
+            "SELECT id, reason, created_at FROM reports "
+            "WHERE reporter_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
+        )
+    bans = optional_rows(
+        (f"SELECT user_id, reason, created_at FROM managed_bans WHERE user_id=?"
+         f" AND bot_id IN ({marks})" if scoped
+         else "SELECT user_id, reason, created_at FROM bans WHERE user_id=?"),
+        (user_id,) + scope_params,
     )
-    votes = optional_rows(
-        "SELECT id, public_id, vote, created_at FROM votes "
-        "WHERE user_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
-    )
-    bans = optional_rows("SELECT user_id, reason, created_at FROM bans WHERE user_id=?", (user_id,))
     warns = optional_rows(
-        "SELECT id, reason, post_id, created_at FROM warns "
-        "WHERE user_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
+        f"SELECT id, reason, post_id, created_at FROM warns "
+        f"WHERE user_id=?{scope if scoped else ''} ORDER BY created_at DESC LIMIT 500",
+        (user_id,) + scope_params,
     )
-    reports = optional_rows(
-        "SELECT id, reason, created_at FROM reports "
-        "WHERE reporter_id=? ORDER BY created_at DESC LIMIT 500", (user_id,)
-    )
-    user_actions = optional_rows(
-        "SELECT actor, action, target, created_at FROM dashboard_actions "
-        "WHERE actor=? OR target=? ORDER BY created_at DESC LIMIT 500",
-        (str(user_id), str(user_id)),
-    )
+    if scoped:
+        user_actions = optional_rows(
+            f"SELECT da.actor, da.action, da.target, da.created_at FROM dashboard_actions da "
+            f"WHERE (da.actor=? OR da.target=?) AND EXISTS ("
+            f"SELECT 1 FROM posts p WHERE p.bot_id IN ({marks}) AND "
+            f"(da.target=CAST(p.id AS TEXT) OR da.target LIKE CAST(p.id AS TEXT) || ':%')) "
+            "ORDER BY da.created_at DESC LIMIT 500",
+            (str(user_id), str(user_id)) + scope_params,
+        )
+    else:
+        user_actions = optional_rows(
+            "SELECT actor, action, target, created_at FROM dashboard_actions "
+            "WHERE actor=? OR target=? ORDER BY created_at DESC LIMIT 500",
+            (str(user_id), str(user_id)),
+        )
     profile_counts = {
         "Всего заявок": len(posts),
         "Опубликовано": sum(1 for row in posts if row["status"] == "published"),
@@ -1869,10 +1972,26 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         daily[day]["total"] += total
         if status_name in daily[day]:
             daily[day][status_name] += total
-    recent_actions = optional_rows(
-        "SELECT actor, action, target, created_at FROM dashboard_actions "
-        "ORDER BY created_at DESC LIMIT 8"
-    ) if owner else []
+    if owner:
+        recent_actions = optional_rows(
+            "SELECT actor, action, target, created_at FROM dashboard_actions "
+            "ORDER BY created_at DESC LIMIT 8"
+        )
+    elif scoped_ids:
+        recent_actions = optional_rows(
+            f"""SELECT da.actor, da.action, da.target, da.created_at
+                FROM dashboard_actions da
+                WHERE EXISTS (
+                    SELECT 1 FROM posts p
+                    WHERE p.bot_id IN ({scoped_marks})
+                      AND (da.target=CAST(p.id AS TEXT)
+                           OR da.target LIKE CAST(p.id AS TEXT) || ':%')
+                )
+                ORDER BY da.created_at DESC LIMIT 8""",
+            tuple(scoped_ids),
+        )
+    else:
+        recent_actions = []
     health_started = time.perf_counter()
     database_state = "online"
     database_error = ""
@@ -1882,11 +2001,28 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         database_state = "error"
         database_error = type(exc).__name__
     database_ms = round((time.perf_counter() - health_started) * 1000, 1)
-    last_error_row = optional_rows(
-        "SELECT action, target, created_at FROM dashboard_actions "
-        "WHERE lower(action) LIKE '%error%' OR lower(action) LIKE '%failed%' "
-        "ORDER BY created_at DESC LIMIT 1"
-    )
+    if owner:
+        last_error_row = optional_rows(
+            "SELECT action, target, created_at FROM dashboard_actions "
+            "WHERE lower(action) LIKE '%error%' OR lower(action) LIKE '%failed%' "
+            "ORDER BY created_at DESC LIMIT 1"
+        )
+    elif scoped_ids:
+        last_error_row = optional_rows(
+            f"""SELECT da.action, da.target, da.created_at
+                FROM dashboard_actions da
+                WHERE (lower(da.action) LIKE '%error%' OR lower(da.action) LIKE '%failed%')
+                  AND EXISTS (
+                    SELECT 1 FROM posts p
+                    WHERE p.bot_id IN ({scoped_marks})
+                      AND (da.target=CAST(p.id AS TEXT)
+                           OR da.target LIKE CAST(p.id AS TEXT) || ':%')
+                  )
+                ORDER BY da.created_at DESC LIMIT 1""",
+            tuple(scoped_ids),
+        )
+    else:
+        last_error_row = []
     last_error = (
         f"{last_error_row[0]['action']}: {last_error_row[0]['target']}"
         if last_error_row else (BOT_STATUS.get("error") or database_error or "Нет ошибок")
@@ -2206,7 +2342,26 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
     )
     approval = ""
     if owner or can_access(current_user, "actions"):
-        actions = db_rows("SELECT actor, action, target, created_at FROM dashboard_actions ORDER BY created_at DESC LIMIT 100")
+        if owner:
+            actions = db_rows(
+                "SELECT actor, action, target, created_at FROM dashboard_actions "
+                "ORDER BY created_at DESC LIMIT 100"
+            )
+        elif scoped_ids:
+            actions = db_rows(
+                f"""SELECT da.actor, da.action, da.target, da.created_at
+                    FROM dashboard_actions da
+                    WHERE EXISTS (
+                        SELECT 1 FROM posts p
+                        WHERE p.bot_id IN ({scoped_marks})
+                          AND (da.target=CAST(p.id AS TEXT)
+                               OR da.target LIKE CAST(p.id AS TEXT) || ':%')
+                    )
+                    ORDER BY da.created_at DESC LIMIT 100""",
+                tuple(scoped_ids),
+            )
+        else:
+            actions = []
         action_counts = {
             "Всего событий": len(actions),
             "Публикации": sum(1 for row in actions if "publish" in str(row["action"]).lower() or "approve" in str(row["action"]).lower()),
@@ -2224,13 +2379,28 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
             for row in actions
         )
         history_rows = ""
-        if history_post_id.isdigit():
+        if history_post_id.isdigit() and (
+            owner or (
+                scoped_ids and scalar(
+                    f"SELECT COUNT(*) FROM posts WHERE id=? AND bot_id IN ({scoped_marks})",
+                    (int(history_post_id), *scoped_ids),
+                )
+            )
+        ):
+            history_scope = ""
+            history_params = (history_post_id, f"{history_post_id}:%")
+            if not owner:
+                history_scope = (
+                    f" AND EXISTS (SELECT 1 FROM posts p WHERE p.bot_id IN ({scoped_marks}) "
+                    "AND (da.target=CAST(p.id AS TEXT) OR da.target LIKE CAST(p.id AS TEXT) || ':%'))"
+                )
+                history_params += tuple(scoped_ids)
             history_rows = "".join(
                 f"<tr><td>{fmt_time(row['created_at'], True)}</td><td>{esc(row['actor'])}</td><td>{esc(row['action'])}</td><td>{esc(row['target'])}</td></tr>"
                 for row in optional_rows(
-                    "SELECT actor, action, target, created_at FROM dashboard_actions "
-                    "WHERE target=? OR target LIKE ? ORDER BY created_at ASC",
-                    (history_post_id, f"{history_post_id}:%"),
+                    "SELECT da.actor, da.action, da.target, da.created_at FROM dashboard_actions da "
+                    f"WHERE (da.target=? OR da.target LIKE ?){history_scope} ORDER BY da.created_at ASC",
+                    history_params,
                 )
             )
         history_section = (
@@ -2909,11 +3079,15 @@ class Handler(BaseHTTPRequestHandler):
             })
             self.send_response(302)
             self.send_header("Location", "https://accounts.google.com/o/oauth2/v2/auth?" + query)
+            self.send_header("Set-Cookie", oauth_cookie_header("google", state))
             self.end_headers()
             return
         if path == "/auth/google/callback":
             query = parse_qs(parsed.query)
-            if not consume_oauth_state(query.get("state", [""])[0], "google"):
+            supplied_state = query.get("state", [""])[0]
+            if not consume_oauth_state(
+                supplied_state, "google", cookie_value(self, "oauth_state_google")
+            ):
                 log_action("google:unknown", "OAuth google failed", "invalid_state")
                 self.send_html(auth_page("OAuth state expired or invalid. Start sign-in again."), 400)
                 return
@@ -2955,7 +3129,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/auth/telegram/callback":
             query = parse_qs(parsed.query)
-            if not telegram_login_valid(query):
+            telegram_state = cookie_value(self, "oauth_state_telegram")
+            if not consume_oauth_state(telegram_state, "telegram", telegram_state) or not telegram_login_valid(query):
                 log_action("telegram:unknown", "OAuth telegram failed", "invalid_signature")
                 self.send_html(auth_page("Telegram Login is disabled or the signature is invalid."), 400)
                 return
@@ -2971,9 +3146,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_html(auth_page("Telegram sign-in failed. Try again."), 400)
             return
         if not auth_user(self):
+            telegram_state = (
+                oauth_state("telegram")
+                if TELEGRAM_BOT_USERNAME and TELEGRAM_BOT_TOKEN and OAUTH_BASE_URL
+                else ""
+            )
             body = auth_page().encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            if telegram_state:
+                self.send_header("Set-Cookie", oauth_cookie_header("telegram", telegram_state))
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -2996,10 +3178,36 @@ class Handler(BaseHTTPRequestHandler):
             if not can_access(actor, "overview"):
                 self.send_error(403)
                 return
-            rows = optional_rows(
-                "SELECT actor, action, target, created_at FROM dashboard_actions "
-                "ORDER BY created_at DESC LIMIT 20"
-            )
+            if is_owner(actor):
+                rows = optional_rows(
+                    "SELECT actor, action, target, created_at FROM dashboard_actions "
+                    "ORDER BY created_at DESC LIMIT 20"
+                )
+                pending_query, pending_params = (
+                    "SELECT COUNT(*) FROM posts WHERE status='pending'", ()
+                )
+            else:
+                ids = authorized_bot_ids(actor)
+                if not ids:
+                    self.send_error(403)
+                    return
+                marks = ",".join("?" for _ in ids)
+                rows = optional_rows(
+                    f"""SELECT da.actor, da.action, da.target, da.created_at
+                        FROM dashboard_actions da
+                        WHERE EXISTS (
+                            SELECT 1 FROM posts p
+                            WHERE p.bot_id IN ({marks})
+                              AND (da.target=CAST(p.id AS TEXT)
+                                   OR da.target LIKE CAST(p.id AS TEXT) || ':%')
+                        )
+                        ORDER BY da.created_at DESC LIMIT 20""",
+                    tuple(ids),
+                )
+                pending_query, pending_params = (
+                    f"SELECT COUNT(*) FROM posts WHERE status='pending' AND bot_id IN ({marks})",
+                    tuple(ids),
+                )
             payload = [{
                 "actor": str(row_value(row, "actor", 0) or ""),
                 "action": str(row_value(row, "action", 1) or ""),
@@ -3007,7 +3215,7 @@ class Handler(BaseHTTPRequestHandler):
                 "created_at": int(row_value(row, "created_at", 3) or 0),
             } for row in rows]
             body = json.dumps({"items": payload, "pending": scalar(
-                "SELECT COUNT(*) FROM posts WHERE status='pending'"
+                pending_query, pending_params
             )}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -3022,10 +3230,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(403)
                 return
             since = int(time.time()) - 14 * 86400
+            ids = [] if is_owner(actor) else authorized_bot_ids(actor)
+            if not is_owner(actor) and not ids:
+                self.send_error(403)
+                return
+            marks = ",".join("?" for _ in ids)
+            bot_clause = f" AND bot_id IN ({marks})" if ids else ""
             rows = optional_rows(
                 "SELECT created_at, status, COUNT(*) AS total FROM posts "
-                "WHERE created_at >= ? GROUP BY created_at, status ORDER BY created_at",
-                (since,),
+                f"WHERE created_at >= ?{bot_clause} GROUP BY created_at, status ORDER BY created_at",
+                (since, *ids),
             )
             daily = {}
             for row in rows:
@@ -3035,7 +3249,8 @@ class Handler(BaseHTTPRequestHandler):
                     row_value(row, "total", 2) or 0
                 )
             body = json.dumps({"days": daily, "pending": scalar(
-                "SELECT COUNT(*) FROM posts WHERE status='pending'"
+                f"SELECT COUNT(*) FROM posts WHERE status='pending'{bot_clause}",
+                tuple(ids),
             )}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -3118,23 +3333,33 @@ class Handler(BaseHTTPRequestHandler):
                 ):
                     self.send_error(403)
                     return
-            body = user_detail_page(actor, user_id)
+            body = user_detail_page(
+                actor,
+                user_id,
+                None if is_owner(actor) else authorized_bot_ids(actor),
+            )
             if not body:
                 self.send_error(404)
                 return
             self.send_html(body)
             return
         if path == "/export/users.csv":
-            if not can_access(auth_user(self), "export"):
+            actor = auth_user(self)
+            if not can_access(actor, "export"):
                 self.send_error(403)
                 return
-            log_action(auth_user(self) or "unknown", "Export users CSV", "users")
+            owner = is_owner(actor)
+            ids = authorized_bot_ids(actor) if not owner else []
+            if not owner and not ids:
+                self.send_error(403)
+                return
+            log_action(actor or "unknown", "Export users CSV", "users")
             output = io.StringIO()
             writer = csv.writer(output)
             writer.writerow(["user_id", "first_name", "last_name", "username", "language_code",
                              "ui_lang", "is_premium", "posts", "banned", "warns", "last_seen"])
-            rows = db_rows(
-                """SELECT u.user_id, u.first_name, u.last_name, u.username,
+            if owner:
+                query = """SELECT u.user_id, u.first_name, u.last_name, u.username,
                           u.language_code, u.ui_lang, u.is_premium,
                           COUNT(DISTINCT p.id) AS posts_count,
                           CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS banned,
@@ -3146,7 +3371,24 @@ class Handler(BaseHTTPRequestHandler):
                    GROUP BY u.user_id, u.first_name, u.last_name, u.username,
                             u.language_code, u.ui_lang, u.is_premium, b.user_id, u.last_seen
                    ORDER BY u.user_id"""
-            )
+                params = ()
+            else:
+                marks = ",".join("?" for _ in ids)
+                query = f"""SELECT u.user_id, u.first_name, u.last_name, u.username,
+                          u.language_code, u.ui_lang, u.is_premium,
+                          COUNT(DISTINCT p.id) AS posts_count,
+                          CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS banned,
+                          COUNT(DISTINCT w.id) AS warns_count, u.last_seen
+                   FROM users u
+                   JOIN posts scope ON scope.user_id=u.user_id AND scope.bot_id IN ({marks})
+                   LEFT JOIN posts p ON p.user_id=u.user_id AND p.bot_id IN ({marks})
+                   LEFT JOIN managed_bans b ON b.user_id=u.user_id AND b.bot_id IN ({marks})
+                   LEFT JOIN warns w ON w.user_id=u.user_id AND w.bot_id IN ({marks})
+                   GROUP BY u.user_id, u.first_name, u.last_name, u.username,
+                            u.language_code, u.ui_lang, u.is_premium, b.user_id, u.last_seen
+                   ORDER BY u.user_id"""
+                params = tuple(ids) * 4
+            rows = db_rows(query, params)
             for row in rows:
                 writer.writerow([row[key] for key in (
                     "user_id", "first_name", "last_name", "username", "language_code",
