@@ -76,6 +76,7 @@ SYNC_SECRET = os.getenv("DASHBOARD_SYNC_SECRET", "")
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
 TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 TELEGRAM_UPDATES_CHAT_ID = os.getenv("TELEGRAM_UPDATES_CHAT_ID", "-1003984598730").strip()
+NOTIFICATION_STATUS = {"state": "configured", "last_error": "", "updated_at": 0}
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview").strip() or "gemini-3-flash-preview"
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
@@ -649,12 +650,23 @@ def _init_auth_once() -> None:
             channel_id TEXT,
             enabled INTEGER DEFAULT 0,
             ai_auto_publish INTEGER DEFAULT 0,
+            ai_publish_threshold REAL DEFAULT 0.92,
             state TEXT DEFAULT 'stopped',
             last_error TEXT,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
             UNIQUE(project_id, name)
         )""")
+        managed_columns = (
+            {row["column_name"] for row in conn.execute(
+                """SELECT column_name FROM information_schema.columns
+                   WHERE table_schema='public' AND table_name='managed_bots'"""
+            )}
+            if DATABASE_URL else
+            {row[1] for row in conn.execute("PRAGMA table_info(managed_bots)")}
+        )
+        if "ai_publish_threshold" not in managed_columns:
+            conn.execute("ALTER TABLE managed_bots ADD COLUMN ai_publish_threshold REAL NOT NULL DEFAULT 0.92")
         conn.execute("""CREATE TABLE IF NOT EXISTS bot_admins (
             bot_id INTEGER NOT NULL,
             username TEXT NOT NULL,
@@ -855,7 +867,13 @@ def _notify_updates_group(actor: str, action: str, target: str) -> None:
             )
             with urllib.request.urlopen(request, timeout=8):
                 pass
+            NOTIFICATION_STATUS.update({"state": "online", "last_error": "", "updated_at": int(time.time())})
         except (OSError, urllib.error.URLError, ValueError):
+            NOTIFICATION_STATUS.update({
+                "state": "error",
+                "last_error": "Не удалось отправить уведомление",
+                "updated_at": int(time.time()),
+            })
             logging.exception("Unable to send dashboard update to Telegram")
 
     threading.Thread(target=send, name="telegram-dashboard-update", daemon=True).start()
@@ -1502,7 +1520,11 @@ def profile_page(current_user: str) -> str:
 </style></head><body><main><a href="/">← В панель</a><div class="profile-head"><div class="avatar">◈</div><div><h1>{esc(row['display_name'] or row['username'])}</h1><p class="muted">{esc(row['username'])} · роль: {esc(row['role'])}</p></div></div>
 <section><h2>Профиль доступа</h2><div class="metrics"><div class="metric"><small>Логин</small><b>{esc(row['username'])}</b></div><div class="metric"><small>Роль</small><b>{esc(row['role'])}</b></div><div class="metric"><small>Статус</small><b>{esc(row['status'])}</b></div><div class="metric"><small>Ботов доступно</small><b>{len(bots)}</b></div></div></section>
 <section><h2>Мои боты</h2>{bot_cards}</section>{owner_controls}
-<section><h2>Безопасность</h2><p class="muted">Токены ботов не отображаются. Они хранятся зашифрованными и передаются worker-процессу только во время запуска.</p></section>
+<section><h2>Безопасность</h2><p class="muted">Токены ботов не отображаются. Они хранятся зашифрованными и передаются worker-процессу только во время запуска.</p>
+<form method="post" action="/profile/password" class="password-form"><input type="password" name="current_password" placeholder="Текущий пароль" required minlength="8">
+<input type="password" name="new_password" placeholder="Новый пароль" required minlength="8">
+<input type="password" name="confirm_password" placeholder="Повторите новый пароль" required minlength="8">
+<button type="submit">Обновить пароль</button></form></section>
 </main></body></html>"""
 
 
@@ -1587,6 +1609,13 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         ("Синхронизация", "настроена" if SYNC_SECRET and os.getenv("DASHBOARD_SYNC_URL") else "не настроена", ""),
         ("ИИ Gemini", "настроен" if GEMINI_API_KEY else "не настроен", GEMINI_MODEL),
     ]
+    notification_state = (
+        "не настроены" if not (TELEGRAM_BOT_TOKEN and TELEGRAM_UPDATES_CHAT_ID)
+        else NOTIFICATION_STATUS["state"]
+    )
+    notification_detail = NOTIFICATION_STATUS["last_error"] or (
+        f"чат {TELEGRAM_UPDATES_CHAT_ID}" if TELEGRAM_UPDATES_CHAT_ID else ""
+    )
     scoped_ids = authorized_bot_ids(current_user) if not owner else []
     bot_filter = ""
     bot_params: tuple = ()
@@ -1743,7 +1772,7 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         f"<td><span class='status'>{'включён' if row['enabled'] else 'выключен'}</span></td>"
         f"<td><span class='status'>{esc(row['state'] or 'stopped')}</span>"
         f"{('<small class=\"muted bot-error\">' + esc(row['last_error']) + '</small>') if row['last_error'] else ''}</td>"
-        f"<td>{'включён' if row['ai_auto_publish'] else 'выключен'}"
+        f"<td>{'включён' if row['ai_auto_publish'] else 'выключен'} · порог {float(row.get('ai_publish_threshold', 0.92)):.2f}"
         f"<form class='inline' method='post' action='/bot/ai-toggle'><input type='hidden' name='bot_id' value='{esc(row['id'])}'><input type='hidden' name='enabled' value='{0 if row['ai_auto_publish'] else 1}'><button class='mini-action'>{'Выключить' if row['ai_auto_publish'] else 'Включить'}</button></form></td>"
         f"<td><a class='button-link' href='/?view=monitoring&bot_id={esc(row['id'])}'>Мониторинг →</a>"
         f"{('<form class=\"inline\" method=\"post\" action=\"/bot/toggle\"><input type=\"hidden\" name=\"bot_id\" value=\"' + esc(row['id']) + '\"><input type=\"hidden\" name=\"enabled\" value=\"' + ('0' if row['enabled'] else '1') + '\"><button>' + ('Выключить' if row['enabled'] else 'Включить') + '</button></form>') if owner else ''}</td></tr>"
@@ -1777,6 +1806,15 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         '<button>Сохранить защищённо</button></form>'
         if owner and managed_bots else ""
     )
+    ai_threshold_form = (
+        '<form class="setup-card token-update-card" method="post" action="/bot/ai-threshold">'
+        '<h3>Порог ИИ-автопубликации</h3><p class="muted">Допустимый диапазон 0.50–0.99. Рекомендуется 0.92 или выше.</p>'
+        '<select name="bot_id" required><option value="">Выберите бота</option>'
+        + "".join(f"<option value='{esc(row['id'])}'>{esc(row['name'])}</option>" for row in managed_bots)
+        + '</select><input name="threshold" type="number" min="0.50" max="0.99" step="0.01" value="0.92" required>'
+        '<button>Сохранить порог</button></form>'
+        if owner and managed_bots else ""
+    )
     bot_admin_rows = db_rows(
         """SELECT ba.bot_id, ba.username, ba.telegram_id, b.name AS bot_name
            FROM bot_admins ba JOIN managed_bots b ON b.id=ba.bot_id
@@ -1803,7 +1841,7 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         <div class="table-wrap"><table><tr><th>Бот / проект</th><th>Username</th><th>Канал</th>
         <th>Состояние</th><th>Worker</th><th>ИИ-автопубликация</th><th></th></tr>
         {bot_table_html or '<tr><td colspan=7>Ботов пока нет или у вас нет доступа.</td></tr>'}</table></div>
-        {legacy_import_form}{token_update_form}
+        {legacy_import_form}{token_update_form}{ai_threshold_form}
         {'<form class="setup-card" method="post" action="/bot/admin/add"><h3>Добавить администратора</h3><select name="bot_id" required><option value="">Выберите бота</option>' + ''.join(f"<option value='{esc(row['id'])}'>{esc(row['name'])}</option>" for row in managed_bots) + '</select><input name="username" placeholder="Логин панели" required><input name="telegram_id" inputmode="numeric" placeholder="Telegram ID" required><button>Назначить администратора</button></form>' if owner and managed_bots else ''}
         {admin_list_section}
         {'<h2>Заявки на вступление</h2><div class="table-wrap"><table><tr><th>Проект</th><th>Логин</th><th>Telegram ID</th><th>Дата</th><th>Действие</th></tr>' + (join_request_html or '<tr><td colspan=5>Новых заявок нет.</td></tr>') + '</table></div>' if owner else ''}
@@ -1916,8 +1954,8 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
     )
     group_section = (
         f"<section id='group'><h2>Группа обновлений</h2><div class='health-grid'>"
-        f"<div class='health-item'><span class='health-dot {'ok' if TELEGRAM_BOT_TOKEN and TELEGRAM_UPDATES_CHAT_ID else 'warn'}'></span>"
-        f"<div><b>Telegram-уведомления</b><small>{'включены' if TELEGRAM_BOT_TOKEN and TELEGRAM_UPDATES_CHAT_ID else 'не настроены'} · чат {esc(TELEGRAM_UPDATES_CHAT_ID or '—')}</small></div></div>"
+        f"<div class='health-item'><span class='health-dot {'ok' if notification_state in ('online', 'configured') else 'warn'}'></span>"
+        f"<div><b>Telegram-уведомления</b><small>{esc(notification_state)} · {esc(notification_detail or '—')}</small></div></div>"
         f"</div><p class='muted'>Системные изменения панели отправляются в группу без токенов и паролей.</p></section>"
         if section == "group" and owner else ""
     )
@@ -2773,6 +2811,36 @@ class Handler(BaseHTTPRequestHandler):
             return
         fields = parse_qs(raw_body.decode("utf-8"))
         actor = auth_user(self)
+        if path == "/profile/password":
+            if not actor:
+                self.send_error(401)
+                return
+            current_password = fields.get("current_password", [""])[0]
+            new_password = fields.get("new_password", [""])[0]
+            confirm_password = fields.get("confirm_password", [""])[0]
+            if len(new_password) < 8 or new_password != confirm_password:
+                self.send_error(400, "New passwords must match and contain at least 8 characters")
+                return
+            with db_connect(readonly=True) as conn:
+                account = conn.execute(
+                    "SELECT password_hash FROM dashboard_users WHERE username=?",
+                    (actor,),
+                ).fetchone()
+            if not account or not verify_password(current_password, row_value(account, "password_hash", 0)):
+                log_action(actor, "Password change failed", "invalid_current_password")
+                self.send_error(403, "Current password is incorrect")
+                return
+            with db_connect() as conn:
+                conn.execute(
+                    "UPDATE dashboard_users SET password_hash=? WHERE username=?",
+                    (password_hash(new_password), actor),
+                )
+                conn.commit()
+            log_action(actor, "Password changed", actor)
+            self.send_response(302)
+            self.send_header("Location", "/profile")
+            self.end_headers()
+            return
         if path == "/project/create":
             if not is_owner(actor):
                 self.send_error(403)
@@ -2982,6 +3050,30 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 conn.commit()
             log_action(actor or "owner", "AI auto-publish toggled", f"{bot_id}:{enabled}")
+            self.send_response(302)
+            self.send_header("Location", f"/?view=bots&bot_id={bot_id}")
+            self.end_headers()
+            return
+        if path == "/bot/ai-threshold":
+            if not is_owner(actor):
+                self.send_error(403)
+                return
+            try:
+                bot_id = int(fields.get("bot_id", ["0"])[0])
+                threshold = float(fields.get("threshold", ["0"])[0])
+            except (TypeError, ValueError):
+                self.send_error(400, "Bot and threshold must be valid numbers")
+                return
+            if bot_id <= 0 or not 0.50 <= threshold <= 0.99:
+                self.send_error(400, "Threshold must be between 0.50 and 0.99")
+                return
+            with db_connect() as conn:
+                conn.execute(
+                    "UPDATE managed_bots SET ai_publish_threshold=?, updated_at=? WHERE id=?",
+                    (round(threshold, 2), int(time.time()), bot_id),
+                )
+                conn.commit()
+            log_action(actor or "owner", "AI threshold updated", f"{bot_id}:{threshold:.2f}")
             self.send_response(302)
             self.send_header("Location", f"/?view=bots&bot_id={bot_id}")
             self.end_headers()

@@ -216,6 +216,7 @@ class Database:
                 channel_id TEXT,
                 enabled INTEGER DEFAULT 0,
                 ai_auto_publish INTEGER DEFAULT 0,
+                ai_publish_threshold REAL DEFAULT 0.92,
                 state TEXT DEFAULT 'stopped',
                 last_error TEXT,
                 created_at INTEGER NOT NULL,
@@ -268,6 +269,9 @@ class Database:
 
     async def _migrate_columns(self):
         migrations = {
+            "managed_bots": {
+                "ai_publish_threshold": "REAL DEFAULT 0.92",
+            },
             "posts": {
                 "file_id": "TEXT",
                 "media_group_id": "TEXT",
@@ -515,6 +519,19 @@ class Database:
         )
         row = await cur.fetchone()
         return bool(row and row["ai_auto_publish"])
+
+    async def managed_bot_ai_threshold(self, bot_id: int) -> float:
+        if not bot_id:
+            return 0.92
+        cur = await self._execute(
+            "SELECT ai_publish_threshold FROM managed_bots WHERE id=? AND enabled=1",
+            (bot_id,),
+        )
+        row = await cur.fetchone()
+        try:
+            return min(0.99, max(0.5, float(row["ai_publish_threshold"]))) if row else 0.92
+        except (TypeError, ValueError):
+            return 0.92
 
     async def get_post_by_public(self, public_id: int) -> Optional[aiosqlite.Row]:
         cur = await self._execute("SELECT * FROM posts WHERE public_id = ?", (public_id,))

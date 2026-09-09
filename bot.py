@@ -225,11 +225,12 @@ async def _ai_auto_publish(post_id: int, admin_id: int) -> bool:
         raw = result["candidates"][0]["content"]["parts"][0]["text"]
         decision = json.loads(raw)
         confidence = float(decision.get("confidence", 0))
-        if decision.get("publish") is True and confidence >= 0.92:
+        threshold = await db.managed_bot_ai_threshold(MANAGED_BOT_ID)
+        if decision.get("publish") is True and confidence >= threshold:
             await _publish_pending_post(post, admin_id)
-            await _audit(admin_id, "AI auto-published", f"{post_id}:{confidence:.2f}")
+            await _audit(admin_id, "AI auto-published", f"{post_id}:{confidence:.2f}/{threshold:.2f}")
             return True
-        await _audit(admin_id, "AI sent to review", f"{post_id}:{confidence:.2f}")
+        await _audit(admin_id, "AI sent to review", f"{post_id}:{confidence:.2f}/{threshold:.2f}")
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
         logging.exception("AI auto-moderation failed for post %s", post_id)
         await _audit(admin_id, "AI review fallback", post_id)
