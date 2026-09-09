@@ -1730,6 +1730,16 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         '<button>Перенести в управление</button></form>'
         if owner and legacy_bot_configured() and projects else ""
     )
+    token_update_form = (
+        '<form class="setup-card token-update-card" method="post" action="/bot/token">'
+        '<h3>Обновить токен бота</h3><p class="muted">Старый токен не показывается. После сохранения worker перезапустится автоматически.</p>'
+        '<select name="bot_id" required><option value="">Выберите бота</option>'
+        + "".join(f"<option value='{esc(row['id'])}'>{esc(row['name'])}</option>" for row in managed_bots)
+        + '</select><input name="token" type="password" placeholder="Новый токен бота" minlength="20" required>'
+        '<input name="channel_id" placeholder="Канал: @username или -100...">'
+        '<button>Сохранить защищённо</button></form>'
+        if owner and managed_bots else ""
+    )
     bots_section = (
         f"""<section id="bots"><div class="section-head"><div><h2>Подключённые боты</h2>
         <p class="muted">Токены скрыты и хранятся зашифрованными. Доступ ограничен проектом и ролью.</p></div>
@@ -1738,7 +1748,7 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         <div class="table-wrap"><table><tr><th>Бот / проект</th><th>Username</th><th>Канал</th>
         <th>Состояние</th><th>Worker</th><th>ИИ-автопубликация</th><th></th></tr>
         {bot_table_html or '<tr><td colspan=7>Ботов пока нет или у вас нет доступа.</td></tr>'}</table></div>
-        {legacy_import_form}
+        {legacy_import_form}{token_update_form}
         {'<form class="setup-card" method="post" action="/bot/admin/add"><h3>Добавить администратора</h3><select name="bot_id" required><option value="">Выберите бота</option>' + ''.join(f"<option value='{esc(row['id'])}'>{esc(row['name'])}</option>" for row in managed_bots) + '</select><input name="username" placeholder="Логин панели" required><input name="telegram_id" inputmode="numeric" placeholder="Telegram ID" required><button>Назначить администратора</button></form>' if owner and managed_bots else ''}
         {'<h2>Заявки на вступление</h2><div class="table-wrap"><table><tr><th>Проект</th><th>Логин</th><th>Telegram ID</th><th>Дата</th><th>Действие</th></tr>' + (join_request_html or '<tr><td colspan=5>Новых заявок нет.</td></tr>') + '</table></div>' if owner else ''}
         </section>"""
@@ -2803,6 +2813,43 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 conn.commit()
             log_action(actor or "owner", "Managed bot toggled", f"{bot_id}:{enabled}")
+            self.send_response(302)
+            self.send_header("Location", f"/?view=bots&bot_id={bot_id}")
+            self.end_headers()
+            return
+        if path == "/bot/token":
+            if not is_owner(actor):
+                self.send_error(403)
+                return
+            try:
+                bot_id = int(fields.get("bot_id", ["0"])[0])
+            except (TypeError, ValueError):
+                self.send_error(400, "Invalid bot id")
+                return
+            token = fields.get("token", [""])[0].strip()
+            channel_id = fields.get("channel_id", [""])[0].strip()
+            if bot_id <= 0 or len(token) < 20:
+                self.send_error(400, "A valid bot id and token are required")
+                return
+            try:
+                cipher = encrypt_bot_token(token)
+            except RuntimeError as exc:
+                log_action(actor or "owner", "Bot token update error", str(exc))
+                self.send_error(503, str(exc))
+                return
+            with db_connect() as conn:
+                if channel_id:
+                    conn.execute(
+                        "UPDATE managed_bots SET token_ciphertext=?, channel_id=?, state='starting', last_error='', updated_at=? WHERE id=?",
+                        (cipher, channel_id, int(time.time()), bot_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE managed_bots SET token_ciphertext=?, state='starting', last_error='', updated_at=? WHERE id=?",
+                        (cipher, int(time.time()), bot_id),
+                    )
+                conn.commit()
+            log_action(actor or "owner", "Managed bot credentials updated", str(bot_id))
             self.send_response(302)
             self.send_header("Location", f"/?view=bots&bot_id={bot_id}")
             self.end_headers()
