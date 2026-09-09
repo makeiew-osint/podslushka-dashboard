@@ -336,6 +336,12 @@ def _start_managed_bot(row) -> None:
             name=f"managed-bot-{bot_id}-logs",
             daemon=True,
         ).start()
+    time.sleep(0.5)
+    if process.poll() is not None:
+        _managed_bot_log(bot_id, f"Worker exited during startup (code {process.returncode})")
+        with MANAGED_BOT_LOCK:
+            MANAGED_BOT_PROCESSES.pop(bot_id, None)
+        return
     with db_connect() as conn:
         conn.execute(
             "UPDATE managed_bots SET state='running', last_error='', updated_at=? WHERE id=?",

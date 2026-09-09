@@ -447,11 +447,17 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     u = message.from_user
     await _audit(u.id, "Bot /start", "telegram_user")
-    await db.upsert_user(
-        u.id, u.first_name, u.last_name, u.username,
-        u.language_code, bool(u.is_premium)
-    )
-    ui_lang = await db.get_ui_lang(u.id)
+    try:
+        await db.upsert_user(
+            u.id, u.first_name, u.last_name, u.username,
+            u.language_code, bool(u.is_premium)
+        )
+        ui_lang = await db.get_ui_lang(u.id)
+    except Exception:
+        logging.exception("Could not initialize Telegram user %s", u.id)
+        # A database problem must not make /start look completely dead.
+        await message.answer("Сервис временно запускается. Попробуйте /start ещё раз через несколько секунд.")
+        return
     if not ui_lang:
         await message.answer("Выбери язык / Choose language / Обери мову:", reply_markup=_lang_kb())
         return
