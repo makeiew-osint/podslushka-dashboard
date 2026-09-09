@@ -1740,6 +1740,24 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         '<button>Сохранить защищённо</button></form>'
         if owner and managed_bots else ""
     )
+    bot_admin_rows = db_rows(
+        """SELECT ba.bot_id, ba.username, ba.telegram_id, b.name AS bot_name
+           FROM bot_admins ba JOIN managed_bots b ON b.id=ba.bot_id
+           ORDER BY b.name, ba.username"""
+    ) if owner and section == "bots" else []
+    bot_admin_html = "".join(
+        f"<tr><td>{esc(row['bot_name'])}</td><td>{esc(row['username'])}</td><td>{esc(row['telegram_id'])}</td>"
+        f"<td><form class='inline' method='post' action='/bot/admin/remove' onsubmit='return confirm(\"Удалить администратора?\")'>"
+        f"<input type='hidden' name='bot_id' value='{esc(row['bot_id'])}'><input type='hidden' name='username' value='{esc(row['username'])}'>"
+        f"<button class='danger'>Удалить</button></form></td></tr>"
+        for row in bot_admin_rows
+    )
+    admin_list_section = (
+        "<h2>Администраторы ботов</h2><div class='table-wrap'><table><tr><th>Бот</th><th>Логин</th><th>Telegram ID</th><th>Действие</th></tr>"
+        + (bot_admin_html or "<tr><td colspan=4>Администраторы ещё не назначены.</td></tr>")
+        + "</table></div>"
+        if owner and section == "bots" else ""
+    )
     bots_section = (
         f"""<section id="bots"><div class="section-head"><div><h2>Подключённые боты</h2>
         <p class="muted">Токены скрыты и хранятся зашифрованными. Доступ ограничен проектом и ролью.</p></div>
@@ -1750,6 +1768,7 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         {bot_table_html or '<tr><td colspan=7>Ботов пока нет или у вас нет доступа.</td></tr>'}</table></div>
         {legacy_import_form}{token_update_form}
         {'<form class="setup-card" method="post" action="/bot/admin/add"><h3>Добавить администратора</h3><select name="bot_id" required><option value="">Выберите бота</option>' + ''.join(f"<option value='{esc(row['id'])}'>{esc(row['name'])}</option>" for row in managed_bots) + '</select><input name="username" placeholder="Логин панели" required><input name="telegram_id" inputmode="numeric" placeholder="Telegram ID" required><button>Назначить администратора</button></form>' if owner and managed_bots else ''}
+        {admin_list_section}
         {'<h2>Заявки на вступление</h2><div class="table-wrap"><table><tr><th>Проект</th><th>Логин</th><th>Telegram ID</th><th>Дата</th><th>Действие</th></tr>' + (join_request_html or '<tr><td colspan=5>Новых заявок нет.</td></tr>') + '</table></div>' if owner else ''}
         </section>"""
         if section == "bots" else ""
@@ -1762,6 +1781,24 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         <input name="project_token" placeholder="Токен проекта" required>
         <button>Отправить заявку</button></form></section>"""
         if current_user and not owner else ""
+    )
+    member_projects = []
+    if current_user and not owner:
+        member_projects = db_rows(
+            """SELECT pm.project_id, p.name AS project_name
+               FROM project_members pm JOIN projects p ON p.id=pm.project_id
+               WHERE pm.username=? AND pm.status='approved' ORDER BY p.name""",
+            (current_user,),
+        )
+    leave_project_section = (
+        "<section id='leave-project'><h2>Выйти из проекта</h2><p class='muted'>После выхода доступ к ботам проекта будет снят.</p>"
+        + "".join(
+            f"<form class='inline' method='post' action='/project/leave' onsubmit='return confirm(\"Выйти из проекта?\")'>"
+            f"<input type='hidden' name='project_id' value='{esc(row['project_id'])}'><button class='danger'>Выйти из «{esc(row['project_name'])}»</button></form>"
+            for row in member_projects
+        )
+        + "</section>"
+        if member_projects else ""
     )
     approval = ""
     if owner or can_access(current_user, "actions"):
@@ -1883,7 +1920,7 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 {('<section id="users"><h2>Все пользователи</h2><div class="toolbar"><input id="detail-search" placeholder="Поиск по ID, имени, username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'users' else '')}
 {('<section id="posts"><h2>Все заявки</h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table></div></section>' if section == 'posts' else '')}
 {('<section id="user-search"><h2>Поиск пользователя</h2><div class="toolbar"><input id="detail-search" placeholder="Введите ID, имя или username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'user-search' else '')}
-{bot_switcher}{approval}{bots_section}{project_join_section}{system_section}{monitoring_section}{group_section}
+{bot_switcher}{approval}{bots_section}{project_join_section}{leave_project_section}{system_section}{monitoring_section}{group_section}
 </main></div><div class="ai-card" id="ai-card" aria-hidden="true"><div class="ai-card-panel" role="dialog" aria-modal="true" aria-labelledby="ai-card-title"><div class="ai-card-head"><h2 id="ai-card-title">ИИ-анализ заявки</h2><button type="button" class="ai-close" id="ai-close">Закрыть</button></div><div id="ai-card-body"></div></div></div><script>
 const themeSwitch = document.getElementById('theme-switch');
 function applyTheme(theme) {{
@@ -2796,6 +2833,30 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/?view=bots")
             self.end_headers()
             return
+        if path == "/bot/admin/remove":
+            if not is_owner(actor):
+                self.send_error(403)
+                return
+            try:
+                bot_id = int(fields.get("bot_id", ["0"])[0])
+            except (TypeError, ValueError):
+                self.send_error(400, "Invalid bot id")
+                return
+            admin_username = fields.get("username", [""])[0].strip()
+            if bot_id <= 0 or not admin_username:
+                self.send_error(400, "Username and bot are required")
+                return
+            with db_connect() as conn:
+                conn.execute(
+                    "DELETE FROM bot_admins WHERE bot_id=? AND username=?",
+                    (bot_id, admin_username),
+                )
+                conn.commit()
+            log_action(actor or "owner", "Bot admin removed", f"{bot_id}:{admin_username}")
+            self.send_response(302)
+            self.send_header("Location", "/?view=bots")
+            self.end_headers()
+            return
         if path == "/bot/toggle":
             if not is_owner(actor):
                 self.send_error(403)
@@ -2886,6 +2947,33 @@ class Handler(BaseHTTPRequestHandler):
             log_action(actor, "Project join requested", str(row_value(project, "id", 0)))
             self.send_response(302)
             self.send_header("Location", "/?view=overview")
+            self.end_headers()
+            return
+        if path == "/project/leave":
+            if not actor or is_owner(actor):
+                self.send_error(403)
+                return
+            try:
+                project_id = int(fields.get("project_id", ["0"])[0])
+            except (TypeError, ValueError):
+                self.send_error(400, "Invalid project id")
+                return
+            if project_id <= 0:
+                self.send_error(400, "Project is required")
+                return
+            with db_connect() as conn:
+                conn.execute(
+                    "DELETE FROM project_members WHERE project_id=? AND username=?",
+                    (project_id, actor),
+                )
+                conn.execute(
+                    "DELETE FROM bot_admins WHERE bot_id IN (SELECT id FROM managed_bots WHERE project_id=?) AND username=?",
+                    (project_id, actor),
+                )
+                conn.commit()
+            log_action(actor, "Project left", str(project_id))
+            self.send_response(302)
+            self.send_header("Location", "/?view=bots")
             self.end_headers()
             return
         if path in {"/project/join/approve", "/project/join/reject"}:
