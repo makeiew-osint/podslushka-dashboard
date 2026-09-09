@@ -237,6 +237,20 @@ def _managed_bot_output(bot_id: int, stream) -> None:
             _managed_bot_log(bot_id, message)
 
 
+def _telegram_bot_username(token: str) -> str:
+    """Resolve the public bot username without storing or logging the token."""
+    payload = urllib.parse.urlencode({"timeout": "5"}).encode("utf-8")
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/getMe",
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=8) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    return str(data.get("result", {}).get("username") or "").strip().lstrip("@")
+
+
 def _stop_managed_bot(bot_id: int) -> None:
     with MANAGED_BOT_LOCK:
         process = MANAGED_BOT_PROCESSES.pop(bot_id, None)
@@ -276,6 +290,17 @@ def _start_managed_bot(row) -> None:
     except (RuntimeError, ValueError, TypeError) as exc:
         _managed_bot_log(bot_id, f"Worker configuration error: {type(exc).__name__}")
         return
+    try:
+        username = _telegram_bot_username(token)
+        if username:
+            with db_connect() as conn:
+                conn.execute(
+                    "UPDATE managed_bots SET bot_username=?, updated_at=? WHERE id=?",
+                    (username, int(time.time()), bot_id),
+                )
+                conn.commit()
+    except (OSError, urllib.error.URLError, ValueError, TypeError, json.JSONDecodeError):
+        _managed_bot_log(bot_id, "Bot identity lookup failed")
     env = os.environ.copy()
     env.update({
         "BOT_TOKEN": token,
