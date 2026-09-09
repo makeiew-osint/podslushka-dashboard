@@ -34,6 +34,8 @@ services:
         value: https://podslushka-dashboard.onrender.com
       - key: OAUTH_SIGNING_SECRET
         sync: false
+      - key: MULTIBOT_ENCRYPTION_KEY
+        sync: false
       - key: OWNER_2FA_SECRET
         sync: false
       - key: OWNER_2FA_REQUIRED

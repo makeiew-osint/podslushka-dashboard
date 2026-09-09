@@ -2,3 +2,4 @@ aiogram
 pydantic-settings
 aiosqlite
 psycopg[binary]>=3.2
+cryptography>=42

@@ -186,6 +186,60 @@ class Database:
                 votes_up INTEGER DEFAULT 0,
                 created_at INTEGER
             )""",
+            """CREATE TABLE IF NOT EXISTS projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                school_city TEXT NOT NULL,
+                owner_username TEXT NOT NULL,
+                join_token_hash TEXT NOT NULL UNIQUE,
+                created_at INTEGER NOT NULL,
+                active INTEGER DEFAULT 1
+            )""",
+            """CREATE TABLE IF NOT EXISTS project_members (
+                project_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                member_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT 'admin',
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (project_id, username),
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )""",
+            """CREATE TABLE IF NOT EXISTS managed_bots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                bot_username TEXT,
+                token_ciphertext TEXT NOT NULL,
+                telegram_admin_id BIGINT,
+                channel_id TEXT,
+                enabled INTEGER DEFAULT 0,
+                ai_auto_publish INTEGER DEFAULT 0,
+                state TEXT DEFAULT 'stopped',
+                last_error TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE(project_id, name),
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )""",
+            """CREATE TABLE IF NOT EXISTS bot_admins (
+                bot_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                telegram_id BIGINT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'admin',
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (bot_id, username),
+                FOREIGN KEY (bot_id) REFERENCES managed_bots(id) ON DELETE CASCADE
+            )""",
+            """CREATE TABLE IF NOT EXISTS project_join_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                telegram_id BIGINT NOT NULL,
+                created_at INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )""",
         ]
         indexes = [
             "CREATE INDEX IF NOT EXISTS idx_posts_user ON posts(user_id);",
@@ -201,6 +255,8 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_comments_public ON comments(public_id);",
             "CREATE INDEX IF NOT EXISTS idx_dashboard_actions_created ON dashboard_actions(created_at);",
             "CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_logs(created_at);",
+            "CREATE INDEX IF NOT EXISTS idx_managed_bots_project ON managed_bots(project_id);",
+            "CREATE INDEX IF NOT EXISTS idx_project_members_username ON project_members(username);",
         ]
         for sql in tables:
             await self._execute(sql)

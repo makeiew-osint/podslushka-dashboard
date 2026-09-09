@@ -33,6 +33,11 @@ except ImportError:  # PostgreSQL is optional for local SQLite development.
     psycopg = None
     dict_row = None
 
+try:
+    from cryptography.fernet import Fernet
+except ImportError:  # Only needed when the owner configures managed bots.
+    Fernet = None
+
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "podslushka.db"
@@ -62,15 +67,16 @@ OAUTH_SIGNING_SECRET = (
     or GOOGLE_CLIENT_SECRET
     or TELEGRAM_BOT_TOKEN
 )
+MULTIBOT_ENCRYPTION_KEY = os.getenv("MULTIBOT_ENCRYPTION_KEY", "").strip()
 SESSION_TTL = 60 * 60 * 12
 LOGIN_WINDOW = 15 * 60
 LOGIN_MAX_ATTEMPTS = 8
 ROLE_PERMISSIONS = {
-    "owner": {"overview", "users", "posts", "user-search", "access", "owners", "actions", "health", "monitoring", "export"},
-    "admin": {"overview", "users", "posts", "user-search", "actions", "health", "monitoring", "export"},
+    "owner": {"overview", "users", "posts", "user-search", "access", "owners", "actions", "health", "monitoring", "bots", "group", "export"},
+    "admin": {"overview", "users", "posts", "user-search", "actions", "health", "monitoring", "bots", "export"},
     "moderator": {"overview", "users", "posts", "user-search", "actions", "health", "monitoring", "export"},
     "read-only": {"overview", "users", "posts", "user-search", "health", "monitoring", "export"},
-    "user": {"overview", "users", "posts", "user-search", "health", "monitoring"},
+    "user": {"overview", "users", "posts", "user-search"},
 }
 BOT_STATUS = {"state": "disabled", "error": ""}
 BOT_PROCESS = None
@@ -187,6 +193,29 @@ def esc(value) -> str:
     return html.escape("—" if value is None else str(value))
 
 
+def _bot_cipher():
+    if Fernet is None:
+        raise RuntimeError("cryptography is required for managed bot tokens")
+    if not MULTIBOT_ENCRYPTION_KEY:
+        raise RuntimeError("MULTIBOT_ENCRYPTION_KEY is not configured")
+    key = base64.urlsafe_b64encode(hashlib.sha256(
+        MULTIBOT_ENCRYPTION_KEY.encode("utf-8")
+    ).digest())
+    return Fernet(key)
+
+
+def encrypt_bot_token(token: str) -> str:
+    return _bot_cipher().encrypt(token.encode("utf-8")).decode("ascii")
+
+
+def decrypt_bot_token(ciphertext: str) -> str:
+    return _bot_cipher().decrypt(ciphertext.encode("ascii")).decode("utf-8")
+
+
+def project_join_hash(token: str) -> str:
+    return hmac_digest(token.strip(), MULTIBOT_ENCRYPTION_KEY or OAUTH_SIGNING_SECRET)
+
+
 def db_rows(query: str, params=()):
     with db_connect(readonly=True) as conn:
         return conn.execute(query, params).fetchall()
@@ -242,6 +271,27 @@ def dashboard_role(username: str | None) -> str:
 
 def can_access(username: str | None, section: str) -> bool:
     return section in ROLE_PERMISSIONS.get(dashboard_role(username), set())
+
+
+def managed_bot_rows(username: str | None):
+    if not username:
+        return []
+    if dashboard_role(username) == "owner":
+        return db_rows(
+            "SELECT b.*, p.name AS project_name, p.school_city "
+            "FROM managed_bots b JOIN projects p ON p.id=b.project_id "
+            "ORDER BY p.name, b.name"
+        )
+    return db_rows(
+        """SELECT DISTINCT b.*, p.name AS project_name, p.school_city
+           FROM managed_bots b
+           JOIN projects p ON p.id=b.project_id
+           LEFT JOIN project_members pm ON pm.project_id=p.id AND pm.username=?
+           LEFT JOIN bot_admins ba ON ba.bot_id=b.id AND ba.username=?
+           WHERE (pm.status='approved' OR ba.username IS NOT NULL)
+           ORDER BY p.name, b.name""",
+        (username, username),
+    )
 
 
 def oauth_state(provider: str) -> str:
@@ -358,6 +408,56 @@ def _init_auth_once() -> None:
             attempts INTEGER NOT NULL DEFAULT 0,
             window_started INTEGER NOT NULL
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            school_city TEXT NOT NULL,
+            owner_username TEXT NOT NULL,
+            join_token_hash TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL,
+            active INTEGER DEFAULT 1
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS project_members (
+            project_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            member_id INTEGER NOT NULL,
+            role TEXT NOT NULL DEFAULT 'admin',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (project_id, username)
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS managed_bots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            bot_username TEXT,
+            token_ciphertext TEXT NOT NULL,
+            telegram_admin_id BIGINT,
+            channel_id TEXT,
+            enabled INTEGER DEFAULT 0,
+            ai_auto_publish INTEGER DEFAULT 0,
+            state TEXT DEFAULT 'stopped',
+            last_error TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            UNIQUE(project_id, name)
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS bot_admins (
+            bot_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            telegram_id BIGINT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'admin',
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, username)
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS project_join_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            telegram_id BIGINT NOT NULL,
+            created_at INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending'
+        )""")
         conn.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, username TEXT, language_code TEXT, is_premium INTEGER DEFAULT 0, ui_lang TEXT, first_seen INTEGER, last_seen INTEGER)")
         conn.execute("""CREATE TABLE IF NOT EXISTS posts (
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, kind TEXT, text TEXT,
@@ -393,6 +493,8 @@ def _init_auth_once() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_users_last_seen ON users(last_seen)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_logs(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_expiry ON dashboard_sessions(expires_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_managed_bots_project ON managed_bots(project_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_project_members_username ON project_members(username)")
         if DATABASE_URL:
             for table, column in (
                 ("users", "user_id"), ("posts", "user_id"),
@@ -1240,6 +1342,32 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         f"<td>{datetime.fromtimestamp(row['last_seen']).strftime('%d.%m.%Y %H:%M:%S') if row['last_seen'] else '—'}</td></tr>"
         for row in user_details
     )
+    managed_bots = managed_bot_rows(current_user) if section == "bots" else []
+    projects = db_rows(
+        "SELECT id, name, school_city, owner_username, active FROM projects ORDER BY name"
+    ) if owner and section == "bots" else []
+    project_options = "".join(
+        f"<option value='{esc(row['id'])}'>{esc(row['name'])} · {esc(row['school_city'])}</option>"
+        for row in projects
+    )
+    managed_bot_html = "".join(
+        f"<tr><td><b>{esc(row['name'])}</b><br><span class='muted'>{esc(row['project_name'])} · {esc(row['school_city'])}</span></td>"
+        f"<td>@{esc(row['bot_username'] or '—')}</td><td>{esc(row['channel_id'] or '—')}</td>"
+        f"<td><span class='status'>{'включён' if row['enabled'] else 'выключен'}</span></td>"
+        f"<td>{esc(row['state'] or 'stopped')}</td><td>{'включён' if row['ai_auto_publish'] else 'выключен'}</td>"
+        f"<td><a class='button-link' href='/?view=monitoring&bot_id={esc(row['id'])}'>Мониторинг →</a></td></tr>"
+        for row in managed_bots
+    )
+    bots_section = (
+        f"""<section id="bots"><div class="section-head"><div><h2>Подключённые боты</h2>
+        <p class="muted">Токены скрыты и хранятся зашифрованными. Доступ ограничен проектом и ролью.</p></div>
+        </div>
+        {'<div class="setup-grid"><form class="setup-card" method="post" action="/project/create"><h3>Новый проект</h3><input name="name" placeholder="Название проекта" required><input name="school_city" placeholder="Школа / город" required><button>Создать проект</button></form><form class="setup-card" method="post" action="/bot/create"><h3>Подключить бота</h3><select name="project_id" required><option value="">Выберите проект</option>' + project_options + '</select><input name="name" placeholder="Название бота" required><input name="token" type="password" placeholder="Токен бота" required><input name="telegram_admin_id" inputmode="numeric" placeholder="Ваш Telegram ID" required><input name="channel_id" placeholder="@канал или -100..." required><label><input type="checkbox" name="ai_auto_publish"> ИИ-автопубликация</label><button>Зашифровать и подключить</button></form></div>' if owner else ''}
+        <div class="table-wrap"><table><tr><th>Бот / проект</th><th>Username</th><th>Канал</th>
+        <th>Состояние</th><th>Worker</th><th>ИИ-автопубликация</th><th></th></tr>
+        {managed_bot_html or '<tr><td colspan=7>Ботов пока нет или у вас нет доступа.</td></tr>'}</table></div></section>"""
+        if section == "bots" else ""
+    )
     approval = ""
     if owner or can_access(current_user, "actions"):
         actions = db_rows("SELECT actor, action, target, created_at FROM dashboard_actions ORDER BY created_at DESC LIMIT 100")
@@ -1335,14 +1463,15 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 .content{{animation:pageIn .48s cubic-bezier(.2,.75,.25,1) both}}.card,.insight-card,.toolbar,.table-wrap{{animation:cardIn .55s cubic-bezier(.2,.75,.25,1) both}}.card:nth-child(2){{animation-delay:.06s}}.card:nth-child(3){{animation-delay:.12s}}.card:nth-child(4){{animation-delay:.18s}}.card:nth-child(5){{animation-delay:.24s}}.card:nth-child(6){{animation-delay:.3s}}.live-pill{{animation:pulseStatus 2.4s ease-in-out infinite}}.chart-bar{{transform-origin:bottom;animation:chartRise .7s cubic-bezier(.2,.8,.2,1) both}}@keyframes chartRise{{from{{height:0!important;opacity:0}}to{{opacity:1}}}}
 .health-grid,.monitoring-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}}.health-item{{display:flex;align-items:center;gap:11px;padding:18px;background:linear-gradient(145deg,#1b2940,#172438);border:1px solid #2d4565;border-radius:14px;box-shadow:6px 7px 0 #080f1e,0 12px 24px #03091435;animation:cardIn .5s both}}.health-item b,.health-item small{{display:block}}.health-item small{{color:#9bb0ca;margin-top:5px}}.health-dot{{width:11px;height:11px;border-radius:50%;background:#f0b35a;box-shadow:0 0 14px #f0b35a}}.health-dot.ok{{background:#42e6c7;box-shadow:0 0 14px #42e6c7}}.health-last{{margin-top:15px;padding:14px 17px;border:1px solid #354777;border-radius:12px;background:#131a35;color:#aebcda}}.history-panel{{margin-bottom:20px}}.history-link{{font-size:11px;padding:7px 10px}}
 .action-hero{{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}}.action-metric{{position:relative;overflow:hidden;padding:18px;border:1px solid #40558b;border-radius:16px;background:linear-gradient(145deg,#263567,#151d3c);box-shadow:7px 8px 0 #080d1d,0 12px 28px #060a1d88;transform-style:preserve-3d;animation:cardIn .55s both}}.action-metric:after{{content:"";position:absolute;width:75px;height:75px;right:-20px;top:-25px;border:1px solid #8d9dff66;border-radius:28px;transform:rotate(35deg) translateZ(20px)}}.action-metric span{{display:block;color:#a8b9dc;font-size:11px;text-transform:uppercase;letter-spacing:.8px}}.action-metric b{{display:block;margin-top:8px;font-size:27px;color:#fff}}.action-shell{{position:relative;overflow:hidden;border:1px solid #46588f!important;background:linear-gradient(145deg,#1d2b4a,#131b35)!important;box-shadow:10px 12px 0 #070b18,0 20px 45px #030713aa!important}}.action-shell:before{{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent,#6c7fff0b,transparent);transform:translateX(-100%);animation:scan 5s ease-in-out infinite;pointer-events:none}}.action-table{{position:relative;z-index:1}}.action-row td:first-child{{color:#a9c5ff;font-variant-numeric:tabular-nums}}.action-row td:nth-child(3){{font-weight:700;color:#d9e4ff}}.action-row td:nth-child(4){{color:#9fb1d4}}.action-badge{{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:99px;background:#263b62;border:1px solid #4d6da9;color:#dbe8ff;box-shadow:0 3px 0 #101a31}}.action-badge.publish{{background:#164d50;border-color:#2baca4;color:#a5fff0}}.action-badge.reject,.action-badge.error{{background:#542a48;border-color:#ba527b;color:#ffc0d6}}.action-badge.login{{background:#3f3765;border-color:#8170d4;color:#e0d9ff}}
+.setup-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0 0 20px}}.setup-card{{display:grid;gap:10px;padding:18px;border:1px solid #40558b;border-radius:16px;background:linear-gradient(145deg,#202d50,#131a34);box-shadow:7px 8px 0 #080d1d,0 16px 30px #03071388;animation:cardIn .55s both}}.setup-card h3{{margin:0;color:#dbe7ff}}.setup-card input,.setup-card select{{width:100%;min-width:0}}.setup-card label{{color:#aebddd;font-size:12px}}
 .post-row.new-row{{animation:newRow 1.8s ease-out}}.ai-loading{{position:relative;overflow:hidden}}.ai-loading:after{{content:"";position:absolute;inset:0 auto 0 0;width:42%;background:linear-gradient(90deg,transparent,#27d3c244,transparent);animation:scan 1.35s ease-in-out infinite}}.ai-loading:before{{content:"";display:inline-block;width:15px;height:15px;margin-right:9px;vertical-align:-2px;border:2px solid #89f0df66;border-top-color:#89f0df;border-radius:50%;animation:spin3d .8s linear infinite}}.ai-card.open .ai-card-panel{{animation:cardIn .32s cubic-bezier(.2,.8,.2,1) both}}button,a.button-link{{overflow:hidden}}button:after,a.button-link:after{{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 25%,#ffffff55 48%,transparent 70%);transform:translateX(-120%);pointer-events:none}}button:hover:after,a.button-link:hover:after{{animation:buttonShine .7s ease}}@keyframes buttonShine{{to{{transform:translateX(120%)}}}}
 @media(prefers-reduced-motion:reduce){{*,*::before,*::after{{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.001ms!important}}}}
-@media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:20px 12px 40px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:15px}}.theme-switch{{width:auto;margin:0 0 15px}}.nav{{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}}.nav a{{padding:10px 8px;font-size:12px;min-width:0}}.nav a .icon{{width:16px}}.topbar{{display:block}}.topbar>div:last-child{{display:flex;gap:8px;margin-top:15px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}.toolbar input,.toolbar select{{min-width:0;flex:1;width:100%}}.filter-tabs{{width:100%;overflow:auto;flex-wrap:nowrap}}h1{{font-size:25px}}h2{{font-size:19px;margin-top:30px}}.table-wrap{{margin-right:-4px;border-radius:10px}}.health-grid,.monitoring-grid,.action-hero{{grid-template-columns:1fr 1fr}}.action-metric{{padding:13px}}.action-metric b{{font-size:22px}}.ai-card{{padding:10px}}.ai-card-panel{{max-height:94vh}}}}
+@media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:20px 12px 40px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:15px}}.theme-switch{{width:auto;margin:0 0 15px}}.nav{{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}}.nav a{{padding:10px 8px;font-size:12px;min-width:0}}.nav a .icon{{width:16px}}.topbar{{display:block}}.topbar>div:last-child{{display:flex;gap:8px;margin-top:15px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}.toolbar input,.toolbar select{{min-width:0;flex:1;width:100%}}.filter-tabs{{width:100%;overflow:auto;flex-wrap:nowrap}}h1{{font-size:25px}}h2{{font-size:19px;margin-top:30px}}.table-wrap{{margin-right:-4px;border-radius:10px}}.health-grid,.monitoring-grid,.action-hero,.setup-grid{{grid-template-columns:1fr}}.action-metric{{padding:13px}}.action-metric b{{font-size:22px}}.ai-card{{padding:10px}}.ai-card-panel{{max-height:94vh}}}}
 </style></head><body><div class="layout">
 <aside class="sidebar"><div class="brand"><span class="logo">◈</span><span>Podslushka DB</span></div><button type="button" class="theme-switch" id="theme-switch">☀️ Светлая тема</button><div class="menu-title">Навигация</div><nav class="nav">
 <a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a><a class="{'active' if section == 'health' else ''}" href="/?view=health"><span class="icon">♥</span>Здоровье системы</a><a class="{'active' if section == 'monitoring' else ''}" href="/?view=monitoring"><span class="icon">◉</span>Мониторинг</a>
 <a class="{'active' if section == 'user-search' else ''}" href="/?view=user-search"><span class="icon">⌕</span>Поиск пользователей</a>
-{('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else '')}
+{('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Боты</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else ('<a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Мой бот</a>' if can_access(current_user, 'bots') else ''))}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
 <main class="content"><div class="topbar"><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div><div class="topbar-actions"><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
 {('<section id="overview"><div class="cards">' + cards + '</div><div class="insights"><section class="insight-card chart-card"><div class="insight-head"><div><b>Активность за 7 дней</b><span class="muted">Заявки по дням</span></div><span class="live-pill"><i></i> live</span></div><div class="chart">' + chart_bars + '</div></section><section class="insight-card"><div class="insight-head"><div><b>Центр событий</b><span class="muted">Последние изменения</span></div><a class="text-link" href="/?view=actions">Все события →</a></div><ul class="event-list">' + notification_rows + '</ul></section></div></section>' if section == 'overview' else '')}
@@ -1351,7 +1480,7 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 {('<section id="users"><h2>Все пользователи</h2><div class="toolbar"><input id="detail-search" placeholder="Поиск по ID, имени, username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'users' else '')}
 {('<section id="posts"><h2>Все заявки</h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table></div></section>' if section == 'posts' else '')}
 {('<section id="user-search"><h2>Поиск пользователя</h2><div class="toolbar"><input id="detail-search" placeholder="Введите ID, имя или username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'user-search' else '')}
-{approval}{system_section}{monitoring_section}
+{approval}{bots_section}{system_section}{monitoring_section}
 </main></div><div class="ai-card" id="ai-card" aria-hidden="true"><div class="ai-card-panel" role="dialog" aria-modal="true" aria-labelledby="ai-card-title"><div class="ai-card-head"><h2 id="ai-card-title">ИИ-анализ заявки</h2><button type="button" class="ai-close" id="ai-close">Закрыть</button></div><div id="ai-card-body"></div></div></div><script>
 const themeSwitch = document.getElementById('theme-switch');
 function applyTheme(theme) {{
@@ -2080,6 +2209,143 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         fields = parse_qs(raw_body.decode("utf-8"))
+        actor = auth_user(self)
+        if path == "/project/create":
+            if not is_owner(actor):
+                self.send_error(403)
+                return
+            name = fields.get("name", [""])[0].strip()
+            school_city = fields.get("school_city", [""])[0].strip()
+            if not name or not school_city:
+                self.send_error(400, "Project name and school/city are required")
+                return
+            join_token = secrets.token_urlsafe(18)
+            with db_connect() as conn:
+                conn.execute(
+                    """INSERT INTO projects
+                       (name, school_city, owner_username, join_token_hash, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (name, school_city, actor, project_join_hash(join_token), int(time.time())),
+                )
+                conn.commit()
+            log_action(actor or "owner", "Project created", name)
+            body = auth_page(
+                f"Проект «{html.escape(name)}» создан. Сохраните токен подключения: "
+                f"<code>{html.escape(join_token)}</code>"
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/bot/create":
+            if not is_owner(actor):
+                self.send_error(403)
+                return
+            try:
+                project_id = int(fields.get("project_id", ["0"])[0])
+                telegram_admin_id = int(fields.get("telegram_admin_id", ["0"])[0])
+            except (TypeError, ValueError):
+                self.send_error(400, "Project and Telegram ID must be numeric")
+                return
+            name = fields.get("name", [""])[0].strip()
+            token = fields.get("token", [""])[0].strip()
+            channel_id = fields.get("channel_id", [""])[0].strip()
+            if not all((name, token, channel_id)) or telegram_admin_id == 0:
+                self.send_error(400, "Bot name, token, admin ID and channel are required")
+                return
+            try:
+                cipher = encrypt_bot_token(token)
+            except RuntimeError as exc:
+                log_action(actor or "owner", "Bot setup error", str(exc))
+                self.send_error(503, str(exc))
+                return
+            now = int(time.time())
+            try:
+                with db_connect() as conn:
+                    conn.execute(
+                        """INSERT INTO managed_bots
+                           (project_id, name, token_ciphertext, telegram_admin_id,
+                            channel_id, ai_auto_publish, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            project_id, name, cipher, telegram_admin_id, channel_id,
+                            1 if fields.get("ai_auto_publish") else 0, now, now,
+                        ),
+                    )
+                    conn.commit()
+            except DB_INTEGRITY_ERRORS:
+                self.send_error(409, "A bot with this name already exists in the project")
+                return
+            log_action(actor or "owner", "Managed bot created", f"{project_id}:{name}")
+            self.send_response(302)
+            self.send_header("Location", "/?view=bots")
+            self.end_headers()
+            return
+        if path == "/bot/admin/add":
+            if not is_owner(actor):
+                self.send_error(403)
+                return
+            try:
+                bot_id = int(fields.get("bot_id", ["0"])[0])
+                telegram_id = int(fields.get("telegram_id", ["0"])[0])
+            except (TypeError, ValueError):
+                self.send_error(400, "Bot and Telegram ID must be numeric")
+                return
+            admin_username = fields.get("username", [""])[0].strip()
+            if bot_id <= 0 or telegram_id == 0 or not admin_username:
+                self.send_error(400, "Username, bot and Telegram ID are required")
+                return
+            with db_connect() as conn:
+                conn.execute(
+                    """INSERT INTO bot_admins
+                       (bot_id, username, telegram_id, created_at)
+                       VALUES (?, ?, ?, ?)
+                       ON CONFLICT(bot_id, username) DO UPDATE SET
+                       telegram_id=excluded.telegram_id""",
+                    (bot_id, admin_username, telegram_id, int(time.time())),
+                )
+                conn.commit()
+            log_action(actor or "owner", "Bot admin added", f"{bot_id}:{admin_username}")
+            self.send_response(302)
+            self.send_header("Location", "/?view=bots")
+            self.end_headers()
+            return
+        if path == "/project/join":
+            if not actor:
+                self.send_error(401)
+                return
+            try:
+                telegram_id = int(fields.get("telegram_id", ["0"])[0])
+            except (TypeError, ValueError):
+                self.send_error(400, "Telegram ID must be numeric")
+                return
+            join_token = fields.get("project_token", [""])[0].strip()
+            if telegram_id == 0 or not join_token:
+                self.send_error(400, "Project token and Telegram ID are required")
+                return
+            with db_connect(readonly=True) as conn:
+                project = conn.execute(
+                    "SELECT id FROM projects WHERE join_token_hash=? AND active=1",
+                    (project_join_hash(join_token),),
+                ).fetchone()
+            if not project:
+                self.send_error(404, "Project not found")
+                return
+            with db_connect() as conn:
+                conn.execute(
+                    """INSERT INTO project_join_requests
+                       (project_id, username, telegram_id, created_at)
+                       VALUES (?, ?, ?, ?)""",
+                    (row_value(project, "id", 0), actor, telegram_id, int(time.time())),
+                )
+                conn.commit()
+            log_action(actor, "Project join requested", str(row_value(project, "id", 0)))
+            self.send_response(302)
+            self.send_header("Location", "/?view=overview")
+            self.end_headers()
+            return
         username = fields.get("username", [""])[0].strip()
         password = fields.get("password", [""])[0]
         otp = fields.get("otp", [""])[0].strip()
