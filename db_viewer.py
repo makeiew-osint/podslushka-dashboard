@@ -75,6 +75,7 @@ OWNER_2FA_REQUIRED = os.getenv("OWNER_2FA_REQUIRED", "").strip().lower() in {"1"
 SYNC_SECRET = os.getenv("DASHBOARD_SYNC_SECRET", "")
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
 TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+TELEGRAM_UPDATES_CHAT_ID = os.getenv("TELEGRAM_UPDATES_CHAT_ID", "-1003984598730").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview").strip() or "gemini-3-flash-preview"
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
@@ -800,6 +801,39 @@ def log_action(actor: str, action: str, target: str = "") -> None:
             (numeric_actor, action, f"actor={actor}; target={target}"[:500], int(datetime.now().timestamp())),
         )
         conn.commit()
+    if TELEGRAM_BOT_TOKEN and TELEGRAM_UPDATES_CHAT_ID and action not in {"Login success"}:
+        _notify_updates_group(actor, action, target)
+
+
+def _notify_updates_group(actor: str, action: str, target: str) -> None:
+    """Send a sanitized operational update without blocking the dashboard request."""
+    text = (
+        "🔔 <b>Podslushka DB</b>\n"
+        f"Действие: <code>{html.escape(str(action)[:160])}</code>\n"
+        f"Кто: <code>{html.escape(str(actor)[:80])}</code>\n"
+        f"Объект: <code>{html.escape(str(target)[:180])}</code>"
+    )
+
+    def send() -> None:
+        try:
+            payload = urllib.parse.urlencode({
+                "chat_id": TELEGRAM_UPDATES_CHAT_ID,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": "true",
+            }).encode("utf-8")
+            request = urllib.request.Request(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                data=payload,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=8):
+                pass
+        except (OSError, urllib.error.URLError, ValueError):
+            logging.exception("Unable to send dashboard update to Telegram")
+
+    threading.Thread(target=send, name="telegram-dashboard-update", daemon=True).start()
 
 
 AI_ANALYSIS_LOCK = threading.Lock()
@@ -1789,6 +1823,13 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         f"<p class='muted'>Данные обновляются вместе с панелью. Ошибки и сбои записываются в журнал действий.</p></section>"
         if section == "monitoring" else ""
     )
+    group_section = (
+        f"<section id='group'><h2>Группа обновлений</h2><div class='health-grid'>"
+        f"<div class='health-item'><span class='health-dot {'ok' if TELEGRAM_BOT_TOKEN and TELEGRAM_UPDATES_CHAT_ID else 'warn'}'></span>"
+        f"<div><b>Telegram-уведомления</b><small>{'включены' if TELEGRAM_BOT_TOKEN and TELEGRAM_UPDATES_CHAT_ID else 'не настроены'} · чат {esc(TELEGRAM_UPDATES_CHAT_ID or '—')}</small></div></div>"
+        f"</div><p class='muted'>Системные изменения панели отправляются в группу без токенов и паролей.</p></section>"
+        if section == "group" and owner else ""
+    )
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <title>Podslushka DB</title><style>
@@ -1823,7 +1864,7 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 <aside class="sidebar"><div class="brand"><span class="logo">◈</span><span>Podslushka DB</span></div><button type="button" class="theme-switch" id="theme-switch">☀️ Светлая тема</button><div class="menu-title">Навигация</div><nav class="nav">
 <a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a><a class="{'active' if section == 'health' else ''}" href="/?view=health"><span class="icon">♥</span>Здоровье системы</a><a class="{'active' if section == 'monitoring' else ''}" href="/?view=monitoring"><span class="icon">◉</span>Мониторинг</a>
 <a class="{'active' if section == 'user-search' else ''}" href="/?view=user-search"><span class="icon">⌕</span>Поиск пользователей</a>
-{('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Боты</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else ('<a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Мой бот</a>' if can_access(current_user, 'bots') else ''))}
+{('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Боты</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'group' else '') + '" href="/?view=group"><span class="icon">✦</span>Группа</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else ('<a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Мой бот</a>' if can_access(current_user, 'bots') else ''))}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
 <main class="content"><div class="topbar"><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div><div class="topbar-actions"><a class="button-link" href="/profile">◉ Профиль</a><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
 {('<section id="overview"><div class="cards">' + cards + '</div><div class="insights"><section class="insight-card chart-card"><div class="insight-head"><div><b>Активность за 7 дней</b><span class="muted">Заявки по дням</span></div><span class="live-pill"><i></i> live</span></div><div class="chart">' + chart_bars + '</div></section><section class="insight-card"><div class="insight-head"><div><b>Центр событий</b><span class="muted">Последние изменения</span></div><a class="text-link" href="/?view=actions">Все события →</a></div><ul class="event-list">' + notification_rows + '</ul></section></div></section>' if section == 'overview' else '')}
@@ -1832,7 +1873,7 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 {('<section id="users"><h2>Все пользователи</h2><div class="toolbar"><input id="detail-search" placeholder="Поиск по ID, имени, username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'users' else '')}
 {('<section id="posts"><h2>Все заявки</h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table></div></section>' if section == 'posts' else '')}
 {('<section id="user-search"><h2>Поиск пользователя</h2><div class="toolbar"><input id="detail-search" placeholder="Введите ID, имя или username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'user-search' else '')}
-{bot_switcher}{approval}{bots_section}{project_join_section}{system_section}{monitoring_section}
+{bot_switcher}{approval}{bots_section}{project_join_section}{system_section}{monitoring_section}{group_section}
 </main></div><div class="ai-card" id="ai-card" aria-hidden="true"><div class="ai-card-panel" role="dialog" aria-modal="true" aria-labelledby="ai-card-title"><div class="ai-card-head"><h2 id="ai-card-title">ИИ-анализ заявки</h2><button type="button" class="ai-close" id="ai-close">Закрыть</button></div><div id="ai-card-body"></div></div></div><script>
 const themeSwitch = document.getElementById('theme-switch');
 function applyTheme(theme) {{

@@ -47,4 +47,6 @@ services:
       - key: ADMIN_IDS
         sync: false
       - key: CHANNEL_ID
+        sync: false
+      - key: TELEGRAM_UPDATES_CHAT_ID
         value: "-10042000444335"
