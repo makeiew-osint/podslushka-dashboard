@@ -3501,7 +3501,6 @@ if __name__ == "__main__":
     public_host = "127.0.0.1" if HOST == "0.0.0.0" else HOST
     url = f"http://{public_host}:{PORT}/"
     print(f"DB viewer: {url}")
-    notify_site_state()
     if HOST == "127.0.0.1":
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:

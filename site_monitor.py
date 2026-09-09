@@ -73,7 +73,9 @@ def main() -> int:
     available, details = site_is_available(url)
     current_state = "online" if available else "offline"
     previous_state = previous.get("state")
-    if current_state != previous_state:
+    # The first successful check establishes a baseline; it is not a recovery.
+    # A recovery is reported only after an earlier check observed an outage.
+    if current_state != previous_state and not (previous_state is None and available):
         if available:
             title = "Сайт снова работает"
             body = f"Панель доступна. Проверка: {details}."

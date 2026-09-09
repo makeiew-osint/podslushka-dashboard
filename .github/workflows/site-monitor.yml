@@ -16,12 +16,13 @@ jobs:
       - name: Checkout monitor
         uses: actions/checkout@v4
 
-      - name: Download previous state
-        uses: actions/download-artifact@v4
+      - name: Restore previous state
+        uses: actions/cache/restore@v4
         with:
-          name: site-monitor-state
           path: monitor-state
-          if-no-artifact-found: ignore
+          key: site-monitor-state-${{ github.run_id }}
+          restore-keys: |
+            site-monitor-state-
 
       - name: Check website
         env:
@@ -32,9 +33,7 @@ jobs:
         run: python site_monitor.py
 
       - name: Save current state
-        uses: actions/upload-artifact@v4
+        uses: actions/cache/save@v4
         with:
-          name: site-monitor-state
-          path: monitor-state/monitor-state.json
-          overwrite: true
-          retention-days: 7
+          path: monitor-state
+          key: site-monitor-state-${{ github.run_id }}
