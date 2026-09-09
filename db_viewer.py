@@ -601,6 +601,10 @@ def _init_auth_once() -> None:
             target TEXT,
             created_at INTEGER NOT NULL
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS dashboard_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS admin_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             admin_id BIGINT NOT NULL,
@@ -1953,11 +1957,38 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         f"<p class='muted'>Данные обновляются вместе с панелью. Ошибки и сбои записываются в журнал действий.</p></section>"
         if section == "monitoring" else ""
     )
+    group_ai_cards = "".join(
+        f"<div class='group-ai-card'><div><b>{esc(row['name'])}</b>"
+        f"<small>{esc(row['project_name'])} · порог {float(row.get('ai_publish_threshold', 0.92)):.2f}</small></div>"
+        f"<span class='status {'status-on' if row['ai_auto_publish'] else 'status-off'}'>"
+        f"{'AI включён' if row['ai_auto_publish'] else 'AI выключен'}</span>"
+        f"<form method='post' action='/bot/ai-toggle'><input type='hidden' name='bot_id' value='{esc(row['id'])}'>"
+        f"<input type='hidden' name='enabled' value='{'0' if row['ai_auto_publish'] else '1'}'>"
+        f"<button class='mini-action'>{'Выключить AI' if row['ai_auto_publish'] else 'Включить AI'}</button></form></div>"
+        for row in managed_bot_rows(current_user)
+    )
+    legacy_ai_enabled = bool(scalar(
+        "SELECT value FROM dashboard_settings WHERE key='legacy_ai_auto_publish'"
+    ) in {"1", "true", "yes"})
+    if owner and legacy_bot_configured():
+        group_ai_cards += (
+            f"<div class='group-ai-card'><div><b>Основной бот</b>"
+            f"<small>Legacy-конфигурация · порог 0.92</small></div>"
+            f"<span class='status {'status-on' if legacy_ai_enabled else 'status-off'}'>"
+            f"{'AI включён' if legacy_ai_enabled else 'AI выключен'}</span>"
+            f"<form method='post' action='/legacy/ai-toggle'><input type='hidden' name='enabled' value='{'0' if legacy_ai_enabled else '1'}'>"
+            f"<button class='mini-action'>{'Выключить AI' if legacy_ai_enabled else 'Включить AI'}</button></form></div>"
+        )
+    group_ai_section = (
+        f"<div class='group-ai'><div class='group-ai-head'><div><b>AI-автопубликация</b>"
+        f"<small>Управляйте тем, какие боты могут автоматически выкладывать безопасные заявки в свои каналы.</small></div>"
+        f"<span class='group-ai-orb'>AI</span></div>{group_ai_cards or '<p class=\"muted\">Managed-боты ещё не подключены.</p>'}</div>"
+    )
     group_section = (
         f"<section id='group'><h2>Группа обновлений</h2><div class='health-grid'>"
         f"<div class='health-item'><span class='health-dot {'ok' if notification_state in ('online', 'configured') else 'warn'}'></span>"
         f"<div><b>Telegram-уведомления</b><small>{esc(notification_state)} · {esc(notification_detail or '—')}</small></div></div>"
-        f"</div><p class='muted'>Системные изменения панели отправляются в группу без токенов и паролей.</p></section>"
+        f"</div><p class='muted'>Системные изменения панели отправляются в группу без токенов и паролей.</p>{group_ai_section}</section>"
         if section == "group" and owner else ""
     )
     return f"""<!doctype html>
@@ -1984,6 +2015,7 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 @media(max-width:1150px){{.cards{{grid-template-columns:repeat(3,1fr)}}.insights{{grid-template-columns:1fr}}}}@keyframes pageIn{{from{{opacity:0;transform:translateY(14px) scale(.985)}}to{{opacity:1;transform:none}}}}@keyframes cardIn{{from{{opacity:0;transform:translateY(18px) rotateX(5deg)}}to{{opacity:1;transform:translateY(0) rotateX(0)}}}}@keyframes pulseStatus{{0%,100%{{box-shadow:0 0 0 0 #42e6c700}}50%{{box-shadow:0 0 0 7px #42e6c722}}}}@keyframes newRow{{0%{{background:#27d3c455}}100%{{background:transparent}}}}@keyframes scan{{0%{{transform:translateX(-110%)}}100%{{transform:translateX(110%)}}}}@keyframes spin3d{{to{{transform:rotate(360deg)}}}}
 .content{{animation:pageIn .48s cubic-bezier(.2,.75,.25,1) both}}.card,.insight-card,.toolbar,.table-wrap{{animation:cardIn .55s cubic-bezier(.2,.75,.25,1) both}}.card:nth-child(2){{animation-delay:.06s}}.card:nth-child(3){{animation-delay:.12s}}.card:nth-child(4){{animation-delay:.18s}}.card:nth-child(5){{animation-delay:.24s}}.card:nth-child(6){{animation-delay:.3s}}.live-pill{{animation:pulseStatus 2.4s ease-in-out infinite}}.chart-bar{{transform-origin:bottom;animation:chartRise .7s cubic-bezier(.2,.8,.2,1) both}}@keyframes chartRise{{from{{height:0!important;opacity:0}}to{{opacity:1}}}}
 .health-grid,.monitoring-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}}.health-item{{position:relative;overflow:hidden;display:flex;align-items:center;gap:11px;padding:18px;background:linear-gradient(145deg,#1b2940,#172438);border:1px solid #2d4565;border-radius:14px;box-shadow:6px 7px 0 #080f1e,0 12px 24px #03091435;animation:cardIn .5s both;transform-style:preserve-3d;transition:.25s}}.health-item:after{{content:"";position:absolute;width:70px;height:70px;right:-24px;top:-28px;border:1px solid #6b91d955;border-radius:22px;transform:rotate(35deg);animation:modelFloat 7s ease-in-out infinite}}.health-item:hover{{transform:translateY(-4px) rotateX(2deg);box-shadow:9px 11px 0 #080f1e,0 18px 30px #347cff22}}.health-item b,.health-item small{{display:block}}.health-item small{{color:#9bb0ca;margin-top:5px}}.bot-error{{display:block;max-width:220px;margin-top:6px;color:#ffb8c2!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.health-dot{{width:11px;height:11px;flex:none;border-radius:50%;background:#f0b35a;box-shadow:0 0 14px #f0b35a;animation:pulseStatus 2.4s ease-in-out infinite}}.health-dot.ok{{background:#42e6c7;box-shadow:0 0 14px #42e6c7}}.health-last{{margin-top:15px;padding:14px 17px;border:1px solid #354777;border-radius:12px;background:#131a35;color:#aebcda;box-shadow:4px 5px 0 #080f1e}}.history-panel{{margin-bottom:20px}}.history-link{{font-size:11px;padding:7px 10px}}
+.group-ai{{position:relative;overflow:hidden;margin-top:18px;padding:20px;border:1px solid #4764a1;border-radius:18px;background:linear-gradient(145deg,#1c315d,#111a35);box-shadow:8px 9px 0 #080f1e,0 18px 38px #347cff22;transform-style:preserve-3d}}.group-ai:before{{content:"";position:absolute;width:160px;height:160px;right:-55px;top:-80px;border:1px solid #7da5ff66;border-radius:50%;animation:ringSpin 9s linear infinite}}.group-ai-head{{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:13px}}.group-ai-head b{{display:block;font-size:16px;color:#e7f0ff}}.group-ai-head small,.group-ai-card small{{display:block;margin-top:5px;color:#aebddd;line-height:1.4}}.group-ai-orb{{display:grid;place-items:center;width:48px;height:48px;border-radius:50%;color:#dff;letter-spacing:1px;font-weight:900;background:radial-gradient(circle at 30% 25%,#c4ffff,#3578e8 42%,#392caa);box-shadow:0 0 28px #3d9dff99,5px 6px 0 #101a3a;animation:orbFloat 4s ease-in-out infinite}}.group-ai-card{{position:relative;z-index:1;display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:14px;padding:13px 15px;margin-top:9px;border:1px solid #3e578b;border-radius:13px;background:#142544dd;transition:.22s;transform-style:preserve-3d}}.group-ai-card:hover{{transform:translateY(-3px) rotateX(2deg);box-shadow:5px 7px 0 #09152b}}.group-ai-card b{{color:#eef5ff}}.status-on{{background:#164d50!important;border:1px solid #2baca4;color:#a5fff0!important}}.status-off{{background:#3b334c!important;border:1px solid #77629c;color:#d9d0ff!important}}.group-ai-card form{{margin:0}}.group-ai-card .mini-action{{margin:0!important;white-space:nowrap}}
 .action-hero{{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}}.action-metric{{position:relative;overflow:hidden;padding:18px;border:1px solid #40558b;border-radius:16px;background:linear-gradient(145deg,#263567,#151d3c);box-shadow:7px 8px 0 #080d1d,0 12px 28px #060a1d88;transform-style:preserve-3d;animation:cardIn .55s both}}.action-metric:after{{content:"";position:absolute;width:75px;height:75px;right:-20px;top:-25px;border:1px solid #8d9dff66;border-radius:28px;transform:rotate(35deg) translateZ(20px)}}.action-metric span{{display:block;color:#a8b9dc;font-size:11px;text-transform:uppercase;letter-spacing:.8px}}.action-metric b{{display:block;margin-top:8px;font-size:27px;color:#fff}}.action-shell{{position:relative;overflow:hidden;border:1px solid #46588f!important;background:linear-gradient(145deg,#1d2b4a,#131b35)!important;box-shadow:10px 12px 0 #070b18,0 20px 45px #030713aa!important}}.action-shell:before{{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent,#6c7fff0b,transparent);transform:translateX(-100%);animation:scan 5s ease-in-out infinite;pointer-events:none}}.action-table{{position:relative;z-index:1}}.action-row td:first-child{{color:#a9c5ff;font-variant-numeric:tabular-nums}}.action-row td:nth-child(3){{font-weight:700;color:#d9e4ff}}.action-row td:nth-child(4){{color:#9fb1d4}}.action-badge{{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:99px;background:#263b62;border:1px solid #4d6da9;color:#dbe8ff;box-shadow:0 3px 0 #101a31}}.action-badge.publish{{background:#164d50;border-color:#2baca4;color:#a5fff0}}.action-badge.reject,.action-badge.error{{background:#542a48;border-color:#ba527b;color:#ffc0d6}}.action-badge.login{{background:#3f3765;border-color:#8170d4;color:#e0d9ff}}
 .setup-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0 0 20px}}.bot-stage{{position:relative;display:grid;place-items:center;min-height:170px;margin:0 0 17px;border:1px solid #547ac2;border-radius:21px;background:radial-gradient(circle at 50% 42%,#367dff44,transparent 32%),linear-gradient(145deg,#1b3970,#0b142b);box-shadow:9px 11px 0 #080d1d,0 0 45px #347cff33,inset 0 1px #b1d0ff22;overflow:hidden;perspective:700px}}.bot-stage:before,.bot-stage:after{{content:"";position:absolute;border:1px solid #61a0ff77;border-radius:50%;transform:rotateX(68deg);animation:ringSpin 8s linear infinite}}.bot-stage:before{{width:210px;height:78px;box-shadow:0 0 22px #3d8dff33}}.bot-stage:after{{width:290px;height:120px;animation-direction:reverse;animation-duration:11s}}.bot-stage-glow{{position:absolute;width:110px;height:110px;border-radius:50%;background:#318bff35;filter:blur(24px);animation:orbFloat 4.5s ease-in-out infinite}}.bot-model{{position:relative;width:62px;height:62px;transform-style:preserve-3d;animation:cubeFloat 5s ease-in-out infinite}}.bot-model i,.bot-model b{{position:absolute;inset:0;border:1px solid #b6d0ffbb;background:linear-gradient(135deg,#6b91ffbb,#20d8c944);box-shadow:0 0 25px #3988ff99,inset 0 0 14px #b2d4ff33;backface-visibility:hidden}}.bot-model i:nth-child(1){{transform:translateZ(31px)}}.bot-model i:nth-child(2){{transform:rotateY(180deg) translateZ(31px)}}.bot-model i:nth-child(3){{transform:rotateY(90deg) translateZ(31px)}}.bot-model i:nth-child(4){{transform:rotateY(-90deg) translateZ(31px)}}.bot-model i:nth-child(5){{transform:rotateX(90deg) translateZ(31px)}}.bot-model i:nth-child(6){{transform:rotateX(-90deg) translateZ(31px)}}.bot-stage-label{{position:absolute;bottom:13px;color:#c4dbff;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;text-shadow:0 0 12px #4d9aff}}.setup-card{{position:relative;isolation:isolate;display:grid;gap:10px;padding:19px;border:1px solid #40558b;border-radius:18px;background:linear-gradient(145deg,#202d50,#131a34);box-shadow:7px 8px 0 #080d1d,0 16px 30px #03071388;animation:cardIn .55s both;overflow:hidden;transition:transform .3s,box-shadow .3s}}.setup-card:hover{{transform:translateY(-5px) rotateX(1deg);box-shadow:10px 13px 0 #080d1d,0 22px 42px #216dff33}}.setup-card:before{{content:"";position:absolute;z-index:-1;width:105px;height:105px;right:-33px;top:-40px;border:1px solid #70a7ff55;border-radius:25px;transform:rotate(35deg);box-shadow:inset 0 0 24px #3f8dff33,0 0 24px #3f8dff22;animation:modelFloat 6s ease-in-out infinite}}.setup-card:after{{content:"";position:absolute;z-index:-1;width:54px;height:54px;right:52px;bottom:-26px;border-radius:50%;background:radial-gradient(circle at 30% 25%,#b7f5ff,#2187d466 36%,transparent 70%);filter:blur(.2px);animation:orbFloat 4.5s ease-in-out infinite}}.setup-card input,.setup-card select{{width:100%;min-width:0;transition:.22s;background:linear-gradient(145deg,#0e1b32,#101a2d);box-shadow:inset 0 1px #ffffff09,0 3px 0 #0a1222}}.setup-card input:hover,.setup-card select:hover{{border-color:#6795dc;transform:translateY(-1px)}}.setup-card input:focus,.setup-card select:focus{{transform:translateY(-2px);box-shadow:0 0 0 3px #3988ff2b,0 5px 0 #0a1222}}.field-help{{display:flex;align-items:center;gap:7px;color:inherit;font-size:inherit}}.field-help input{{flex:1;min-width:0}}.help-button{{position:relative;z-index:5;pointer-events:auto;width:32px!important;min-width:32px!important;height:32px!important;min-height:32px!important;padding:0!important;border-radius:50%!important;font-size:14px!important;box-shadow:0 3px 0 #2052a0!important;background:linear-gradient(145deg,#3da8ff,#5365e9)!important}}.help-button:before,.help-button:after{{display:none!important}}.help-button:hover{{transform:translateY(-2px) rotate(8deg)!important}}.help-toast{{position:fixed;z-index:250;right:24px;bottom:24px;width:min(360px,calc(100vw - 48px));padding:15px 18px;border:1px solid #6f9bff;border-radius:14px;background:linear-gradient(145deg,#223b70,#111a35);color:#eef5ff;box-shadow:8px 9px 0 #050b18,0 0 30px #317fff55;transform:translateY(20px) scale(.94);opacity:0;pointer-events:none;transition:.22s}}.help-toast.open{{transform:none;opacity:1}}.help-toast b{{display:block;color:#8ff4e1;font-size:12px;margin-bottom:5px}}
 .bot-switcher{{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 18px;padding:10px 12px;border:1px solid #354979;border-radius:14px;background:#111b34;box-shadow:5px 6px 0 #080d1d;animation:cardIn .45s both}}.bot-switcher span{{color:#9fb4d4;font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-right:3px}}.bot-switcher a{{padding:7px 11px;border:1px solid #40558b;border-radius:9px;background:#1b2a4b;color:#bcd0f1;box-shadow:3px 4px 0 #0a1123}}.bot-switcher a.active{{background:linear-gradient(135deg,#2679e9,#6d5cf0);color:#fff;border-color:#80a9ff}}@keyframes modelFloat{{0%,100%{{transform:rotate(35deg) translateY(0) translateZ(0)}}50%{{transform:rotate(55deg) translateY(12px) translateZ(18px)}}}}@keyframes orbFloat{{0%,100%{{transform:translate3d(0,0,0) scale(1)}}50%{{transform:translate3d(-10px,-12px,18px) scale(1.12)}}}}@keyframes cubeFloat{{0%,100%{{transform:rotateX(-18deg) rotateY(0deg) translateY(0)}}50%{{transform:rotateX(18deg) rotateY(180deg) translateY(-9px)}}}}@keyframes ringSpin{{to{{transform:rotateX(68deg) rotateZ(360deg)}}}}
@@ -3065,6 +3097,23 @@ class Handler(BaseHTTPRequestHandler):
             log_action(actor or "owner", "AI auto-publish toggled", f"{bot_id}:{enabled}")
             self.send_response(302)
             self.send_header("Location", f"/?view=bots&bot_id={bot_id}")
+            self.end_headers()
+            return
+        if path == "/legacy/ai-toggle":
+            if not is_owner(actor):
+                self.send_error(403)
+                return
+            enabled = "1" if fields.get("enabled", ["0"])[0] == "1" else "0"
+            with db_connect() as conn:
+                conn.execute(
+                    """INSERT INTO dashboard_settings (key, value) VALUES ('legacy_ai_auto_publish', ?)
+                       ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+                    (enabled,),
+                )
+                conn.commit()
+            log_action(actor or "owner", "Legacy AI auto-publish toggled", enabled)
+            self.send_response(302)
+            self.send_header("Location", "/?view=group")
             self.end_headers()
             return
         if path == "/bot/ai-threshold":

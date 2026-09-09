@@ -224,6 +224,10 @@ class Database:
                 UNIQUE(project_id, name),
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
             )""",
+            """CREATE TABLE IF NOT EXISTS dashboard_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )""",
             """CREATE TABLE IF NOT EXISTS bot_admins (
                 bot_id INTEGER NOT NULL,
                 username TEXT NOT NULL,
@@ -512,7 +516,11 @@ class Database:
 
     async def managed_bot_ai_enabled(self, bot_id: int) -> bool:
         if not bot_id:
-            return False
+            cur = await self._execute(
+                "SELECT value FROM dashboard_settings WHERE key='legacy_ai_auto_publish'"
+            )
+            row = await cur.fetchone()
+            return bool(row and str(row["value"]).lower() in {"1", "true", "yes"})
         cur = await self._execute(
             "SELECT ai_auto_publish FROM managed_bots WHERE id=? AND enabled=1",
             (bot_id,),
