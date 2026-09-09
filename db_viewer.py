@@ -77,6 +77,7 @@ TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@
 TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 TELEGRAM_UPDATES_CHAT_ID = os.getenv("TELEGRAM_UPDATES_CHAT_ID", "-1003984598730").strip()
 NOTIFICATION_STATUS = {"state": "configured", "last_error": "", "updated_at": 0}
+NOTIFICATION_LAST_EVENTS: dict[str, str] = {}
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview").strip() or "gemini-3-flash-preview"
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
@@ -229,6 +230,8 @@ def _managed_bot_log(bot_id: int, message: str) -> None:
             conn.commit()
     except DB_ERRORS:
         logging.exception("Could not persist managed bot %s status", bot_id)
+    if any(word in safe_message.lower() for word in ("error", "failed", "exception", "forbidden", "unauthorized")):
+        _notify_updates_group("worker", f"Bot {bot_id} worker error", safe_message)
 
 
 def _managed_bot_output(bot_id: int, stream) -> None:
@@ -338,6 +341,7 @@ def _start_managed_bot(row) -> None:
             (int(time.time()), bot_id),
         )
         conn.commit()
+    _notify_updates_group("worker", f"Bot {bot_id} started", "Worker работает")
 
 
 def start_managed_bot_supervisor() -> None:
@@ -378,6 +382,10 @@ def start_managed_bot_supervisor() -> None:
                             ("Worker stopped unexpectedly", int(time.time()), bot_id),
                         )
                         conn.commit()
+                    _notify_updates_group(
+                        "worker", f"Bot {bot_id} stopped unexpectedly",
+                        "Worker остановился и требует проверки",
+                    )
             except Exception:
                 logging.exception("Managed bot supervisor cycle failed")
             time.sleep(5)
@@ -842,17 +850,47 @@ def log_action(actor: str, action: str, target: str = "") -> None:
             (numeric_actor, action, f"actor={actor}; target={target}"[:500], int(datetime.now().timestamp())),
         )
         conn.commit()
-    if TELEGRAM_BOT_TOKEN and TELEGRAM_UPDATES_CHAT_ID and action not in {"Login success"}:
+    if (
+        TELEGRAM_BOT_TOKEN
+        and TELEGRAM_UPDATES_CHAT_ID
+        and _should_notify_updates(action)
+    ):
         _notify_updates_group(actor, action, target)
 
 
+def _should_notify_updates(action: str) -> bool:
+    """Keep the public channel for outages, recoveries, and product updates only."""
+    normalized = str(action or "").lower()
+    blocked = (
+        "login", "logout", "access", "password", "admin", "project",
+        "token", "credential", "ai analysis", "sync", "export", "backup",
+        "join", "register",
+    )
+    if any(word in normalized for word in blocked):
+        return False
+    allowed = (
+        "error", "failed", "failure", "worker", "stopped", "unavailable",
+        "offline", "recovered", "started", "updated", "update",
+        "maintenance", "deployment", "outage", "bot",
+    )
+    return any(word in normalized for word in allowed)
+
+
 def _notify_updates_group(actor: str, action: str, target: str) -> None:
-    """Send a sanitized operational update without blocking the dashboard request."""
+    """Send only a sanitized outage, recovery, or product update."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_UPDATES_CHAT_ID:
+        return
+    event_key = f"{action}:{target}"
+    if NOTIFICATION_LAST_EVENTS.get(event_key) == str(int(time.time()) // 300):
+        return
+    NOTIFICATION_LAST_EVENTS[event_key] = str(int(time.time()) // 300)
+    heading = "⚠️ Сбой" if any(
+        word in str(action).lower() for word in ("error", "failed", "stopped", "offline", "unavailable")
+    ) else "📢 Обновление"
     text = (
-        "🔔 <b>Podslushka DB</b>\n"
-        f"Действие: <code>{html.escape(str(action)[:160])}</code>\n"
-        f"Кто: <code>{html.escape(str(actor)[:80])}</code>\n"
-        f"Объект: <code>{html.escape(str(target)[:180])}</code>"
+        f"{heading} <b>Podslushka DB</b>\n"
+        f"{html.escape(str(action)[:180])}\n"
+        f"{html.escape(str(target)[:220])}"
     )
 
     def send() -> None:
