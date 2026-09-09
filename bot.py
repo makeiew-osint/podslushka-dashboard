@@ -447,24 +447,26 @@ async def _build_message_card(msg: Message, lang: str) -> str:
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
+    u = message.from_user
     try:
-        await state.clear()
-        u = message.from_user
+        ui_lang = await db.get_ui_lang(u.id)
+    except Exception:
+        logging.exception("Could not read Telegram user language")
+        ui_lang = None
+    await state.clear()
+    if not ui_lang:
+        await message.answer("Выбери язык / Choose language / Обери мову:", reply_markup=_lang_kb())
+    else:
+        await message.answer(t(ui_lang, "welcome", min_len=cfg.min_text_len or "без ограничений"))
+    # Non-critical persistence happens after the first response.
+    try:
         await _audit(u.id, "Bot /start", "telegram_user")
         await db.upsert_user(
             u.id, u.first_name, u.last_name, u.username,
             u.language_code, bool(u.is_premium)
         )
-        ui_lang = await db.get_ui_lang(u.id)
     except Exception:
-        logging.exception("Could not initialize Telegram user")
-        # A database problem must not make /start look completely dead.
-        await message.answer("Сервис временно запускается. Попробуйте /start ещё раз через несколько секунд.")
-        return
-    if not ui_lang:
-        await message.answer("Выбери язык / Choose language / Обери мову:", reply_markup=_lang_kb())
-        return
-    await message.answer(t(ui_lang, "welcome", min_len=cfg.min_text_len or "без ограничений"))
+        logging.exception("Could not persist Telegram user")
 
 
 @dp.message(Command("profile"))
@@ -1367,7 +1369,11 @@ async def st_report(message: Message, state: FSMContext):
 async def main():
     sync_task = asyncio.create_task(_sync_dashboard())
     try:
-        await dp.start_polling(bot)
+        await dp.start_polling(
+            bot,
+            polling_timeout=3,
+            tasks_concurrency_limit=100,
+        )
     finally:
         sync_task.cancel()
         await asyncio.gather(sync_task, return_exceptions=True)
