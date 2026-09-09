@@ -443,6 +443,18 @@ def managed_bot_rows(username: str | None):
     )
 
 
+def legacy_bot_configured() -> bool:
+    return bool(TELEGRAM_BOT_TOKEN and os.getenv("CHANNEL_ID", "").strip())
+
+
+def legacy_bot_admin_id() -> int:
+    raw = os.getenv("ADMIN_IDS", "").strip().split(",")[0].strip()
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
+
+
 def authorized_bot_ids(username: str | None) -> list[int]:
     return [int(row["id"]) for row in managed_bot_rows(username)]
 
@@ -1644,6 +1656,24 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         f"{('<form class=\"inline\" method=\"post\" action=\"/bot/toggle\"><input type=\"hidden\" name=\"bot_id\" value=\"' + esc(row['id']) + '\"><input type=\"hidden\" name=\"enabled\" value=\"' + ('0' if row['enabled'] else '1') + '\"><button>' + ('Выключить' if row['enabled'] else 'Включить') + '</button></form>') if owner else ''}</td></tr>"
         for row in managed_bots
     )
+    legacy_bot_html = (
+        f"<tr><td><b>{esc(TELEGRAM_BOT_USERNAME or 'Основной бот')}</b><br><span class='muted'>Legacy-конфигурация · подключён через окружение</span></td>"
+        f"<td>@{esc(TELEGRAM_BOT_USERNAME or '—')}</td><td>{esc(os.getenv('CHANNEL_ID', '—'))}</td>"
+        f"<td><span class='status'>{'включён' if BOT_STATUS.get('state') not in {'disabled', 'error'} else BOT_STATUS.get('state')}</span></td>"
+        f"<td>{esc(BOT_STATUS.get('state', 'unknown'))}</td><td>настроить после импорта</td>"
+        f"<td><span class='muted'>Основной бот</span></td></tr>"
+        if owner and legacy_bot_configured() else ""
+    )
+    bot_table_html = managed_bot_html + legacy_bot_html
+    legacy_import_form = (
+        '<form class="setup-card legacy-import-card" method="post" action="/bot/import-legacy">'
+        '<h3>Импорт основного бота</h3>'
+        '<p class="muted">Токен уже задан в окружении. Импорт перенесёт бота в защищённое управление без показа токена.</p>'
+        '<select name="project_id" required><option value="">Выберите проект</option>' + project_options + '</select>'
+        '<input name="name" placeholder="Название в панели" value="Основной бот" required>'
+        '<button>Перенести в управление</button></form>'
+        if owner and legacy_bot_configured() and projects else ""
+    )
     bots_section = (
         f"""<section id="bots"><div class="section-head"><div><h2>Подключённые боты</h2>
         <p class="muted">Токены скрыты и хранятся зашифрованными. Доступ ограничен проектом и ролью.</p></div>
@@ -1651,7 +1681,8 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         {'<div class="bot-stage"><div class="bot-stage-glow"></div><div class="bot-model"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="bot-stage-label">secure bot workspace</span></div><div class="setup-grid"><form class="setup-card" method="post" action="/project/create"><h3>Новый проект</h3><input name="name" placeholder="Название проекта" required><input name="school_city" placeholder="Школа / город" required><button>Создать проект</button></form><form class="setup-card" method="post" action="/bot/create"><h3>Подключить бота</h3><select name="project_id" required><option value="">Выберите проект</option>' + project_options + '</select><input name="name" placeholder="Название бота" required><input name="token" type="password" placeholder="Токен бота" required><input name="telegram_admin_id" inputmode="numeric" placeholder="Ваш Telegram ID" required><input name="channel_id" placeholder="@канал или -100..." required><label><input type="checkbox" name="ai_auto_publish"> ИИ-автопубликация</label><button>Зашифровать и подключить</button></form></div>' if owner else ''}
         <div class="table-wrap"><table><tr><th>Бот / проект</th><th>Username</th><th>Канал</th>
         <th>Состояние</th><th>Worker</th><th>ИИ-автопубликация</th><th></th></tr>
-        {managed_bot_html or '<tr><td colspan=7>Ботов пока нет или у вас нет доступа.</td></tr>'}</table></div>
+        {bot_table_html or '<tr><td colspan=7>Ботов пока нет или у вас нет доступа.</td></tr>'}</table></div>
+        {legacy_import_form}
         {'<form class="setup-card" method="post" action="/bot/admin/add"><h3>Добавить администратора</h3><select name="bot_id" required><option value="">Выберите бота</option>' + ''.join(f"<option value='{esc(row['id'])}'>{esc(row['name'])}</option>" for row in managed_bots) + '</select><input name="username" placeholder="Логин панели" required><input name="telegram_id" inputmode="numeric" placeholder="Telegram ID" required><button>Назначить администратора</button></form>' if owner and managed_bots else ''}
         {'<h2>Заявки на вступление</h2><div class="table-wrap"><table><tr><th>Проект</th><th>Логин</th><th>Telegram ID</th><th>Дата</th><th>Действие</th></tr>' + (join_request_html or '<tr><td colspan=5>Новых заявок нет.</td></tr>') + '</table></div>' if owner else ''}
         </section>"""
@@ -2614,6 +2645,51 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(409, "A bot with this name already exists in the project")
                 return
             log_action(actor or "owner", "Managed bot created", f"{project_id}:{name}")
+            self.send_response(302)
+            self.send_header("Location", "/?view=bots")
+            self.end_headers()
+            return
+        if path == "/bot/import-legacy":
+            if not is_owner(actor):
+                self.send_error(403)
+                return
+            if not legacy_bot_configured():
+                self.send_error(400, "Legacy bot configuration is incomplete")
+                return
+            try:
+                project_id = int(fields.get("project_id", ["0"])[0])
+            except (TypeError, ValueError):
+                self.send_error(400, "Project must be numeric")
+                return
+            name = fields.get("name", ["Основной бот"])[0].strip() or "Основной бот"
+            admin_id = legacy_bot_admin_id()
+            if admin_id == 0:
+                self.send_error(400, "ADMIN_IDS must contain a numeric Telegram ID")
+                return
+            try:
+                cipher = encrypt_bot_token(TELEGRAM_BOT_TOKEN)
+            except RuntimeError as exc:
+                log_action(actor or "owner", "Legacy bot import error", str(exc))
+                self.send_error(503, str(exc))
+                return
+            now = int(time.time())
+            try:
+                with db_connect() as conn:
+                    conn.execute(
+                        """INSERT INTO managed_bots
+                           (project_id, name, token_ciphertext, telegram_admin_id,
+                            channel_id, ai_auto_publish, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, 0, ?, ?)""",
+                        (
+                            project_id, name, cipher, admin_id,
+                            os.getenv("CHANNEL_ID", "").strip(), now, now,
+                        ),
+                    )
+                    conn.commit()
+            except DB_INTEGRITY_ERRORS:
+                self.send_error(409, "A bot with this name already exists in the project")
+                return
+            log_action(actor or "owner", "Legacy bot imported", f"{project_id}:{name}")
             self.send_response(302)
             self.send_header("Location", "/?view=bots")
             self.end_headers()
