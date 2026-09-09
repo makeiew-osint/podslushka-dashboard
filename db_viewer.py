@@ -3166,16 +3166,26 @@ class Handler(BaseHTTPRequestHandler):
                 log_action(actor or "owner", "Bot setup error", str(exc))
                 self.send_error(503, str(exc))
                 return
+            try:
+                bot_username = _telegram_bot_username(token)
+            except (OSError, urllib.error.URLError, ValueError, TypeError, json.JSONDecodeError) as exc:
+                log_action(actor or "owner", "Bot setup error", "Telegram token validation failed")
+                self.send_error(400, f"Не удалось проверить токен Telegram-бота: {type(exc).__name__}")
+                return
+            if not bot_username:
+                log_action(actor or "owner", "Bot setup error", "Telegram token returned no username")
+                self.send_error(400, "Telegram не вернул username бота. Проверьте токен.")
+                return
             now = int(time.time())
             try:
                 with db_connect() as conn:
                     conn.execute(
                         """INSERT INTO managed_bots
-                           (project_id, name, token_ciphertext, telegram_admin_id,
-                            channel_id, ai_auto_publish, created_at, updated_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                           (project_id, name, bot_username, token_ciphertext, telegram_admin_id,
+                            channel_id, enabled, ai_auto_publish, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)""",
                         (
-                            project_id, name, cipher, telegram_admin_id, channel_id,
+                            project_id, name, bot_username, cipher, telegram_admin_id, channel_id,
                             1 if fields.get("ai_auto_publish") else 0, now, now,
                         ),
                     )
