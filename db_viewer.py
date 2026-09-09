@@ -1648,6 +1648,48 @@ background:#0c1729;color:#fff;outline:none;font-size:15px;transition:.2s}}input:
 .project-create-card:after{{content:"";position:absolute;width:150px;height:150px;right:-45px;top:-55px;border:1px solid #79b5ff55;border-radius:50%;box-shadow:0 0 35px #318dff33;pointer-events:none}}
 .project-create-card h3{{font-size:18px;margin:0 0 7px}}
 .project-create-card p{{max-width:330px;line-height:1.5}}
+</style>
+<style>
+/* Login direction: calm workspace, no 3D decoration, clear action hierarchy. */
+body{{background:#eef2f7!important;color:#172033!important;overflow:auto!important;padding:32px 20px!important;perspective:none!important}}
+body:before,body:after{{display:none!important}}
+.shell{{width:min(900px,100%)!important;min-height:0!important;display:grid!important;grid-template-columns:minmax(270px,.82fr) minmax(390px,1.18fr)!important;border:1px solid #d8e0eb!important;border-radius:22px!important;background:#fff!important;box-shadow:0 24px 70px #243b5a1f,0 2px 8px #243b5a12!important;overflow:hidden!important;transform:none!important;animation:none!important}}
+.shell:before{{display:none!important}}
+.intro{{display:flex!important;flex-direction:column!important;justify-content:space-between!important;padding:42px 36px!important;background:#182b52!important;color:#fff!important;transform:none!important;overflow:hidden!important}}
+.intro:before{{display:none!important}}
+.intro:after{{content:"";display:block!important;position:absolute!important;width:250px;height:250px;right:-110px;bottom:-105px;border:1px solid #8db5ff42;border-radius:50%;background:transparent!important;box-shadow:none!important;animation:none!important}}
+.brand{{font-size:20px!important;letter-spacing:-.3px!important}}
+.brand-logo{{width:42px!important;height:42px!important;border-radius:11px!important;box-shadow:0 8px 20px #07152d66!important;transform:none!important}}
+.intro h1{{margin:110px 0 16px!important;font-size:40px!important;line-height:1.06!important;letter-spacing:-1.7px!important;max-width:290px!important}}
+.intro p{{max-width:300px!important;color:#c7d6ec!important;line-height:1.65!important}}
+.features{{gap:0!important;margin-top:38px!important}}
+.feature{{padding:13px 0!important;border-bottom:1px solid #ffffff1a!important;color:#e5edf8!important}}
+.check{{color:#88b7ff!important}}
+.auth{{padding:46px 54px!important;background:#fff!important;color:#172033!important;box-shadow:none!important;transform:none!important;overflow:visible!important}}
+.auth:after{{display:none!important}}
+.auth-mark{{display:flex!important;align-items:center!important;justify-content:flex-start!important;margin:0 0 25px!important}}
+.auth-mark img{{width:48px!important;height:48px!important;border-radius:13px!important;box-shadow:0 0 0 1px #d8e0eb,0 8px 18px #243b5a18!important;transform:none!important}}
+.auth-mark:after{{content:"Podslushka DB";display:block!important;margin-left:12px!important;color:#172033!important;font-size:17px!important;font-weight:800!important;letter-spacing:-.3px!important}}
+.auth h2{{color:#172033!important;text-align:left!important;font-size:31px!important;font-weight:800!important;letter-spacing:-1px!important;text-shadow:none!important;margin:0 0 8px!important}}
+.sub{{color:#6b7890!important;text-align:left!important;margin-bottom:24px!important}}
+.error{{color:#b42318!important}}
+.tabs{{padding:3px!important;margin:0 0 18px!important;border:1px solid #d8e0eb!important;border-radius:10px!important;background:#f4f7fb!important}}
+.tab{{padding:10px!important;color:#718096!important;box-shadow:none!important}}
+.tab.active{{background:#fff!important;color:#2458a6!important;border:1px solid #c8d8f0!important;box-shadow:0 2px 5px #243b5a12!important;transform:none!important}}
+.form.active{{padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}}
+.field{{margin:15px 0 7px!important;color:#35445d!important;font-size:13px!important}}
+.form input{{padding:12px 13px!important;background:#fbfcfe!important;color:#172033!important;border:1px solid #cbd6e4!important;border-radius:9px!important;box-shadow:none!important;transform:none!important}}
+.form input:focus{{border-color:#4a81d1!important;box-shadow:0 0 0 3px #4a81d126!important;transform:none!important}}
+.toggle{{top:7px!important;right:7px!important;background:#e8eef7!important;color:#4a658d!important;box-shadow:none!important}}
+.submit{{margin-top:20px!important;padding:13px!important;border:0!important;border-radius:9px!important;background:#245fb5!important;box-shadow:0 7px 16px #245fb52e!important;font-size:15px!important}}
+.submit:hover{{filter:brightness(1.06)!important;transform:translateY(-1px)!important}}
+.oauth{{margin-top:25px!important;padding-top:20px!important;border-top:1px solid #e1e7ef!important}}
+.oauth-title{{color:#56667f!important}}
+.oauth-button,.telegram-button{{min-height:44px!important;border-radius:9px!important;color:#26354d!important;background:#fff!important;border:1px solid #cbd6e4!important;box-shadow:0 2px 5px #243b5a0d!important;transform:none!important}}
+.oauth-button:hover,.telegram-button:hover{{background:#f5f8fc!important;border-color:#9eb8dd!important;filter:none!important;transform:translateY(-1px)!important}}
+.google-button,.telegram-button{{color:#26354d!important}}
+.hint{{color:#7b8799!important;line-height:1.5!important}}
+@media(max-width:700px){{body{{padding:14px!important;background:#f4f7fb!important}}.shell{{grid-template-columns:1fr!important;border-radius:16px!important}}.intro{{padding:28px!important;min-height:220px!important}}.intro h1{{margin:42px 0 10px!important;font-size:31px!important}}.intro p{{font-size:14px!important}}.features{{display:none!important}}.auth{{padding:30px 24px!important}}.auth h2{{font-size:27px!important}}}}
 </style></head><body><div class="shell">
 <section class="intro"><div class="brand"><img class="brand-logo" src="/assets/podslushka-logo.png" alt="Podslushka DB"><span>Podslushka DB</span></div>
 <h1>Ваша панель<br>под контролем.</h1><p>Управляйте заявками, пользователями и модерацией в одном защищённом рабочем пространстве.</p>
@@ -2455,12 +2497,21 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         if section == "bots" else ""
     )
     project_join_section = (
-        """<section id="join-project"><h2>Подключиться к проекту</h2>
-        <p class="muted">Введите токен проекта и свой Telegram ID. Владелец проекта должен одобрить заявку.</p>
+        """<section id="join-project"><h2>Ваши проекты</h2>
+        <p class="muted">Создайте собственное пространство или подключитесь к уже существующему по токену.</p>
+        <div class="setup-grid project-actions-grid">
+        <form class="setup-card project-create-card" method="post" action="/project/create">
+        <div class="setup-card-icon">✦</div><h3>Создать свой проект</h3>
+        <p class="muted">Отдельное пространство для вашей команды, ботов и заявок.</p>
+        <input name="name" placeholder="Название проекта" required maxlength="120">
+        <input name="school_city" placeholder="Школа, город или описание" required maxlength="160">
+        <button type="submit">Создать проект и получить токен →</button>
+        </form>
         <form class="setup-card" method="post" action="/project/join">
+        <div class="setup-card-icon">↗</div><h3>Подключиться к проекту</h3>
         <input name="telegram_id" inputmode="numeric" placeholder="Ваш Telegram ID" required>
         <input name="project_token" placeholder="Токен проекта" required>
-        <button>Отправить заявку</button></form></section>"""
+        <button>Отправить заявку</button></form></div></section>"""
         if current_user and not owner else ""
     )
     member_projects = []
