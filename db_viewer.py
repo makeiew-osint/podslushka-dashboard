@@ -1389,7 +1389,8 @@ def complete_oauth(handler: BaseHTTPRequestHandler, provider: str, subject: str,
     handler.end_headers()
 
 
-def auth_page(message: str = "") -> str:
+def auth_page(message: str = "", message_is_html: bool = False) -> str:
+    message_markup = message if message_is_html else esc(message)
     google_link = (f'<a class="button oauth-button google-button" href="/auth/google"><span class="oauth-icon google-icon">G</span><span>Продолжить с Google</span></a>'
                    if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and OAUTH_BASE_URL else
                    '<span class="oauth-disabled">Google OAuth disabled: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and OAUTH_BASE_URL.</span>')
@@ -1426,6 +1427,7 @@ border-radius:24px;background:linear-gradient(145deg,#1c2045dd,#10152ddd);box-sh
 .field{{display:block;margin:15px 0 6px;color:#a9bbd3;font-size:13px;font-weight:600}}
 .input-wrap{{position:relative}}input{{width:100%;padding:13px 43px 13px 14px;border-radius:10px;border:1px solid var(--line);
 background:#0c1729;color:#fff;outline:none;font-size:15px;transition:.2s}}input:focus{{border-color:var(--blue2);box-shadow:0 0 0 3px #27d3c233,0 6px 0 #176d78;transform:translateY(-2px)}}
+.token-notice{{margin:0 0 18px;padding:14px 15px;border:1px solid #5d7fca;border-radius:13px;background:linear-gradient(145deg,#1a3562,#132343);color:#dceaff;box-shadow:4px 5px 0 #080f1e,0 0 24px #347cff2e;line-height:1.45}}.token-notice b{{display:block;color:#9ff5e2;margin-bottom:8px}}.token-value{{display:flex;align-items:center;gap:8px;margin-top:10px}}.token-value code{{flex:1;min-width:0;overflow:auto;padding:9px 10px;border:1px solid #6e91d2;border-radius:8px;background:#09162b;color:#fff;font:12px Consolas,monospace;white-space:nowrap}}.copy-token{{padding:8px 10px!important;border:1px solid #78a7ff!important;background:linear-gradient(135deg,#347ff0,#6c59ee)!important;color:#fff!important;border-radius:8px!important;box-shadow:3px 4px 0 #172d68!important;font-size:12px!important;cursor:pointer}}.copy-token.copied{{background:linear-gradient(135deg,#13a68b,#2acbb1)!important}}
 .toggle{{position:absolute;right:10px;top:9px;border:0;background:#1b2b46;color:#9fb8d8;cursor:pointer;font-size:17px;border-radius:7px;padding:4px 7px;box-shadow:0 3px 0 #080f1e;transition:.18s}}
 .submit{{width:100%;margin-top:22px;padding:13px;border:0;border-radius:10px;background:linear-gradient(135deg,var(--blue),#3e6fe8);
 color:white;font-weight:800;font-size:15px;cursor:pointer;background:linear-gradient(135deg,#7b61ff,#d15bff);box-shadow:0 6px 0 #4934a5,0 12px 20px #7b61ff55;transition:.2s}}
@@ -1438,7 +1440,7 @@ color:white;font-weight:800;font-size:15px;cursor:pointer;background:linear-grad
 <div class="feature"><span class="check">✓</span> Быстрый поиск и фильтры</div>
 <div class="feature"><span class="check">✓</span> Резервные копии в один клик</div></div></section>
 <section class="auth"><h2 id="title">Добро пожаловать</h2><p class="sub" id="subtitle">Войдите, чтобы продолжить работу.</p>
-<div class="error">{esc(message)}</div><div class="tabs"><button class="tab active" data-tab="login">Войти</button><button class="tab" data-tab="register">Регистрация</button></div>
+{message_markup}<div class="tabs"><button class="tab active" data-tab="login">Войти</button><button class="tab" data-tab="register">Регистрация</button></div>
 <form class="form active" id="login" method="post" action="/login"><label class="field">Логин</label><input name="username" placeholder="Введите логин" required autocomplete="username">
 <label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Введите пароль" required autocomplete="current-password"><button type="button" class="toggle">◉</button></div>
 <label class="field">Код 2FA <span class="muted">(включается отдельно)</span></label><input name="otp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="Необязательно" title="Введите 6 цифр, если 2FA включена">
@@ -1456,6 +1458,13 @@ document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', (
 document.querySelectorAll('.toggle').forEach(btn => btn.addEventListener('click', () => {{
  const input = btn.previousElementSibling; input.type = input.type === 'password' ? 'text' : 'password';
  btn.textContent = input.type === 'password' ? '◉' : '◉';
+}}));
+document.querySelectorAll('.copy-token').forEach(btn => btn.addEventListener('click', async () => {{
+ const value = btn.closest('.token-value').querySelector('code').textContent;
+ await navigator.clipboard.writeText(value);
+ btn.textContent = 'Скопировано';
+ btn.classList.add('copied');
+ setTimeout(() => {{ btn.textContent = 'Копировать'; btn.classList.remove('copied'); }}, 1800);
 }}));
 </script></body></html>"""
 
@@ -3115,7 +3124,10 @@ class Handler(BaseHTTPRequestHandler):
             log_action(actor or "owner", "Project created", name)
             body = auth_page(
                 f"Проект «{html.escape(name)}» создан. Сохраните токен подключения: "
-                f"<code>{html.escape(join_token)}</code>"
+                f"<div class=\"token-notice\"><b>Токен подключения</b><span>Передайте его только участникам проекта.</span>"
+                f"<div class=\"token-value\"><code>{html.escape(join_token)}</code>"
+                f"<button class=\"copy-token\" type=\"button\">Копировать</button></div></div>",
+                message_is_html=True,
             ).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
