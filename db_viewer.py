@@ -222,16 +222,27 @@ def _managed_bot_log(bot_id: int, message: str) -> None:
     """Store worker diagnostics without ever including a bot token."""
     safe_message = message[-500:]
     logging.info("Managed bot %s: %s", bot_id, safe_message)
+    lower_message = safe_message.lower()
+    is_error = any(
+        word in lower_message
+        for word in ("error", "failed", "exception", "forbidden", "unauthorized", "traceback")
+    ) or "[warning]" in lower_message or "[critical]" in lower_message
     try:
         with db_connect() as conn:
-            conn.execute(
-                "UPDATE managed_bots SET last_error=?, updated_at=? WHERE id=?",
-                (safe_message, int(time.time()), bot_id),
-            )
+            if is_error:
+                conn.execute(
+                    "UPDATE managed_bots SET last_error=?, updated_at=? WHERE id=?",
+                    (safe_message, int(time.time()), bot_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE managed_bots SET updated_at=? WHERE id=?",
+                    (int(time.time()), bot_id),
+                )
             conn.commit()
     except DB_ERRORS:
         logging.exception("Could not persist managed bot %s status", bot_id)
-    if any(word in safe_message.lower() for word in ("error", "failed", "exception", "forbidden", "unauthorized")):
+    if is_error:
         _notify_updates_group("worker", f"Bot {bot_id} worker error", safe_message)
 
 
@@ -2201,7 +2212,7 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 .post-row.new-row{{animation:newRow 1.8s ease-out}}.ai-loading{{position:relative;overflow:hidden}}.ai-loading:after{{content:"";position:absolute;inset:0 auto 0 0;width:42%;background:linear-gradient(90deg,transparent,#27d3c244,transparent);animation:scan 1.35s ease-in-out infinite}}.ai-loading:before{{content:"";display:inline-block;width:15px;height:15px;margin-right:9px;vertical-align:-2px;border:2px solid #89f0df66;border-top-color:#89f0df;border-radius:50%;animation:spin3d .8s linear infinite}}.ai-card.open .ai-card-panel{{animation:cardIn .32s cubic-bezier(.2,.8,.2,1) both}}button,a.button-link{{overflow:hidden}}button:after,a.button-link:after{{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 25%,#ffffff55 48%,transparent 70%);transform:translateX(-120%);pointer-events:none}}button:hover:after,a.button-link:hover:after{{animation:buttonShine .7s ease}}@keyframes buttonShine{{to{{transform:translateX(120%)}}}}
 @media(prefers-reduced-motion:reduce){{*,*::before,*::after{{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.001ms!important}}}}
 @media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:20px 12px 40px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:15px}}.theme-switch{{width:auto;margin:0 0 15px}}.nav{{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}}.nav a{{padding:10px 8px;font-size:12px;min-width:0}}.nav a .icon{{width:16px}}.topbar{{display:block}}.topbar>div:last-child{{display:flex;gap:8px;margin-top:15px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}.toolbar input,.toolbar select{{min-width:0;flex:1;width:100%}}.filter-tabs{{width:100%;overflow:auto;flex-wrap:nowrap}}h1{{font-size:25px}}h2{{font-size:19px;margin-top:30px}}.table-wrap{{margin-right:-4px;border-radius:10px}}.health-grid,.monitoring-grid,.action-hero,.setup-grid{{grid-template-columns:1fr}}.action-metric{{padding:13px}}.action-metric b{{font-size:22px}}.ai-card{{padding:10px}}.ai-card-panel{{max-height:94vh}}}}
-.bots-panel{{position:relative;overflow:hidden;background:linear-gradient(145deg,#182b4b,#101a32);border-color:#3c6295;box-shadow:10px 12px 0 #080d1d,0 22px 48px #02071399}}
+.content{{min-width:0;max-width:100%;overflow:hidden}}section{{max-width:100%;min-width:0}}.bots-panel{{position:relative;overflow:hidden;background:linear-gradient(145deg,#182b4b,#101a32);border-color:#3c6295;box-shadow:10px 12px 0 #080d1d,0 22px 48px #02071399}}
 .bots-panel:before{{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(115deg,transparent 35%,#67a7ff0d 50%,transparent 65%);transform:translateX(-100%);animation:botPanelSweep 8s ease-in-out infinite}}
 .bots-panel>*{{position:relative;z-index:1}}
 .bots-panel .bot-stage{{height:190px;border-radius:18px;background:radial-gradient(circle at 50% 48%,#69b8ff44,transparent 25%),linear-gradient(145deg,#193d70,#0a152a);box-shadow:inset 0 1px #b8dcff33,0 12px 30px #02071399}}
@@ -2215,6 +2226,7 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 .bots-panel .bot-actions{{justify-content:flex-start}}
 .bots-panel .bot-actions a,.bots-panel .bot-actions button{{min-height:38px}}
 .bots-panel .status{{box-shadow:0 0 0 1px #6b9bd522}}
+.bots-panel .bot-error{{max-width:260px;white-space:normal;line-height:1.35;color:#ffb8c2!important}}
 @keyframes botPanelSweep{{50%{{transform:translateX(100%)}}}}
 @keyframes botPrismFloat{{0%,100%{{transform:rotateX(-20deg) rotateY(0deg) translateY(0)}}50%{{transform:rotateX(18deg) rotateY(180deg) translateY(-12px)}}}}
 </style></head><body data-monitoring-owner="{'1' if owner else '0'}"><div class="ambient-scene" aria-hidden="true"><div class="ambient-orbit orbit-one"></div><div class="ambient-orbit orbit-two"></div><div class="ambient-sphere"></div><div class="ambient-cube"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="ambient-particle particle-one"></span><span class="ambient-particle particle-two"></span></div><div class="layout">
