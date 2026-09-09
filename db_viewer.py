@@ -635,6 +635,12 @@ def _init_auth_once() -> None:
             ip TEXT,
             user_agent TEXT
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS dashboard_impersonation (
+            session_token TEXT PRIMARY KEY,
+            owner_username TEXT NOT NULL,
+            target_username TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS login_attempts (
             key TEXT PRIMARY KEY,
             attempts INTEGER NOT NULL DEFAULT 0,
@@ -1230,9 +1236,48 @@ def destroy_session(handler: BaseHTTPRequestHandler) -> str | None:
     if token:
         with db_connect() as conn:
             conn.execute("DELETE FROM dashboard_sessions WHERE token=?", (token,))
+            conn.execute("DELETE FROM dashboard_impersonation WHERE session_token=?", (token,))
             conn.commit()
         SESSIONS.pop(token, None)
     return token
+
+
+def session_token(handler: BaseHTTPRequestHandler) -> str | None:
+    cookie = handler.headers.get("Cookie", "")
+    return next(
+        (item.split("=", 1)[1] for item in cookie.split("; ") if item.startswith("session=")),
+        None,
+    )
+
+
+def impersonation_owner(handler: BaseHTTPRequestHandler) -> str | None:
+    token = session_token(handler)
+    if not token:
+        return None
+    try:
+        with db_connect(readonly=True) as conn:
+            row = conn.execute(
+                "SELECT owner_username FROM dashboard_impersonation WHERE session_token=?",
+                (token,),
+            ).fetchone()
+        return row_value(row, "owner_username", 0) if row else None
+    except DB_ERRORS:
+        return None
+
+
+def impersonation_target(handler: BaseHTTPRequestHandler) -> str | None:
+    token = session_token(handler)
+    if not token:
+        return None
+    try:
+        with db_connect(readonly=True) as conn:
+            row = conn.execute(
+                "SELECT target_username FROM dashboard_impersonation WHERE session_token=?",
+                (token,),
+            ).fetchone()
+        return row_value(row, "target_username", 0) if row else None
+    except DB_ERRORS:
+        return None
 
 
 def rate_limit_key(handler: BaseHTTPRequestHandler, username: str) -> str:
@@ -1610,9 +1655,14 @@ if(scene && !matchMedia('(prefers-reduced-motion: reduce)').matches) {{
 </script></body></html>"""
 
 
-def page(current_user: str = "", section: str = "overview", history_post_id: str = "", selected_bot_id: str = "") -> str:
+def page(current_user: str = "", section: str = "overview", history_post_id: str = "", selected_bot_id: str = "", impersonated_by: str = "") -> str:
     role = dashboard_role(current_user)
     owner = role == "owner"
+    impersonation_notice = (
+        f"<div class='impersonation-banner'>Режим проверки аккаунта <b>{esc(current_user)}</b> · "
+        f"владелец: <b>{esc(impersonated_by)}</b> · <a href='/impersonation/exit'>Завершить проверку</a></div>"
+        if impersonated_by else ""
+    )
     if not can_access(current_user, section):
         section = "overview"
     stats = {
@@ -2007,9 +2057,21 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
                 f"<tr><td>{esc(row['username'])}</td><td>{datetime.fromtimestamp(row['created_at']).strftime('%d.%m.%Y %H:%M')}</td></tr>"
                 for row in owners
             )
+            administrators = db_rows(
+                "SELECT username, role, created_at FROM dashboard_users "
+                "WHERE role IN ('admin', 'moderator', 'read-only', 'user') AND status='approved' "
+                "ORDER BY username"
+            )
+            administrator_rows = "".join(
+                f"<tr><td>{esc(row['username'])}</td><td>{esc(row['role'])}</td>"
+                f"<td><form class='inline' method='post' action='/impersonate'>"
+                f"<input type='hidden' name='username' value='{esc(row['username'])}'>"
+                f"<button type='submit'>Войти для проверки</button></form></td></tr>"
+                for row in administrators
+            )
             approval = {
                 "access": f"""<section id="access"><h2>Заявки на доступ</h2><div class="table-wrap"><table><tr><th>Логин</th><th>Дата</th><th>Действие</th></tr>{rows or '<tr><td colspan=3>Новых заявок нет</td></tr>'}</table></div></section>""",
-                "owners": f"""<section id="owners"><h2>Владельцы</h2><form class="owner-form" method="post" action="/add-owner"><input name="username" placeholder="Логин нового владельца" required minlength="3"><input name="password" type="password" placeholder="Пароль нового владельца" required minlength="8"><button>Добавить владельца</button></form><div class="table-wrap"><table><tr><th>Логин</th><th>Добавлен</th></tr>{owner_rows or '<tr><td colspan=2>Дополнительных владельцев нет</td></tr>'}</table></div></section>""",
+                "owners": f"""<section id="owners"><h2>Владельцы</h2><form class="owner-form" method="post" action="/add-owner"><input name="username" placeholder="Логин нового владельца" required minlength="3"><input name="password" type="password" placeholder="Пароль нового владельца" required minlength="8"><button>Добавить владельца</button></form><div class="table-wrap"><table><tr><th>Логин</th><th>Добавлен</th></tr>{owner_rows or '<tr><td colspan=2>Дополнительных владельцев нет</td></tr>'}</table></div><h2>Проверка аккаунтов администраторов</h2><p class="muted">Режим проверки не скрывает действие: вход записывается в журнал, а пароль и токены недоступны.</p><div class="table-wrap"><table><tr><th>Логин</th><th>Роль</th><th>Действие</th></tr>{administrator_rows or '<tr><td colspan=3>Администраторов нет</td></tr>'}</table></div></section>""",
                 "actions": actions_section,
             }.get(section, "")
     monitoring_bot_id = (
@@ -2107,7 +2169,7 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 <a class="{'active' if section == 'user-search' else ''}" href="/?view=user-search"><span class="icon">⌕</span>Поиск пользователей</a>
 {('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Боты</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'group' else '') + '" href="/?view=group"><span class="icon">✦</span>Группа</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else ('<a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Мой бот</a>' if can_access(current_user, 'bots') else ''))}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
-<main class="content"><div class="topbar"><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div><div class="topbar-actions"><a class="button-link" href="/profile">◉ Профиль</a><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
+<main class="content">{impersonation_notice}<div class="topbar"><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div><div class="topbar-actions"><a class="button-link" href="/profile">◉ Профиль</a><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
 {('<section id="overview"><div class="cards">' + cards + '</div><div class="insights"><section class="insight-card chart-card"><div class="insight-head"><div><b>Активность за 7 дней</b><span class="muted">Заявки по дням</span></div><span class="live-pill"><i></i> live</span></div><div class="chart">' + chart_bars + '</div></section><section class="insight-card"><div class="insight-head"><div><b>Центр событий</b><span class="muted">Последние изменения</span></div><a class="text-link" href="/?view=actions">Все события →</a></div><ul class="event-list">' + notification_rows + '</ul></section></div></section>' if section == 'overview' else '')}
 {('<div class="toolbar"><input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off"><select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select><select id="kind"><option value="">Все типы</option><option value="text">Текст</option><option value="photo">Фото</option><option value="video">Видео</option><option value="media_group">Медиагруппа</option></select><div class="filter-tabs"><button type="button" class="filter-tab active" data-status="">Все</button><button type="button" class="filter-tab" data-status="pending">На модерации</button><button type="button" class="filter-tab" data-status="published">Опубликовано</button></div><button type="button" onclick="refreshPage()">↻ Обновить</button><a class="button-link" href="/backup">↓ Резервная копия</a></div>' if section == 'overview' else '')}
 {('<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_rows + '</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section><section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>' if section == 'overview' else '')}
@@ -2398,6 +2460,23 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Set-Cookie", "session=; Max-Age=0; HttpOnly; SameSite=Strict")
             self.end_headers()
             return
+        if path == "/impersonation/exit":
+            owner = impersonation_owner(self)
+            target = impersonation_target(self)
+            if not owner or not is_owner(owner):
+                self.send_error(403)
+                return
+            destroy_session(self)
+            token = create_session(owner, self)
+            log_action(owner, "Owner impersonation ended", target or "")
+            self.send_response(302)
+            self.send_header("Location", "/?view=owners")
+            self.send_header("Set-Cookie", f"session={token}; HttpOnly; SameSite=Strict")
+            self.end_headers()
+            return
+        if impersonation_owner(self) and path in {"/export/users.csv", "/backup"}:
+            self.send_error(403, "Недоступно в режиме проверки аккаунта")
+            return
         if path == "/profile":
             actor = auth_user(self)
             if not actor:
@@ -2666,6 +2745,7 @@ class Handler(BaseHTTPRequestHandler):
                 requested_section,
                 history_post_id,
                 selected_bot_id,
+                impersonation_owner(self) or "",
             ).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -2698,6 +2778,53 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         length = int(self.headers.get("Content-Length", "0"))
         raw_body = self.rfile.read(length)
+        if path == "/impersonate":
+            owner = auth_user(self)
+            fields = parse_qs(raw_body.decode("utf-8"))
+            target = fields.get("username", [""])[0].strip()
+            if not owner or not is_owner(owner):
+                log_action(owner or "anonymous", "Owner impersonation denied", target)
+                self.send_error(403)
+                return
+            with db_connect(readonly=True) as conn:
+                target_row = conn.execute(
+                    "SELECT username, role, status FROM dashboard_users WHERE username=?",
+                    (target,),
+                ).fetchone()
+            if not target_row or row_value(target_row, "status", 2) != "approved":
+                log_action(owner, "Owner impersonation failed", target)
+                self.send_error(404)
+                return
+            target_role = str(row_value(target_row, "role", 1) or "").lower()
+            if target_role == "owner":
+                log_action(owner, "Owner impersonation denied", target)
+                self.send_error(403)
+                return
+            destroy_session(self)
+            token = create_session(target, self)
+            with db_connect() as conn:
+                conn.execute(
+                    "INSERT INTO dashboard_impersonation "
+                    "(session_token, owner_username, target_username, created_at) VALUES (?, ?, ?, ?)",
+                    (token, owner, target, int(time.time())),
+                )
+                conn.commit()
+            log_action(owner, "Owner impersonation started", target)
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.send_header("Set-Cookie", f"session={token}; HttpOnly; SameSite=Strict")
+            self.end_headers()
+            return
+        if impersonation_owner(self) and path in {
+            "/profile/password", "/bot/create", "/bot/import-legacy",
+            "/bot/admin/add", "/bot/admin/remove", "/bot/token",
+            "/bot/toggle", "/bot/ai-toggle", "/bot/ai-threshold",
+            "/legacy/ai-toggle", "/project/create", "/project/join",
+            "/project/leave", "/approve", "/reject", "/add-owner",
+        }:
+            log_action(auth_user(self) or "unknown", "Impersonation restricted action", path)
+            self.send_error(403, "Управляющие действия отключены в режиме проверки")
+            return
         if path == "/api/ai-analysis":
             actor = auth_user(self)
             target = "unknown"
