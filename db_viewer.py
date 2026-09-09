@@ -3874,7 +3874,10 @@ class Handler(BaseHTTPRequestHandler):
                     logging.exception("Dashboard registration database error")
                     error = "Не удалось создать заявку: база данных временно недоступна."
             if not error:
-                log_action(username, "Register access request", username)
+                try:
+                    log_action(username, "Register access request", username)
+                except DB_ERRORS:
+                    logging.exception("Registration audit log failed for %s", username)
                 body = auth_page("Заявка отправлена. Владелец должен одобрить доступ перед входом.").encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
