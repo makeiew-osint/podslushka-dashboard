@@ -1892,9 +1892,16 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
                 "owners": f"""<section id="owners"><h2>Владельцы</h2><form class="owner-form" method="post" action="/add-owner"><input name="username" placeholder="Логин нового владельца" required minlength="3"><input name="password" type="password" placeholder="Пароль нового владельца" required minlength="8"><button>Добавить владельца</button></form><div class="table-wrap"><table><tr><th>Логин</th><th>Добавлен</th></tr>{owner_rows or '<tr><td colspan=2>Дополнительных владельцев нет</td></tr>'}</table></div></section>""",
                 "actions": actions_section,
             }.get(section, "")
+    monitoring_bot_id = (
+        str(selected_bot["id"])
+        if owner and selected_bot and selected_bot.get("id") is not None
+        else ""
+    )
     status_cards = "".join(
-        f"<div class='health-item'><span class='health-dot {'ok' if state in ('online', 'running', 'настроена', 'настроен') else 'warn'}'></span><div><b>{esc(label)}</b><small>{esc(state)} {esc(detail)}</small></div></div>"
-        for label, state, detail in monitoring_items
+        f"<div class='health-item'{' data-monitoring-bot-id=\"' + esc(monitoring_bot_id) + '\"' if index == 0 and monitoring_bot_id else ''}>"
+        f"<span class='health-dot {'ok' if state in ('online', 'running', 'настроена', 'настроен') else 'warn'}'></span>"
+        f"<div><b>{esc(label)}</b><small>{esc(state)} {esc(detail)}</small></div></div>"
+        for index, (label, state, detail) in enumerate(monitoring_items)
     )
     system_section = (
         f"<section id='health'><h2>Здоровье системы</h2><div class='health-grid'>{status_cards}</div>"
@@ -1945,7 +1952,7 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 .post-row.new-row{{animation:newRow 1.8s ease-out}}.ai-loading{{position:relative;overflow:hidden}}.ai-loading:after{{content:"";position:absolute;inset:0 auto 0 0;width:42%;background:linear-gradient(90deg,transparent,#27d3c244,transparent);animation:scan 1.35s ease-in-out infinite}}.ai-loading:before{{content:"";display:inline-block;width:15px;height:15px;margin-right:9px;vertical-align:-2px;border:2px solid #89f0df66;border-top-color:#89f0df;border-radius:50%;animation:spin3d .8s linear infinite}}.ai-card.open .ai-card-panel{{animation:cardIn .32s cubic-bezier(.2,.8,.2,1) both}}button,a.button-link{{overflow:hidden}}button:after,a.button-link:after{{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 25%,#ffffff55 48%,transparent 70%);transform:translateX(-120%);pointer-events:none}}button:hover:after,a.button-link:hover:after{{animation:buttonShine .7s ease}}@keyframes buttonShine{{to{{transform:translateX(120%)}}}}
 @media(prefers-reduced-motion:reduce){{*,*::before,*::after{{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.001ms!important}}}}
 @media(max-width:700px){{.sidebar{{position:relative;width:100%;padding:16px;min-height:0;border-right:0;border-bottom:1px solid #243956}}.layout{{display:block}}.content{{margin-left:0;padding:20px 12px 40px}}.sidebar-footer{{display:none}}.brand{{padding-bottom:15px}}.theme-switch{{width:auto;margin:0 0 15px}}.nav{{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}}.nav a{{padding:10px 8px;font-size:12px;min-width:0}}.nav a .icon{{width:16px}}.topbar{{display:block}}.topbar>div:last-child{{display:flex;gap:8px;margin-top:15px}}.cards{{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}}.card{{padding:13px}}.card strong{{font-size:23px}}.toolbar input,.toolbar select{{min-width:0;flex:1;width:100%}}.filter-tabs{{width:100%;overflow:auto;flex-wrap:nowrap}}h1{{font-size:25px}}h2{{font-size:19px;margin-top:30px}}.table-wrap{{margin-right:-4px;border-radius:10px}}.health-grid,.monitoring-grid,.action-hero,.setup-grid{{grid-template-columns:1fr}}.action-metric{{padding:13px}}.action-metric b{{font-size:22px}}.ai-card{{padding:10px}}.ai-card-panel{{max-height:94vh}}}}
-</style></head><body><div class="layout">
+</style></head><body data-monitoring-owner="{'1' if owner else '0'}"><div class="layout">
 <aside class="sidebar"><div class="brand"><span class="logo">◈</span><span>Podslushka DB</span></div><button type="button" class="theme-switch" id="theme-switch">☀️ Светлая тема</button><div class="menu-title">Навигация</div><nav class="nav">
 <a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a><a class="{'active' if section == 'health' else ''}" href="/?view=health"><span class="icon">♥</span>Здоровье системы</a><a class="{'active' if section == 'monitoring' else ''}" href="/?view=monitoring"><span class="icon">◉</span>Мониторинг</a>
 <a class="{'active' if section == 'user-search' else ''}" href="/?view=user-search"><span class="icon">⌕</span>Поиск пользователей</a>
@@ -2179,8 +2186,30 @@ async function watchForUpdates() {{
     // A temporary network failure is retried on the next poll.
   }}
 }}
+async function watchBotStatus() {{
+  const card = document.querySelector('[data-monitoring-bot-id]');
+  if (!card || document.body.dataset.monitoringOwner !== '1') return;
+  try {{
+    const response = await fetch('/api/bot-status', {{cache: 'no-store'}});
+    if (!response.ok) return;
+    const payload = await response.json();
+    const selectedId = String(card.dataset.monitoringBotId);
+    const bot = (payload.managed || []).find(item => String(item.id) === selectedId);
+    if (!bot) return;
+    const state = bot.state || (bot.enabled ? 'starting' : 'stopped');
+    const detail = bot.error || (bot.enabled ? 'worker активен' : 'бот выключен');
+    const dot = card.querySelector('.health-dot');
+    const small = card.querySelector('small');
+    if (dot) dot.classList.toggle('ok', ['running', 'online'].includes(state));
+    if (small) small.textContent = `${{state}} · ${{detail}}`;
+  }} catch (_) {{
+    // The regular page refresh remains the fallback after a temporary failure.
+  }}
+}}
 watchForUpdates();
+watchBotStatus();
 setInterval(watchForUpdates, 1500);
+setInterval(watchBotStatus, 5000);
 </script>
 </body></html>"""
 
