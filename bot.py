@@ -30,6 +30,7 @@ logging.basicConfig(
 
 cfg = load_settings()
 db = Database(cfg.db_path, cfg.database_url)
+MANAGED_BOT_ID = int(os.getenv("MANAGED_BOT_ID", "0") or 0)
 
 bot = Bot(token=cfg.bot_token)
 storage = MemoryStorage()
@@ -614,6 +615,7 @@ async def _mg_timeout(mgid: str):
             "text_words": len((first["caption"] or "").split()),
             "metadata": json.dumps({"media_group_id": mgid}, ensure_ascii=False),
         },
+        bot_id=MANAGED_BOT_ID or None,
     )
     for it in data['items'][1:]:
         await db.add_media_group_item(post_id, it["kind"], it["file_id"], it["caption"])
@@ -711,6 +713,7 @@ async def cb_preview_send(callback: CallbackQuery, state: FSMContext):
     post_id = await db.add_post(
         user_id=uid, kind=kind or "text", text=text, file_id=file_id,
         message_meta=message_meta,
+        bot_id=MANAGED_BOT_ID or None,
     )
     await _audit(uid, "Bot post submitted", post_id)
     await state.clear()

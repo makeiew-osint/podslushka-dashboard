@@ -81,6 +81,9 @@ ROLE_PERMISSIONS = {
 BOT_STATUS = {"state": "disabled", "error": ""}
 BOT_PROCESS = None
 BOT_RESTART_LOCK = threading.Lock()
+MANAGED_BOT_PROCESSES: dict[int, subprocess.Popen] = {}
+MANAGED_BOT_LOCK = threading.Lock()
+MANAGED_BOT_SUPERVISOR_STARTED = False
 PG_CONNECTION = None
 PG_CONNECTION_LOCK = threading.Lock()
 
@@ -187,6 +190,152 @@ def start_embedded_bot() -> None:
             time.sleep(5)
 
     threading.Thread(target=supervise, name="telegram-bot-supervisor", daemon=True).start()
+
+
+def _managed_bot_log(bot_id: int, message: str) -> None:
+    """Store worker diagnostics without ever including a bot token."""
+    safe_message = message[-500:]
+    logging.info("Managed bot %s: %s", bot_id, safe_message)
+    try:
+        with db_connect() as conn:
+            conn.execute(
+                "UPDATE managed_bots SET last_error=?, updated_at=? WHERE id=?",
+                (safe_message, int(time.time()), bot_id),
+            )
+            conn.commit()
+    except DB_ERRORS:
+        logging.exception("Could not persist managed bot %s status", bot_id)
+
+
+def _managed_bot_output(bot_id: int, stream) -> None:
+    for line in stream:
+        message = line.strip()
+        if message:
+            _managed_bot_log(bot_id, message)
+
+
+def _stop_managed_bot(bot_id: int) -> None:
+    with MANAGED_BOT_LOCK:
+        process = MANAGED_BOT_PROCESSES.pop(bot_id, None)
+    if process and process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            process.kill()
+    try:
+        with db_connect() as conn:
+            conn.execute(
+                "UPDATE managed_bots SET state='stopped', updated_at=? WHERE id=?",
+                (int(time.time()), bot_id),
+            )
+            conn.commit()
+    except DB_ERRORS:
+        logging.exception("Could not mark managed bot %s stopped", bot_id)
+
+
+def _start_managed_bot(row) -> None:
+    bot_id = int(row["id"])
+    with MANAGED_BOT_LOCK:
+        existing = MANAGED_BOT_PROCESSES.get(bot_id)
+        if existing and existing.poll() is None:
+            return
+    try:
+        token = decrypt_bot_token(row["token_ciphertext"])
+        admin_ids = {str(row["telegram_admin_id"])}
+        for admin in db_rows(
+            "SELECT telegram_id FROM bot_admins WHERE bot_id=?",
+            (bot_id,),
+        ):
+            admin_ids.add(str(admin["telegram_id"]))
+        admin_id = ",".join(sorted(admin_ids))
+        channel_id = str(row["channel_id"])
+    except (RuntimeError, ValueError, TypeError) as exc:
+        _managed_bot_log(bot_id, f"Worker configuration error: {type(exc).__name__}")
+        return
+    env = os.environ.copy()
+    env.update({
+        "BOT_TOKEN": token,
+        "ADMIN_IDS": admin_id,
+        "CHANNEL_ID": channel_id,
+        "RUN_BOT_IN_WEB": "false",
+        "MANAGED_BOT_ID": str(bot_id),
+    })
+    try:
+        process = subprocess.Popen(
+            [sys.executable, "-u", str(ROOT / "bot.py")],
+            cwd=str(ROOT),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+    except OSError as exc:
+        _managed_bot_log(bot_id, f"Worker start error: {type(exc).__name__}")
+        return
+    with MANAGED_BOT_LOCK:
+        MANAGED_BOT_PROCESSES[bot_id] = process
+    if process.stdout is not None:
+        threading.Thread(
+            target=_managed_bot_output,
+            args=(bot_id, process.stdout),
+            name=f"managed-bot-{bot_id}-logs",
+            daemon=True,
+        ).start()
+    with db_connect() as conn:
+        conn.execute(
+            "UPDATE managed_bots SET state='running', last_error='', updated_at=? WHERE id=?",
+            (int(time.time()), bot_id),
+        )
+        conn.commit()
+
+
+def start_managed_bot_supervisor() -> None:
+    global MANAGED_BOT_SUPERVISOR_STARTED
+    if MANAGED_BOT_SUPERVISOR_STARTED:
+        return
+    MANAGED_BOT_SUPERVISOR_STARTED = True
+
+    def supervise() -> None:
+        while True:
+            try:
+                rows = db_rows(
+                    "SELECT id, enabled, token_ciphertext, telegram_admin_id, channel_id "
+                    "FROM managed_bots"
+                )
+                active_ids = {int(row["id"]) for row in rows if row["enabled"]}
+                for row in rows:
+                    bot_id = int(row["id"])
+                    if row["enabled"]:
+                        _start_managed_bot(row)
+                    else:
+                        _stop_managed_bot(bot_id)
+                with MANAGED_BOT_LOCK:
+                    orphaned = set(MANAGED_BOT_PROCESSES) - active_ids
+                for bot_id in orphaned:
+                    _stop_managed_bot(bot_id)
+                with MANAGED_BOT_LOCK:
+                    finished = [
+                        bot_id for bot_id, process in MANAGED_BOT_PROCESSES.items()
+                        if process.poll() is not None
+                    ]
+                for bot_id in finished:
+                    with MANAGED_BOT_LOCK:
+                        MANAGED_BOT_PROCESSES.pop(bot_id, None)
+                    with db_connect() as conn:
+                        conn.execute(
+                            "UPDATE managed_bots SET state='error', last_error=?, updated_at=? WHERE id=?",
+                            ("Worker stopped unexpectedly", int(time.time()), bot_id),
+                        )
+                        conn.commit()
+            except Exception:
+                logging.exception("Managed bot supervisor cycle failed")
+            time.sleep(5)
+
+    threading.Thread(
+        target=supervise, name="managed-bot-supervisor", daemon=True
+    ).start()
 
 
 def esc(value) -> str:
@@ -465,7 +614,7 @@ def _init_auth_once() -> None:
             chat_id BIGINT, chat_type TEXT, message_id BIGINT, content_type TEXT,
             message_date INTEGER, edit_date INTEGER, text_chars INTEGER DEFAULT 0,
             text_words INTEGER DEFAULT 0, metadata TEXT, ai_analysis TEXT,
-            ai_analyzed_at BIGINT)""")
+            ai_analyzed_at BIGINT, bot_id INTEGER)""")
         for name, definition in {
             "chat_id": "BIGINT", "chat_type": "TEXT", "message_id": "BIGINT",
             "content_type": "TEXT", "message_date": "INTEGER", "edit_date": "INTEGER",
@@ -473,6 +622,7 @@ def _init_auth_once() -> None:
             "metadata": "TEXT",
             "ai_analysis": "TEXT",
             "ai_analyzed_at": "BIGINT",
+            "bot_id": "INTEGER",
         }.items():
             if DATABASE_URL:
                 conn.execute(f"ALTER TABLE posts ADD COLUMN IF NOT EXISTS {name} {definition}")
@@ -1265,6 +1415,11 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         f"{last_error_row[0]['action']}: {last_error_row[0]['target']}"
         if last_error_row else (BOT_STATUS.get("error") or database_error or "Нет ошибок")
     )
+    available_bots = managed_bot_rows(current_user)
+    selected_bot = next(
+        (row for row in available_bots if str(row["id"]) == str(selected_bot_id)),
+        available_bots[0] if available_bots else None,
+    )
     monitoring_items = [
         (
             selected_bot["name"] if selected_bot else "Бот",
@@ -1347,11 +1502,21 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         for row in user_details
     )
     managed_bots = managed_bot_rows(current_user) if section == "bots" else []
-    available_bots = managed_bot_rows(current_user)
-    selected_bot = next(
-        (row for row in available_bots if str(row["id"]) == str(selected_bot_id)),
-        available_bots[0] if available_bots else None,
-    )
+    if selected_bot and section in {"overview", "users", "user-search", "posts"}:
+        bot_filter = int(selected_bot["id"])
+        users = db_rows(
+            """SELECT u.*, COUNT(p.id) AS posts_count
+               FROM users u JOIN posts p ON p.user_id=u.user_id AND p.bot_id=?
+               GROUP BY u.user_id ORDER BY u.last_seen DESC LIMIT 500""",
+            (bot_filter,),
+        )
+        posts = db_rows(
+            """SELECT p.id, p.user_id, p.kind, p.status, p.public_id, p.text, p.created_at,
+                      p.ai_analysis, p.ai_analyzed_at, u.username, u.first_name
+               FROM posts p LEFT JOIN users u ON u.user_id=p.user_id
+               WHERE p.bot_id=? ORDER BY p.created_at DESC LIMIT 50""",
+            (bot_filter,),
+        )
     bot_switcher = (
         "<div class='bot-switcher'><span>Активный бот</span>"
         + "".join(
@@ -2163,8 +2328,8 @@ class Handler(BaseHTTPRequestHandler):
                         conn.execute(
                             """INSERT INTO posts
                                (id, user_id, kind, text, status, public_id, created_at, chat_id, chat_type,
-                                message_id, content_type, message_date, edit_date, text_chars, text_words, metadata)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                message_id, content_type, message_date, edit_date, text_chars, text_words, metadata, bot_id)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                ON CONFLICT(id) DO UPDATE SET
                                 user_id=COALESCE(excluded.user_id, posts.user_id),
                                 kind=COALESCE(excluded.kind, posts.kind),
@@ -2180,7 +2345,8 @@ class Handler(BaseHTTPRequestHandler):
                                 edit_date=COALESCE(excluded.edit_date, posts.edit_date),
                                 text_chars=COALESCE(excluded.text_chars, posts.text_chars),
                                 text_words=COALESCE(excluded.text_words, posts.text_words),
-                                metadata=COALESCE(excluded.metadata, posts.metadata)""",
+                                metadata=COALESCE(excluded.metadata, posts.metadata),
+                                bot_id=COALESCE(excluded.bot_id, posts.bot_id)""",
                             (
                                 post["id"], post.get("user_id"), post.get("kind"),
                                 post.get("text"), post.get("status"),
@@ -2188,6 +2354,7 @@ class Handler(BaseHTTPRequestHandler):
                                 post.get("chat_id"), post.get("chat_type"), post.get("message_id"),
                                 post.get("content_type"), post.get("message_date"), post.get("edit_date"),
                                 post.get("text_chars"), post.get("text_words"), post.get("metadata"),
+                                post.get("bot_id"),
                             ),
                         )
                     for action in payload.get("actions", []):
@@ -2597,6 +2764,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     init_auth()
     start_embedded_bot()
+    start_managed_bot_supervisor()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     public_host = "127.0.0.1" if HOST == "0.0.0.0" else HOST
     url = f"http://{public_host}:{PORT}/"
@@ -2610,5 +2778,10 @@ if __name__ == "__main__":
     finally:
         if BOT_PROCESS and BOT_PROCESS.poll() is None:
             BOT_PROCESS.terminate()
+        with MANAGED_BOT_LOCK:
+            managed_processes = list(MANAGED_BOT_PROCESSES.values())
+        for process in managed_processes:
+            if process.poll() is None:
+                process.terminate()
         if PG_CONNECTION is not None and not PG_CONNECTION.closed:
             PG_CONNECTION.close()

@@ -100,7 +100,8 @@ class Database:
                 text_words INTEGER DEFAULT 0,
                 metadata TEXT,
                 ai_analysis TEXT,
-                ai_analyzed_at BIGINT
+                ai_analyzed_at BIGINT,
+                bot_id INTEGER
             )""",
             """CREATE TABLE IF NOT EXISTS media_group_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -289,6 +290,7 @@ class Database:
                 "metadata": "TEXT",
                 "ai_analysis": "TEXT",
                 "ai_analyzed_at": "BIGINT",
+                "bot_id": "INTEGER",
             },
             "users": {
                 "ui_lang": "TEXT",
@@ -451,7 +453,8 @@ class Database:
     # ── Posts ──
     async def add_post(self, user_id: int, kind: str, text: str | None, file_id: str | None,
                        media_group_id: str | None = None, user_name: str | None = None,
-                       username: str | None = None, message_meta: dict | None = None) -> int:
+                       username: str | None = None, message_meta: dict | None = None,
+                       bot_id: int | None = None) -> int:
         now = int(time.time())
         content = (text or "") + (file_id or "")
         h = hashlib.md5(content.encode()).hexdigest()
@@ -459,14 +462,14 @@ class Database:
         cur = await self._execute("""
             INSERT INTO posts (user_id, kind, text, file_id, media_group_id, created_at, hash, status,
                                chat_id, chat_type, message_id, content_type, message_date, edit_date,
-                               text_chars, text_words, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               text_chars, text_words, metadata, bot_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """ + (" RETURNING id" if self.database_url else ""),
             (user_id, kind, text, file_id, media_group_id, now, h,
              meta.get("chat_id"), meta.get("chat_type"), meta.get("message_id"),
              meta.get("content_type"), meta.get("message_date"), meta.get("edit_date"),
              meta.get("text_chars", len(text or "")), meta.get("text_words", len((text or "").split())),
-             meta.get("metadata")))
+             meta.get("metadata"), bot_id))
         await self._commit()
         if self.database_url:
             row = await cur.fetchone()
