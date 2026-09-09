@@ -245,6 +245,19 @@ async def _on_startup():
             # Managed bots use long polling; an old webhook would prevent
             # Telegram from delivering updates to this worker.
             await bot.delete_webhook(drop_pending_updates=False)
+            if MANAGED_BOT_ID:
+                await db.record_managed_bot_event(
+                    MANAGED_BOT_ID, "connected", "Бот подключён", state="running"
+                )
+                if cfg.channel_id:
+                    try:
+                        await bot.get_chat(cfg.channel_id)
+                    except Exception as exc:
+                        await db.record_managed_bot_event(
+                            MANAGED_BOT_ID, "channel_access_error",
+                            "Нет доступа к каналу", state="error",
+                            error=str(exc)[:500],
+                        )
             logging.info("Bot started, DB connected")
             return
         except Exception:
@@ -458,6 +471,11 @@ async def cmd_start(message: Message, state: FSMContext):
         await message.answer("Выбери язык / Choose language / Обери мову:", reply_markup=_lang_kb())
     else:
         await message.answer(t(ui_lang, "welcome", min_len=cfg.min_text_len or "без ограничений"))
+    if MANAGED_BOT_ID:
+        try:
+            await db.touch_managed_bot(MANAGED_BOT_ID, response_at=int(time.time()))
+        except Exception:
+            logging.exception("Could not update managed bot response time")
     # Non-critical persistence happens after the first response.
     try:
         await _audit(u.id, "Bot /start", "telegram_user")
@@ -577,6 +595,11 @@ pending_media_groups: Dict[str, Dict[str, Any]] = {}
 @dp.message(F.text | F.photo | F.video | F.voice | F.audio | F.document | F.video_note | F.animation)
 async def handle_incoming(message: Message, state: FSMContext):
     uid = message.from_user.id
+    if MANAGED_BOT_ID:
+        try:
+            await db.touch_managed_bot(MANAGED_BOT_ID, update_at=int(time.time()))
+        except Exception:
+            logging.exception("Could not update managed bot update time")
     lang = await _lang(uid)
 
     if await db.is_banned(uid):

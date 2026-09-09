@@ -219,10 +219,22 @@ class Database:
                 ai_publish_threshold REAL DEFAULT 0.92,
                 state TEXT DEFAULT 'stopped',
                 last_error TEXT,
+                last_response_at INTEGER,
+                last_update_at INTEGER,
+                last_event_type TEXT,
+                last_event_at INTEGER,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 UNIQUE(project_id, name),
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )""",
+            """CREATE TABLE IF NOT EXISTS managed_bot_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY (bot_id) REFERENCES managed_bots(id) ON DELETE CASCADE
             )""",
             """CREATE TABLE IF NOT EXISTS dashboard_settings (
                 key TEXT PRIMARY KEY,
@@ -262,6 +274,7 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_dashboard_actions_created ON dashboard_actions(created_at);",
             "CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_logs(created_at);",
             "CREATE INDEX IF NOT EXISTS idx_managed_bots_project ON managed_bots(project_id);",
+            "CREATE INDEX IF NOT EXISTS idx_managed_bot_events_bot_created ON managed_bot_events(bot_id, created_at);",
             "CREATE INDEX IF NOT EXISTS idx_project_members_username ON project_members(username);",
         ]
         for sql in tables:
@@ -275,6 +288,10 @@ class Database:
         migrations = {
             "managed_bots": {
                 "ai_publish_threshold": "REAL DEFAULT 0.92",
+                "last_response_at": "INTEGER",
+                "last_update_at": "INTEGER",
+                "last_event_type": "TEXT",
+                "last_event_at": "INTEGER",
             },
             "posts": {
                 "file_id": "TEXT",
@@ -342,6 +359,71 @@ class Database:
                 await self._execute(
                     f"ALTER TABLE {table} ALTER COLUMN {column} TYPE BIGINT"
                 )
+
+    async def record_managed_bot_event(
+        self,
+        bot_id: int,
+        event_type: str,
+        message: str,
+        state: str | None = None,
+        error: str | None = None,
+    ):
+        """Persist a redacted worker event for the dashboard status center."""
+        if not bot_id:
+            return
+        now = int(time.time())
+        event_type = str(event_type)[:48]
+        message = str(message)[:500]
+        cursor = await self._execute(
+            "SELECT state FROM managed_bots WHERE id=?", (bot_id,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return
+        previous_state = row["state"] if hasattr(row, "keys") else row[0]
+        if event_type == "connected" and previous_state == "error":
+            await self._execute(
+                """INSERT INTO managed_bot_events
+                   (bot_id, event_type, message, created_at)
+                   VALUES (?, 'recovered', ?, ?)""",
+                (bot_id, "Telegram connection recovered", now),
+            )
+        await self._execute(
+            """INSERT INTO managed_bot_events
+               (bot_id, event_type, message, created_at)
+               VALUES (?, ?, ?, ?)""",
+            (bot_id, event_type, message, now),
+        )
+        await self._execute(
+            """UPDATE managed_bots
+               SET state=COALESCE(?, state), last_error=?,
+                   last_event_type=?, last_event_at=?, updated_at=?
+               WHERE id=?""",
+            (state, error or "", event_type, now, now, bot_id),
+        )
+        await self._commit()
+
+    async def touch_managed_bot(
+        self, bot_id: int, update_at: int | None = None, response_at: int | None = None
+    ):
+        if not bot_id:
+            return
+        fields = []
+        params = []
+        if update_at is not None:
+            fields.append("last_update_at=?")
+            params.append(int(update_at))
+        if response_at is not None:
+            fields.append("last_response_at=?")
+            params.append(int(response_at))
+        if not fields:
+            return
+        fields.append("updated_at=?")
+        params.extend([int(time.time()), bot_id])
+        await self._execute(
+            f"UPDATE managed_bots SET {', '.join(fields)} WHERE id=?", tuple(params)
+        )
+        await self._commit()
 
     # ── Users ──
     async def upsert_user(self, user_id: int, first_name: str | None, last_name: str | None,

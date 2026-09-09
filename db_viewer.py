@@ -110,6 +110,15 @@ BOT_RESTART_LOCK = threading.Lock()
 MANAGED_BOT_PROCESSES: dict[int, subprocess.Popen] = {}
 MANAGED_BOT_LOCK = threading.Lock()
 MANAGED_BOT_SUPERVISOR_STARTED = False
+BOT_EVENT_LABELS = {
+    "starting": "Запуск",
+    "connected": "Подключён",
+    "recovered": "Восстановлен",
+    "token_error": "Ошибка токена",
+    "channel_access_error": "Нет доступа к каналу",
+    "stopped": "Остановлен",
+    "error": "Ошибка worker",
+}
 PG_CONNECTION = None
 PG_CONNECTION_LOCK = threading.Lock()
 
@@ -248,6 +257,55 @@ def _managed_bot_log(bot_id: int, message: str) -> None:
         _notify_updates_group("worker", f"Bot {bot_id} worker error", safe_message)
 
 
+def _record_managed_bot_event(
+    bot_id: int,
+    event_type: str,
+    message: str,
+    state: str | None = None,
+    error: str | None = None,
+) -> None:
+    """Persist a safe status event and announce important worker transitions."""
+    safe_message = str(message)[:500]
+    try:
+        with db_connect() as conn:
+            row = conn.execute(
+                "SELECT state FROM managed_bots WHERE id=?", (bot_id,)
+            ).fetchone()
+            if not row:
+                return
+            previous_state = row_value(row, "state", 0)
+            if event_type == "connected" and previous_state == "error":
+                conn.execute(
+                    """INSERT INTO managed_bot_events
+                       (bot_id, event_type, message, created_at)
+                       VALUES (?, 'recovered', ?, ?)""",
+                    (bot_id, "Telegram connection recovered", int(time.time())),
+                )
+            conn.execute(
+                """INSERT INTO managed_bot_events
+                   (bot_id, event_type, message, created_at)
+                   VALUES (?, ?, ?, ?)""",
+                (bot_id, event_type[:48], safe_message, int(time.time())),
+            )
+            conn.execute(
+                """UPDATE managed_bots
+                   SET state=COALESCE(?, state), last_error=?,
+                       last_event_type=?, last_event_at=?, updated_at=?
+                   WHERE id=?""",
+                (state, error or "", event_type[:48], int(time.time()), int(time.time()), bot_id),
+            )
+            conn.commit()
+    except DB_ERRORS:
+        logging.exception("Could not persist managed bot %s event", bot_id)
+        return
+    if event_type in {"starting", "connected", "recovered", "token_error", "channel_access_error"}:
+        _notify_updates_group(
+            "worker",
+            f"Bot {bot_id}: {BOT_EVENT_LABELS.get(event_type, event_type)}",
+            safe_message,
+        )
+
+
 def _managed_bot_output(bot_id: int, stream) -> None:
     for line in stream:
         message = line.strip()
@@ -272,6 +330,7 @@ def _telegram_bot_username(token: str) -> str:
 def _stop_managed_bot(bot_id: int) -> None:
     with MANAGED_BOT_LOCK:
         process = MANAGED_BOT_PROCESSES.pop(bot_id, None)
+    was_running = bool(process and process.poll() is None)
     if process and process.poll() is None:
         process.terminate()
         try:
@@ -279,12 +338,15 @@ def _stop_managed_bot(bot_id: int) -> None:
         except subprocess.TimeoutExpired:
             process.kill()
     try:
-        with db_connect() as conn:
-            conn.execute(
-                "UPDATE managed_bots SET state='stopped', updated_at=? WHERE id=?",
-                (int(time.time()), bot_id),
-            )
-            conn.commit()
+        if was_running:
+            _record_managed_bot_event(bot_id, "stopped", "Worker остановлен", "stopped")
+        else:
+            with db_connect() as conn:
+                conn.execute(
+                    "UPDATE managed_bots SET state='stopped', updated_at=? WHERE id=?",
+                    (int(time.time()), bot_id),
+                )
+                conn.commit()
     except DB_ERRORS:
         logging.exception("Could not mark managed bot %s stopped", bot_id)
 
@@ -295,6 +357,7 @@ def _start_managed_bot(row) -> None:
         existing = MANAGED_BOT_PROCESSES.get(bot_id)
         if existing and existing.poll() is None:
             return
+    _record_managed_bot_event(bot_id, "starting", "Worker запускается", "starting")
     try:
         token = decrypt_bot_token(row["token_ciphertext"])
         admin_ids = {str(row["telegram_admin_id"])}
@@ -306,7 +369,10 @@ def _start_managed_bot(row) -> None:
         admin_id = ",".join(sorted(admin_ids))
         channel_id = str(row["channel_id"])
     except (RuntimeError, ValueError, TypeError) as exc:
-        _managed_bot_log(bot_id, f"Worker configuration error: {type(exc).__name__}")
+        _record_managed_bot_event(
+            bot_id, "token_error", "Не удалось расшифровать токен бота",
+            "error", "Ошибка конфигурации токена",
+        )
         return
     try:
         username = _telegram_bot_username(token)
@@ -318,7 +384,10 @@ def _start_managed_bot(row) -> None:
                 )
                 conn.commit()
     except (OSError, urllib.error.URLError, ValueError, TypeError, json.JSONDecodeError):
-        _managed_bot_log(bot_id, "Bot identity lookup failed")
+        _record_managed_bot_event(
+            bot_id, "token_error", "Telegram не подтвердил токен бота",
+            "error", "Ошибка проверки токена",
+        )
     env = os.environ.copy()
     env.update({
         "BOT_TOKEN": token,
@@ -338,7 +407,9 @@ def _start_managed_bot(row) -> None:
             bufsize=1,
         )
     except OSError as exc:
-        _managed_bot_log(bot_id, f"Worker start error: {type(exc).__name__}")
+        _record_managed_bot_event(
+            bot_id, "error", "Worker не запустился", "error", "Ошибка запуска worker",
+        )
         return
     with MANAGED_BOT_LOCK:
         MANAGED_BOT_PROCESSES[bot_id] = process
@@ -351,17 +422,23 @@ def _start_managed_bot(row) -> None:
         ).start()
     time.sleep(0.5)
     if process.poll() is not None:
-        _managed_bot_log(bot_id, f"Worker exited during startup (code {process.returncode})")
+        _record_managed_bot_event(
+            bot_id, "error", "Worker завершился при запуске", "error",
+            "Worker завершился при запуске",
+        )
         with MANAGED_BOT_LOCK:
             MANAGED_BOT_PROCESSES.pop(bot_id, None)
         return
+    # The worker records connected/token/channel state itself.  Do not overwrite
+    # a channel or credential error with "running" during this short handoff.
     with db_connect() as conn:
         conn.execute(
-            "UPDATE managed_bots SET state='running', last_error='', updated_at=? WHERE id=?",
+            """UPDATE managed_bots SET state=CASE WHEN state='starting' THEN 'running' ELSE state END,
+               last_error=CASE WHEN state='starting' THEN '' ELSE last_error END,
+               updated_at=? WHERE id=?""",
             (int(time.time()), bot_id),
         )
         conn.commit()
-    _notify_updates_group("worker", f"Bot {bot_id} started", "Worker работает")
 
 
 def start_managed_bot_supervisor() -> None:
@@ -402,6 +479,10 @@ def start_managed_bot_supervisor() -> None:
                             ("Worker stopped unexpectedly", int(time.time()), bot_id),
                         )
                         conn.commit()
+                    _record_managed_bot_event(
+                        bot_id, "error", "Worker остановился неожиданно", "error",
+                        "Worker stopped unexpectedly",
+                    )
                     _notify_updates_group(
                         "worker", f"Bot {bot_id} stopped unexpectedly",
                         "Worker остановился и требует проверки",
@@ -696,6 +777,10 @@ def _init_auth_once() -> None:
             ai_publish_threshold REAL DEFAULT 0.92,
             state TEXT DEFAULT 'stopped',
             last_error TEXT,
+            last_response_at INTEGER,
+            last_update_at INTEGER,
+            last_event_type TEXT,
+            last_event_at INTEGER,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
             UNIQUE(project_id, name)
@@ -710,6 +795,24 @@ def _init_auth_once() -> None:
         )
         if "ai_publish_threshold" not in managed_columns:
             conn.execute("ALTER TABLE managed_bots ADD COLUMN ai_publish_threshold REAL NOT NULL DEFAULT 0.92")
+        for name, definition in {
+            "last_response_at": "INTEGER",
+            "last_update_at": "INTEGER",
+            "last_event_type": "TEXT",
+            "last_event_at": "INTEGER",
+        }.items():
+            if name not in managed_columns:
+                if DATABASE_URL:
+                    conn.execute(f"ALTER TABLE managed_bots ADD COLUMN IF NOT EXISTS {name} {definition}")
+                else:
+                    conn.execute(f"ALTER TABLE managed_bots ADD COLUMN {name} {definition}")
+        conn.execute("""CREATE TABLE IF NOT EXISTS managed_bot_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bot_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS bot_admins (
             bot_id INTEGER NOT NULL,
             username TEXT NOT NULL,
@@ -763,6 +866,7 @@ def _init_auth_once() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_logs(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_expiry ON dashboard_sessions(expires_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_managed_bots_project ON managed_bots(project_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_managed_bot_events_bot_created ON managed_bot_events(bot_id, created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_project_members_username ON project_members(username)")
         if DATABASE_URL:
             for table, column in (
@@ -1884,6 +1988,24 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         for row in user_details
     )
     managed_bots = managed_bot_rows(current_user) if section == "bots" else []
+    bot_status_center = (
+        "<div class='bot-center'><div class='bot-center-head'><div><h3>Центр состояния ботов</h3>"
+        "<p class='muted'>Состояние обновляется автоматически каждые 5 секунд.</p></div>"
+        "<div class='bot-center-controls'><select id='bot-state-filter'><option value=''>Все статусы</option>"
+        "<option value='running'>Работает</option><option value='starting'>Запускается</option>"
+        "<option value='error'>Ошибка</option><option value='stopped'>Выключен</option></select>"
+        "<button type='button' id='bot-compact-toggle'>Компактный режим</button></div></div>"
+        "<div class='bot-status-grid'>"
+        + "".join(
+            f"<article class='bot-status-card' data-bot-state='{esc(row['state'] or 'stopped')}'><div class='bot-status-title'>"
+            f"<span class='status-dot {'online' if row['state'] == 'running' else 'offline'}'></span><b>{esc(row['name'])}</b></div>"
+            f"<span class='status'>{esc(row['state'] or 'stopped')}</span><small>Последний ответ: —</small>"
+            f"<small>Telegram: —</small><form method='post' action='/bot/restart' class='inline'><input type='hidden' name='bot_id' value='{esc(row['id'])}'><button type='submit'>Перезапустить</button></form></article>"
+            for row in managed_bots
+        )
+        + ("<p class='muted'>Подключённых managed-ботов пока нет.</p>" if not managed_bots else "")
+        + "</div></div>"
+    ) if section == "bots" and owner else ""
     if selected_bot and section in {"overview", "users", "user-search", "posts"}:
         bot_filter = int(selected_bot["id"])
         users = db_rows(
@@ -2021,7 +2143,7 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         <p class="muted">Токены скрыты и хранятся зашифрованными. Доступ ограничен проектом и ролью.</p></div>
         </div>
         {'<div class="bot-stage"><div class="bot-stage-glow"></div><div class="bot-model"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="bot-stage-label">secure bot workspace</span></div><div class="setup-grid"><form class="setup-card" method="post" action="/project/create"><h3>Новый проект</h3><input name="name" placeholder="Название проекта" required><input name="school_city" placeholder="Школа / город" required><button>Создать проект</button></form><form class="setup-card" method="post" action="/bot/create"><h3>Подключить бота</h3><select name="project_id" required><option value="">Выберите проект</option>' + project_options + '</select><input name="name" placeholder="Название бота" required><label class="field-help"><input name="token" type="password" placeholder="Токен бота" minlength="20" required><button type="button" class="help-button" data-help="Откройте @BotFather в Telegram, выполните /newbot и вставьте выданный токен." aria-label="Как получить токен">?</button></label><label class="field-help"><input name="telegram_admin_id" inputmode="numeric" placeholder="Ваш Telegram ID" required><button type="button" class="help-button" data-help="Напишите @userinfobot в Telegram — он покажет ваш числовой ID." aria-label="Как узнать Telegram ID">?</button></label><label class="field-help"><input name="channel_id" placeholder="@канал или -100..." required><button type="button" class="help-button" data-help="Добавьте бота администратором канала и укажите @username или числовой ID -100..." aria-label="Как узнать ID канала">?</button></label><label class="ai-toggle"><input type="checkbox" name="ai_auto_publish"> ИИ-автопубликация</label><button>Зашифровать и подключить</button></form></div>' if owner else ''}
-        <div class="table-wrap"><table><tr><th>Бот / проект</th><th>Username</th><th>Канал</th>
+        {bot_status_center}<div class="table-wrap"><table><tr><th>Бот / проект</th><th>Username</th><th>Канал</th>
         <th>Состояние</th><th>Worker</th><th>ИИ-автопубликация</th><th></th></tr>
         {bot_table_html or '<tr><td colspan=7>Ботов пока нет или у вас нет доступа.</td></tr>'}</table></div>
         {legacy_import_form}{token_update_form}{ai_threshold_form}
@@ -2184,12 +2306,12 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <title>Podslushka DB</title><style>
-:root{{--bg:#090b1c;--sidebar:#11132d;--panel:#191c3b;--panel2:#222550;--line:#353866;--text:#f5f4ff;--muted:#a5a8c7;--blue:#7b61ff;--blue2:#27d3c2;--danger:#ef5c87;--shadow:#080a1b;--input:#0e192b}}
-body.light{{--bg:#edf4ff;--sidebar:#e4eeff;--panel:#ffffff;--panel2:#f4f8ff;--line:#c6d6ee;--text:#17243f;--muted:#607392;--blue:#5369dc;--blue2:#078f9b;--danger:#c53d62;--shadow:#b5c7e2;--input:#fbfdff}}
+:root{{--bg:#0d1117;--sidebar:#161b22;--panel:#161b22;--panel2:#21262d;--line:#30363d;--text:#f0f6fc;--muted:#8b949e;--blue:#58a6ff;--blue2:#3fb950;--danger:#f85149;--shadow:#010409;--input:#0d1117}}
+body.light{{--bg:#f6f8fa;--sidebar:#ffffff;--panel:#ffffff;--panel2:#f6f8fa;--line:#d0d7de;--text:#1f2328;--muted:#656d76;--blue:#0969da;--blue2:#1a7f37;--danger:#cf222e;--shadow:#afb8c133;--input:#ffffff}}
 *{{box-sizing:border-box}}html{{scroll-behavior:smooth;overflow-x:hidden}}body{{margin:0;background:radial-gradient(circle at 78% 0,#714dff2b,transparent 30%),radial-gradient(circle at 20% 100%,#17d6c51d,transparent 28%),var(--bg);color:var(--text);font:14px Inter,Segoe UI,Arial,sans-serif;transition:background .25s,color .25s;overflow-x:hidden;perspective:1600px}}
 .ambient-scene{{position:fixed;z-index:0;inset:0;pointer-events:none;overflow:hidden;perspective:900px;transform-style:preserve-3d}}.ambient-sphere{{position:absolute;width:190px;height:190px;right:8%;top:18%;border-radius:50%;background:radial-gradient(circle at 30% 25%,#d7ffff 0,#57d6f7 5%,#4779ec 24%,#3d31a2 56%,#0b1538 78%);box-shadow:inset -25px -30px 35px #050921aa,0 0 35px #398cff99,0 0 110px #523cff44;animation:ambientFloat 8s ease-in-out infinite;opacity:.52}}.ambient-orbit{{position:absolute;right:5%;top:21%;width:260px;height:110px;border:1px solid #77b7ff77;border-radius:50%;transform:rotateX(66deg) rotateZ(18deg);box-shadow:0 0 18px #347cff55;animation:ambientSpin 12s linear infinite}}.orbit-two{{width:330px;height:145px;right:2%;top:18%;transform:rotateX(66deg) rotateZ(-34deg);animation-duration:17s;animation-direction:reverse;border-color:#b16dff55}}.ambient-cube{{position:absolute;right:17%;top:34%;width:58px;height:58px;transform-style:preserve-3d;animation:ambientCube 14s linear infinite;opacity:.42}}.ambient-cube i{{position:absolute;inset:0;border:1px solid #a8d5ffbb;background:linear-gradient(135deg,#6e8dff44,#23d7d622);box-shadow:0 0 18px #438cff66;backface-visibility:hidden}}.ambient-cube i:nth-child(1){{transform:translateZ(29px)}}.ambient-cube i:nth-child(2){{transform:rotateY(180deg) translateZ(29px)}}.ambient-cube i:nth-child(3){{transform:rotateY(90deg) translateZ(29px)}}.ambient-cube i:nth-child(4){{transform:rotateY(-90deg) translateZ(29px)}}.ambient-cube i:nth-child(5){{transform:rotateX(90deg) translateZ(29px)}}.ambient-cube i:nth-child(6){{transform:rotateX(-90deg) translateZ(29px)}}.ambient-particle{{position:absolute;width:7px;height:7px;border-radius:50%;background:#8fffea;box-shadow:0 0 18px #2bd3c0;animation:particleDrift 6s ease-in-out infinite}}.particle-one{{right:31%;top:24%}}.particle-two{{right:10%;top:58%;width:5px;height:5px;background:#be9bff;box-shadow:0 0 16px #8b6cff;animation-delay:-2.5s}}.layout{{position:relative;z-index:1}}
-.layout{{display:flex;min-height:100vh;perspective:1500px;width:100%;overflow:hidden}}.sidebar{{position:fixed;inset:0 auto 0 0;width:255px;padding:25px 16px;background:linear-gradient(180deg,#171943,#0d1028);border-right:1px solid #38366d;z-index:50;pointer-events:auto;box-shadow:10px 0 24px #02071188,12px 0 45px #6e52ff18}}
-body.light .sidebar{{background:linear-gradient(180deg,#f8fbff 0%,#e4eeff 48%,#d5e4fb 100%);border-color:#c1d3eb;box-shadow:10px 0 24px #7694c433}}
+.layout{{display:flex;min-height:100vh;perspective:1500px;width:100%;overflow:hidden}}.sidebar{{position:fixed;inset:0 auto 0 0;width:255px;padding:25px 16px;background:var(--sidebar);border-right:1px solid var(--line);z-index:50;pointer-events:auto;box-shadow:10px 0 24px #01040955}}
+body.light .sidebar{{background:var(--sidebar);border-color:var(--line);box-shadow:10px 0 24px #afb8c133}}
 body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.light .nav a{{color:#4d6384}}body.light .nav a:hover,body.light .nav a.active{{color:#17305b;background:linear-gradient(135deg,#ffffff,#d8e6ff);border-color:#9bb8e5;box-shadow:5px 6px 0 #b5c7e2,0 0 22px #6e91d633}}
 .layout:before,.layout:after{{content:"";position:fixed;z-index:0;pointer-events:none;border:1px solid #7b61ff66;filter:drop-shadow(0 0 12px #7b61ff55);transform-style:preserve-3d;animation:float3d 9s ease-in-out infinite}}
 .layout:before{{width:100px;height:100px;right:5%;top:12%;border-radius:28px;transform:rotateX(58deg) rotateZ(25deg);background:linear-gradient(135deg,#7b61ff22,#27d3c211)}}
@@ -2229,6 +2351,20 @@ body.light .brand{{color:#20365c}}body.light .menu-title{{color:#7185a3}}body.li
 .bots-panel .bot-actions a,.bots-panel .bot-actions button{{min-height:38px}}
 .bots-panel .status{{box-shadow:0 0 0 1px #6b9bd522}}
 .bots-panel .bot-error{{max-width:260px;white-space:normal;line-height:1.35;color:#ffb8c2!important}}
+.bot-center{{margin:0 0 18px;padding:18px;border:1px solid #405f8c;border-radius:16px;background:linear-gradient(145deg,#152945,#101b30);box-shadow:0 8px 22px #02071366}}
+.bot-center-head{{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}}
+.bot-center-head h3{{margin:0;font-size:17px}}.bot-center-head p{{margin:5px 0 0;font-size:12px}}
+.bot-center-controls{{display:flex;gap:8px;flex-wrap:wrap;align-items:center}}.bot-center-controls select{{min-width:145px;padding:8px 10px}}
+.bot-status-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}}
+.bot-status-card{{display:grid;gap:8px;padding:14px;border:1px solid #2d4a70;border-radius:12px;background:#0e1a2d;transition:.2s}}
+.bot-status-card:hover{{transform:translateY(-2px);border-color:#5d91c8}}.bot-status-card.compact{{padding:9px;gap:4px}}
+.bot-status-title{{display:flex;align-items:center;gap:8px;min-width:0}}.bot-status-title b{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.status-dot{{width:9px;height:9px;flex:none;border-radius:50%;background:#f0b35a;box-shadow:0 0 9px #f0b35a}}
+.status-dot.online{{background:#42e6c7;box-shadow:0 0 9px #42e6c7}}.status-dot.offline{{background:#7f91ac;box-shadow:none}}
+.bot-status-card small{{color:#93a9c5;font-size:11px}}.bot-status-card button{{padding:7px 10px;font-size:11px}}
+body.light .bot-center{{background:#f7faff;border-color:#bfd0e6;box-shadow:0 8px 22px #8aa5c533}}
+body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .bot-status-card small{{color:#5c7290}}
+@media(max-width:700px){{.bot-center-head{{display:block}}.bot-center-controls{{margin-top:12px}}.bot-center-controls select,.bot-center-controls button{{flex:1;min-width:0}}.bot-status-grid{{grid-template-columns:1fr}}}}
 @keyframes botPanelSweep{{50%{{transform:translateX(100%)}}}}
 @keyframes botPrismFloat{{0%,100%{{transform:rotateX(-20deg) rotateY(0deg) translateY(0)}}50%{{transform:rotateX(18deg) rotateY(180deg) translateY(-12px)}}}}
 </style></head><body data-monitoring-owner="{'1' if owner else '0'}"><div class="ambient-scene" aria-hidden="true"><div class="ambient-orbit orbit-one"></div><div class="ambient-orbit orbit-two"></div><div class="ambient-sphere"></div><div class="ambient-cube"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="ambient-particle particle-one"></span><span class="ambient-particle particle-two"></span></div><div class="layout">
@@ -2407,6 +2543,17 @@ function filterDetails() {{
   document.getElementById('detail-empty').style.display = count ? 'none' : 'block';
 }}
 function bindControls() {{
+  const botFilter = document.getElementById('bot-state-filter');
+  const compactToggle = document.getElementById('bot-compact-toggle');
+  if (botFilter) botFilter.addEventListener('change', () => {{
+    document.querySelectorAll('.bot-status-card').forEach(card => {{
+      card.hidden = Boolean(botFilter.value && card.dataset.botState !== botFilter.value);
+    }});
+  }});
+  if (compactToggle) compactToggle.addEventListener('click', () => {{
+    document.querySelectorAll('.bot-status-card').forEach(card => card.classList.toggle('compact'));
+    compactToggle.classList.toggle('active');
+  }});
   const liveSearch = document.getElementById('search');
   const liveStatus = document.getElementById('status');
   const liveKind = document.getElementById('kind');
@@ -2478,21 +2625,35 @@ async function watchForUpdates() {{
   }}
 }}
 async function watchBotStatus() {{
-  const card = document.querySelector('[data-monitoring-bot-id]');
-  if (!card || document.body.dataset.monitoringOwner !== '1') return;
+  if (document.body.dataset.monitoringOwner !== '1') return;
   try {{
     const response = await fetch('/api/bot-status', {{cache: 'no-store'}});
     if (!response.ok) return;
     const payload = await response.json();
+    const formatTime = value => value ? new Date(value * 1000).toLocaleString('ru-RU') : '—';
+    (payload.managed || []).forEach(bot => {{
+      const state = bot.state || (bot.enabled ? 'starting' : 'stopped');
+      document.querySelectorAll('.bot-status-card').forEach(card => {{
+        if (card.querySelector('input[name="bot_id"]')?.value !== String(bot.id)) return;
+        card.dataset.botState = state;
+        card.querySelector('.status').textContent = state;
+        const smalls = card.querySelectorAll('small');
+        if (smalls[0]) smalls[0].textContent = `Последний ответ: ${{formatTime(bot.last_response_at)}}`;
+        if (smalls[1]) smalls[1].textContent = `Telegram: ${{formatTime(bot.last_update_at)}}`;
+        const dot = card.querySelector('.status-dot');
+        if (dot) dot.classList.toggle('online', ['running', 'online'].includes(state));
+      }});
+    }});
+    const card = document.querySelector('[data-monitoring-bot-id]');
+    if (!card) return;
     const selectedId = String(card.dataset.monitoringBotId);
     const bot = (payload.managed || []).find(item => String(item.id) === selectedId);
     if (!bot) return;
-    const state = bot.state || (bot.enabled ? 'starting' : 'stopped');
     const detail = bot.error || (bot.enabled ? 'worker активен' : 'бот выключен');
     const dot = card.querySelector('.health-dot');
     const small = card.querySelector('small');
-    if (dot) dot.classList.toggle('ok', ['running', 'online'].includes(state));
-    if (small) small.textContent = `${{state}} · ${{detail}}`;
+    if (dot) dot.classList.toggle('ok', ['running', 'online'].includes(bot.state));
+    if (small) small.textContent = `${{bot.state}} · ${{detail}}`;
   }} catch (_) {{
     // The regular page refresh remains the fallback after a temporary failure.
   }}
@@ -2645,6 +2806,7 @@ class Handler(BaseHTTPRequestHandler):
             updated = scalar("SELECT MAX(created_at) FROM posts") or 0
             updated = max(updated, scalar("SELECT MAX(last_seen) FROM users") or 0)
             updated = max(updated, scalar("SELECT MAX(created_at) FROM dashboard_actions") or 0)
+            updated = max(updated, scalar("SELECT MAX(last_event_at) FROM managed_bots") or 0)
             body = json.dumps({"updated": str(updated)}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -2712,8 +2874,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(403)
                 return
             rows = db_rows(
-                "SELECT id, name, bot_username, enabled, state, last_error, updated_at "
-                "FROM managed_bots ORDER BY name"
+                """SELECT id, name, bot_username, enabled, state, last_error,
+                          last_response_at, last_update_at, last_event_type,
+                          last_event_at, updated_at
+                FROM managed_bots ORDER BY name
+                """
             )
             payload = {
                 "embedded": BOT_STATUS,
@@ -2725,9 +2890,26 @@ class Handler(BaseHTTPRequestHandler):
                         "enabled": bool(row["enabled"]),
                         "state": row["state"] or "stopped",
                         "error": row["last_error"] or "",
+                        "last_response_at": row["last_response_at"] or 0,
+                        "last_update_at": row["last_update_at"] or 0,
+                        "last_event_type": row["last_event_type"] or "",
+                        "last_event_at": row["last_event_at"] or 0,
                         "updated_at": row["updated_at"] or 0,
                     }
                     for row in rows
+                ],
+                "events": [
+                    {
+                        "bot_id": int(event["bot_id"]),
+                        "type": event["event_type"],
+                        "message": event["message"],
+                        "created_at": int(event["created_at"]),
+                    }
+                    for event in optional_rows(
+                        """SELECT bot_id, event_type, message, created_at
+                           FROM managed_bot_events
+                           ORDER BY created_at DESC LIMIT 40"""
+                    )
                 ],
             }
             body = json.dumps(payload).encode("utf-8")
@@ -2886,7 +3068,7 @@ class Handler(BaseHTTPRequestHandler):
         if impersonation_owner(self) and path in {
             "/profile/password", "/bot/create", "/bot/import-legacy",
             "/bot/admin/add", "/bot/admin/remove", "/bot/token",
-            "/bot/toggle", "/bot/ai-toggle", "/bot/ai-threshold",
+            "/bot/toggle", "/bot/restart", "/bot/ai-toggle", "/bot/ai-threshold",
             "/legacy/ai-toggle", "/project/create", "/project/join",
             "/project/leave", "/approve", "/reject", "/add-owner",
         }:
@@ -3349,6 +3531,36 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 conn.commit()
             log_action(actor or "owner", "Managed bot toggled", f"{bot_id}:{enabled}")
+            self.send_response(302)
+            self.send_header("Location", f"/?view=bots&bot_id={bot_id}")
+            self.end_headers()
+            return
+        if path == "/bot/restart":
+            if not is_owner(actor):
+                self.send_error(403)
+                return
+            try:
+                bot_id = int(fields.get("bot_id", ["0"])[0])
+            except (TypeError, ValueError):
+                self.send_error(400, "Invalid bot id")
+                return
+            with db_connect() as conn:
+                row = conn.execute(
+                    "SELECT * FROM managed_bots WHERE id=?", (bot_id,)
+                ).fetchone()
+                if not row:
+                    self.send_error(404, "Bot not found")
+                    return
+                if not int(row_value(row, "enabled", 0) or 0):
+                    self.send_error(400, "Bot is disabled")
+                    return
+                conn.execute(
+                    "UPDATE managed_bots SET state='starting', last_error='', updated_at=? WHERE id=?",
+                    (int(time.time()), bot_id),
+                )
+                conn.commit()
+            _stop_managed_bot(bot_id)
+            log_action(actor or "owner", "Managed bot restarted", str(bot_id))
             self.send_response(302)
             self.send_header("Location", f"/?view=bots&bot_id={bot_id}")
             self.end_headers()
