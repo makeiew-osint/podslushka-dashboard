@@ -2377,6 +2377,19 @@ body.light .danger{{background:#cf222e!important;border-color:#cf222e!important;
 body.light th{{background:#f6f8fa;color:#57606a;border-bottom-color:#d8dee4}}
 body.light td{{color:#24292f;border-bottom-color:#d8dee4}}
 body.light tr:hover{{background:#f6f8fa}}
+body.theme-midnight{{--bg:#090d16;--sidebar:#111827;--panel:#111827;--panel2:#1e293b;--line:#334155;--text:#e2e8f0;--muted:#94a3b8;--blue:#38bdf8;--blue2:#22c55e;--input:#0f172a}}
+body.theme-midnight .card,body.theme-midnight .toolbar,body.theme-midnight .insight-card,body.theme-midnight .table-wrap{{background:#111827;border-color:#334155}}
+body.theme-midnight button,body.theme-midnight input[type=submit],body.theme-midnight a.button-link{{background:#0284c7;border-color:#38bdf8}}
+body.theme-nord{{--bg:#2e3440;--sidebar:#3b4252;--panel:#3b4252;--panel2:#434c5e;--line:#4c566a;--text:#eceff4;--muted:#b8c2d2;--blue:#88c0d0;--blue2:#a3be8c;--input:#2e3440}}
+body.theme-nord .card,body.theme-nord .toolbar,body.theme-nord .insight-card,body.theme-nord .table-wrap{{background:#3b4252;border-color:#4c566a}}
+body.theme-nord button,body.theme-nord input[type=submit],body.theme-nord a.button-link{{background:#5e81ac;border-color:#81a1c1}}
+body.theme-purple{{--bg:#171326;--sidebar:#211a3a;--panel:#211a3a;--panel2:#302451;--line:#514276;--text:#f4efff;--muted:#bcaed8;--blue:#c084fc;--blue2:#34d399;--input:#171326}}
+body.theme-purple .card,body.theme-purple .toolbar,body.theme-purple .insight-card,body.theme-purple .table-wrap{{background:#211a3a;border-color:#514276}}
+body.theme-purple button,body.theme-purple input[type=submit],body.theme-purple a.button-link{{background:#8b5cf6;border-color:#c084fc}}
+body.theme-emerald{{--bg:#071512;--sidebar:#0c211c;--panel:#0c211c;--panel2:#12352c;--line:#1d5948;--text:#e6fff5;--muted:#8fbea9;--blue:#2dd4bf;--blue2:#84cc16;--input:#071512}}
+body.theme-emerald .card,body.theme-emerald .toolbar,body.theme-emerald .insight-card,body.theme-emerald .table-wrap{{background:#0c211c;border-color:#1d5948}}
+body.theme-emerald button,body.theme-emerald input[type=submit],body.theme-emerald a.button-link{{background:#0f9f78;border-color:#2dd4bf}}
+.theme-menu{{display:grid;gap:7px;margin:0 0 22px}}.theme-menu label{{color:var(--muted);font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase}}#theme-select{{width:100%;min-width:0;padding:9px 10px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:7px;font-size:12px}}
 .ai-analysis-button{{font-size:12px;padding:8px 11px;white-space:nowrap;background:linear-gradient(145deg,#29d4c4,#3477e8);box-shadow:0 4px 0 #145c79,0 8px 16px #27d3c244}}.ai-analysis-button:hover{{box-shadow:0 6px 0 #145c79,0 12px 20px #27d3c255}}.ai-card{{position:fixed;z-index:100;inset:0;display:grid;place-items:center;padding:22px;background:#050817aa;backdrop-filter:blur(8px);pointer-events:none;opacity:0;transition:opacity .18s}}.ai-card.open{{opacity:1;pointer-events:auto}}.ai-card-panel{{width:min(680px,100%);max-height:min(760px,90vh);overflow:auto;padding:25px;background:linear-gradient(145deg,#263267,#141d3d);border:1px solid #6685d8;border-radius:20px;box-shadow:14px 16px 0 #050611,0 25px 70px #000c,0 0 40px #27d3c244;transform:translateZ(18px) rotateX(1deg)}}.ai-card-head{{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:16px}}.ai-card-head h2{{margin:0;color:#fff}}.ai-close{{padding:6px 10px!important;background:#273457!important;box-shadow:0 3px 0 #101a33!important}}.ai-loading,.ai-error{{padding:17px;border-radius:12px;background:#101a35;color:#bfd0f3;line-height:1.55}}.ai-error{{color:#ffb8c2;border:1px solid #a84d72}}.ai-result-grid{{display:grid;gap:12px}}.ai-result-block{{padding:14px;border:1px solid #4a629d;border-radius:12px;background:#19254a}}.ai-result-block b{{display:block;color:#89f0df;font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}}.ai-result-block p{{margin:0;line-height:1.55;color:#f4f6ff}}.ai-result-block ul{{margin:0;padding-left:21px;color:#f4f6ff;line-height:1.55}}@media(max-width:700px){{.ai-card-panel{{padding:18px}}}}
 .empty{{display:none;color:#94a3b8;padding:16px}}.inline{{display:inline;margin:0}}.inline button{{margin:0}}.section-heading{{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}}.section-heading h2{{margin-bottom:4px}}.section-heading p{{margin:0 0 12px}}.bulk-actions{{display:flex;gap:8px;flex-wrap:wrap}}.bulk-actions button{{padding:10px 14px}}.bulk-actions button:disabled{{opacity:.45;cursor:not-allowed;filter:none}}.bulk-approve{{background:linear-gradient(135deg,#238636,#2ea043)!important;box-shadow:0 5px 0 #196c2e,0 10px 18px #23863633!important}}.bot-actions{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:205px}}.bot-actions .button-link,.bot-actions button{{white-space:nowrap;min-height:40px}}.owner-form{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 16px}}.owner-form input{{min-width:220px}}section{{scroll-margin-top:20px}}
 @media(max-width:1150px){{.cards{{grid-template-columns:repeat(3,1fr)}}.insights{{grid-template-columns:1fr}}}}@keyframes ambientFloat{{0%,100%{{transform:translate3d(0,0,30px) scale(1)}}50%{{transform:translate3d(-25px,22px,90px) scale(1.08)}}}}@keyframes ambientSpin{{to{{transform:rotateX(66deg) rotateZ(378deg)}}}}@keyframes ambientCube{{to{{transform:rotateX(360deg) rotateY(360deg) rotateZ(180deg)}}}}@keyframes particleDrift{{0%,100%{{transform:translate3d(0,0,0);opacity:.35}}50%{{transform:translate3d(-32px,24px,70px);opacity:1}}}}@keyframes pageIn{{from{{opacity:0;transform:translateY(14px) scale(.985)}}to{{opacity:1;transform:none}}}}@keyframes cardIn{{from{{opacity:0;transform:translateY(18px) rotateX(5deg)}}to{{opacity:1;transform:translateY(0) rotateX(0)}}}}@keyframes pulseStatus{{0%,100%{{box-shadow:0 0 0 0 #42e6c700}}50%{{box-shadow:0 0 0 7px #42e6c722}}}}@keyframes newRow{{0%{{background:#27d3c455}}100%{{background:transparent}}}}@keyframes scan{{0%{{transform:translateX(-110%)}}100%{{transform:translateX(110%)}}}}@keyframes spin3d{{to{{transform:rotate(360deg)}}}}
@@ -2430,7 +2443,7 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 @keyframes botPanelSweep{{50%{{transform:translateX(100%)}}}}
 @keyframes botPrismFloat{{0%,100%{{transform:rotateX(-20deg) rotateY(0deg) translateY(0)}}50%{{transform:rotateX(18deg) rotateY(180deg) translateY(-12px)}}}}
 </style></head><body data-monitoring-owner="{'1' if owner else '0'}"><div class="ambient-scene" aria-hidden="true"><div class="ambient-orbit orbit-one"></div><div class="ambient-orbit orbit-two"></div><div class="ambient-sphere"></div><div class="ambient-cube"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="ambient-particle particle-one"></span><span class="ambient-particle particle-two"></span></div><div class="layout">
-<aside class="sidebar"><div class="brand"><img class="brand-logo" src="/assets/podslushka-logo.png" alt="Podslushka DB"><span>Podslushka DB</span></div><button type="button" class="theme-switch" id="theme-switch">☀️ Светлая тема</button><div class="menu-title">Навигация</div><nav class="nav">
+<aside class="sidebar"><div class="brand"><img class="brand-logo" src="/assets/podslushka-logo.png" alt="Podslushka DB"><span>Podslushka DB</span></div><div class="theme-menu"><label for="theme-select">Тема интерфейса</label><select id="theme-select"><option value="dark">GitHub Dark</option><option value="light">GitHub Light</option><option value="midnight">Midnight Blue</option><option value="nord">Nord</option><option value="purple">Purple Night</option><option value="emerald">Emerald Forest</option></select></div><div class="menu-title">Навигация</div><nav class="nav">
 <a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a><a class="{'active' if section == 'health' else ''}" href="/?view=health"><span class="icon">♥</span>Здоровье системы</a><a class="{'active' if section == 'monitoring' else ''}" href="/?view=monitoring"><span class="icon">◉</span>Мониторинг</a>
 <a class="{'active' if section == 'user-search' else ''}" href="/?view=user-search"><span class="icon">⌕</span>Поиск пользователей</a>
 {('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Боты</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'group' else '') + '" href="/?view=group"><span class="icon">✦</span>Группа</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else ('<a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Мой бот</a>' if can_access(current_user, 'bots') else ''))}
@@ -2444,7 +2457,7 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 {('<section id="user-search"><h2>Поиск пользователя</h2><div class="toolbar"><input id="detail-search" placeholder="Введите ID, имя или username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'user-search' else '')}
 {bot_switcher}{approval}{bots_section}{project_join_section}{leave_project_section}{system_section}{monitoring_section}{group_section}
 </main></div><div class="mobile-menu-overlay" id="mobile-menu-overlay"></div><div class="help-toast" id="help-toast" role="status" aria-live="polite"><b>Подсказка</b><span id="help-toast-text"></span></div><div class="ai-card" id="ai-card" aria-hidden="true"><div class="ai-card-panel" role="dialog" aria-modal="true" aria-labelledby="ai-card-title"><div class="ai-card-head"><h2 id="ai-card-title">ИИ-анализ заявки</h2><button type="button" class="ai-close" id="ai-close">Закрыть</button></div><div id="ai-card-body"></div></div></div><script>
-const themeSwitch = document.getElementById('theme-switch');
+const themeSelect = document.getElementById('theme-select');
 const helpToast = document.getElementById('help-toast');
 const helpToastText = document.getElementById('help-toast-text');
 let helpToastTimer;
@@ -2458,14 +2471,16 @@ document.querySelectorAll('.help-button').forEach(button => button.addEventListe
   helpToastTimer = setTimeout(() => helpToast.classList.remove('open'), 5000);
 }}));
 function applyTheme(theme) {{
-  document.body.classList.toggle('light', theme === 'light');
-  if (themeSwitch) themeSwitch.textContent = theme === 'light' ? '🌙 Чёрная тема' : '☀️ Светлая тема';
+  const themes = ['light', 'midnight', 'nord', 'purple', 'emerald'];
+  document.body.classList.remove('light', ...themes.map(item => `theme-${{item}}`));
+  if (theme === 'light') document.body.classList.add('light');
+  else if (themes.includes(theme)) document.body.classList.add(`theme-${{theme}}`);
+  if (themeSelect) themeSelect.value = theme;
 }}
 applyTheme(localStorage.getItem('podslushka-theme') || 'dark');
-if (themeSwitch) themeSwitch.addEventListener('click', () => {{
-  const next = document.body.classList.contains('light') ? 'dark' : 'light';
-  localStorage.setItem('podslushka-theme', next);
-  applyTheme(next);
+if (themeSelect) themeSelect.addEventListener('change', () => {{
+  localStorage.setItem('podslushka-theme', themeSelect.value);
+  applyTheme(themeSelect.value);
 }});
 const compactModeButton = document.getElementById('compact-mode-button');
 function applyCompactMode(enabled) {{
