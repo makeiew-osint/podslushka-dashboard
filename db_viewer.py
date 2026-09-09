@@ -1825,22 +1825,40 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
     )
     if not can_access(current_user, section):
         section = "overview"
+    available_bots = managed_bot_rows(current_user)
+    scoped_ids = authorized_bot_ids(current_user) if not owner else []
+    scoped_marks = ",".join("?" for _ in scoped_ids)
     stats = {
-        "users": scalar("SELECT COUNT(*) FROM users"),
-        "posts": scalar("SELECT COUNT(*) FROM posts"),
-        "pending": scalar("SELECT COUNT(*) FROM posts WHERE status='pending'"),
-        "published": scalar("SELECT COUNT(*) FROM posts WHERE status='published'"),
-        "banned": scalar("SELECT COUNT(*) FROM bans"),
-        "reports": scalar("SELECT COUNT(*) FROM reports"),
+        "users": scalar(
+            f"SELECT COUNT(DISTINCT user_id) FROM posts WHERE bot_id IN ({scoped_marks})",
+            tuple(scoped_ids),
+        ) if scoped_ids else (scalar("SELECT COUNT(*) FROM users") if owner else 0),
+        "posts": scalar(
+            f"SELECT COUNT(*) FROM posts WHERE bot_id IN ({scoped_marks})",
+            tuple(scoped_ids),
+        ) if scoped_ids else (scalar("SELECT COUNT(*) FROM posts") if owner else 0),
+        "pending": scalar(
+            f"SELECT COUNT(*) FROM posts WHERE status='pending' AND bot_id IN ({scoped_marks})",
+            tuple(scoped_ids),
+        ) if scoped_ids else (scalar("SELECT COUNT(*) FROM posts WHERE status='pending'") if owner else 0),
+        "published": scalar(
+            f"SELECT COUNT(*) FROM posts WHERE status='published' AND bot_id IN ({scoped_marks})",
+            tuple(scoped_ids),
+        ) if scoped_ids else (scalar("SELECT COUNT(*) FROM posts WHERE status='published'") if owner else 0),
+        "banned": scalar("SELECT COUNT(*) FROM bans") if owner else 0,
+        "reports": scalar("SELECT COUNT(*) FROM reports") if owner else 0,
     }
     active_since = int(time.time()) - 7 * 86400
     stats["active_users"] = scalar(
-        "SELECT COUNT(*) FROM users WHERE last_seen >= ?", (active_since,)
+        f"SELECT COUNT(DISTINCT user_id) FROM posts WHERE created_at >= ? AND bot_id IN ({scoped_marks})",
+        (active_since, *scoped_ids),
+    ) if scoped_ids else (
+        scalar("SELECT COUNT(*) FROM users WHERE last_seen >= ?", (active_since,)) if owner else 0
     )
     activity_rows = optional_rows(
         "SELECT created_at, status FROM posts "
-        "WHERE created_at >= ? ORDER BY created_at DESC LIMIT 5000",
-        (active_since,),
+        f"WHERE created_at >= ? {'AND bot_id IN (' + scoped_marks + ')' if scoped_ids else ''} ORDER BY created_at DESC LIMIT 5000",
+        (active_since, *scoped_ids),
     )
     daily = {}
     for row in activity_rows:
@@ -1854,7 +1872,7 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
     recent_actions = optional_rows(
         "SELECT actor, action, target, created_at FROM dashboard_actions "
         "ORDER BY created_at DESC LIMIT 8"
-    )
+    ) if owner else []
     health_started = time.perf_counter()
     database_state = "online"
     database_error = ""
@@ -1873,7 +1891,6 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         f"{last_error_row[0]['action']}: {last_error_row[0]['target']}"
         if last_error_row else (BOT_STATUS.get("error") or database_error or "Нет ошибок")
     )
-    available_bots = managed_bot_rows(current_user)
     selected_bot = next(
         (row for row in available_bots if str(row["id"]) == str(selected_bot_id)),
         available_bots[0] if available_bots else None,
@@ -1908,7 +1925,6 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
     notification_detail = NOTIFICATION_STATUS["last_error"] or (
         f"чат {TELEGRAM_UPDATES_CHAT_ID}" if TELEGRAM_UPDATES_CHAT_ID else ""
     )
-    scoped_ids = authorized_bot_ids(current_user) if not owner else []
     bot_filter = ""
     bot_params: tuple = ()
     if scoped_ids:
