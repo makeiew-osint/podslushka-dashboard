@@ -1,0 +1,54 @@
+PODSLUSHKA DB WEBSITE GUIDE
+
+1. Starting the website
+
+Open the project folder and run the launcher. If there is no launcher, run:
+
+  python -m pip install -r requirements.txt
+  python db_viewer.py
+
+The local dashboard normally opens at http://127.0.0.1:8765/.
+
+2. Sign in
+
+Enter your username, password, and a 2FA code when enabled. New registrations
+must be approved by the owner. Each role only sees the sections it is allowed
+to access.
+
+3. Roles
+
+Owner manages projects, bots, access, and configuration.
+Admin manages assigned bots and moderation.
+Moderator handles submissions and users.
+Read-only can view data without management actions.
+
+4. Projects and bots
+
+In «Bots», the owner creates a project, enters the school/city, and connects a
+Telegram bot. Bot tokens are never displayed and are stored encrypted.
+The bot must be an administrator of the target channel with permission to post.
+
+5. AI
+
+AI auto-publishing can be enabled separately for each managed bot or the main
+legacy bot. Publishing only happens when the AI decision is safe and its
+confidence reaches the configured threshold. Uncertain submissions stay in
+manual moderation.
+
+6. Notifications
+
+The Telegram channel receives only important messages: maintenance mode,
+website recovery, worker start/stop, and critical errors. Regular logins,
+internal logs, and routine dashboard actions are not published.
+
+To announce maintenance mode, set:
+
+  SITE_MAINTENANCE_MODE=true
+
+Set it back to false after the deployment starts to announce:
+«The website is working again».
+
+7. Security
+
+Never publish BOT_TOKEN, MULTIBOT_ENCRYPTION_KEY, OWNER_PASSWORD, or OAuth
+secrets. Change your password from the «Profile» section.

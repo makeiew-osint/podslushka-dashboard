@@ -50,3 +50,5 @@ services:
         sync: false
       - key: TELEGRAM_UPDATES_CHAT_ID
         value: "-10042000444335"
+      - key: SITE_MAINTENANCE_MODE
+        value: "false"

@@ -76,6 +76,7 @@ SYNC_SECRET = os.getenv("DASHBOARD_SYNC_SECRET", "")
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
 TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 TELEGRAM_UPDATES_CHAT_ID = os.getenv("TELEGRAM_UPDATES_CHAT_ID", "-1003984598730").strip()
+SITE_MAINTENANCE_MODE = os.getenv("SITE_MAINTENANCE_MODE", "").strip().lower() in {"1", "true", "yes"}
 NOTIFICATION_STATUS = {"state": "configured", "last_error": "", "updated_at": 0}
 NOTIFICATION_LAST_EVENTS: dict[str, str] = {}
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
@@ -871,9 +872,26 @@ def _should_notify_updates(action: str) -> bool:
     allowed = (
         "error", "failed", "failure", "worker", "stopped", "unavailable",
         "offline", "recovered", "started", "updated", "update",
-        "maintenance", "deployment", "outage", "bot",
+        "maintenance", "deployment", "outage", "bot", "техничес",
+        "работает", "снова",
     )
     return any(word in normalized for word in allowed)
+
+
+def notify_site_state() -> None:
+    """Announce maintenance mode or recovery when the dashboard process starts."""
+    if SITE_MAINTENANCE_MODE:
+        _notify_updates_group(
+            "system",
+            "Site maintenance started",
+            "Панель временно недоступна или работает в режиме обслуживания.",
+        )
+    else:
+        _notify_updates_group(
+            "system",
+            "Site recovered",
+            "Панель запущена и готова к работе.",
+        )
 
 
 def _notify_updates_group(actor: str, action: str, target: str) -> None:
@@ -3462,6 +3480,7 @@ if __name__ == "__main__":
     public_host = "127.0.0.1" if HOST == "0.0.0.0" else HOST
     url = f"http://{public_host}:{PORT}/"
     print(f"DB viewer: {url}")
+    notify_site_state()
     if HOST == "127.0.0.1":
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
