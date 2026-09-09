@@ -1667,6 +1667,26 @@ if(scene && !matchMedia('(prefers-reduced-motion: reduce)').matches) {{
 </script></body></html>"""
 
 
+def project_created_page(current_user: str, project_name: str, join_token: str) -> str:
+    """Show a project token without replacing the authenticated dashboard session."""
+    return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Проект создан · Podslushka DB</title><style>
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;padding:28px;background:radial-gradient(circle at 12% 0,#286dff66,transparent 28%),radial-gradient(circle at 88% 95%,#00d8d033,transparent 30%),#060b19;color:#f3f7ff;font:15px Segoe UI,Arial,sans-serif}}main{{max-width:720px;margin:8vh auto}}.card{{padding:32px;border:1px solid #4268a8;border-radius:24px;background:linear-gradient(145deg,#172d56ee,#101a34ee);box-shadow:12px 14px 0 #050914,0 20px 60px #167bff22}}h1{{margin-top:0}}.muted{{color:#a9bddf}}.success{{color:#8ff4d7}}.token{{display:flex;gap:10px;align-items:center;margin:22px 0;padding:10px;border:1px solid #5d7fca;border-radius:13px;background:#0b1730}}code{{flex:1;overflow:auto;padding:10px;color:#fff;white-space:nowrap;font:13px Consolas,monospace}}button,a{{display:inline-block;padding:11px 15px;border:0;border-radius:10px;color:#fff;text-decoration:none;font-weight:700;background:linear-gradient(135deg,#318dff,#7c59f5);box-shadow:4px 5px 0 #172d68;cursor:pointer}}button.copied{{background:linear-gradient(135deg,#13a68b,#2acbb1)}}.actions{{display:flex;gap:10px;flex-wrap:wrap}}</style></head><body><main><section class="card">
+<h1 class="success">Проект создан</h1><p>Проект «<b>{esc(project_name)}</b>» успешно создан.</p>
+<p class="muted">Сохраните токен подключения. Он нужен участникам для присоединения к проекту и больше не будет показан автоматически.</p>
+<div class="token"><code id="join-token">{esc(join_token)}</code><button id="copy-token" type="button">Копировать</button></div>
+<div class="actions"><a href="/?view=bots">Вернуться к ботам</a><a href="/">Открыть панель</a></div>
+</section></main><script>
+document.getElementById('copy-token').addEventListener('click', async () => {{
+ const button=document.getElementById('copy-token');
+ await navigator.clipboard.writeText(document.getElementById('join-token').textContent);
+ button.textContent='Скопировано'; button.classList.add('copied');
+ setTimeout(() => {{ button.textContent='Копировать'; button.classList.remove('copied'); }}, 1800);
+}});
+</script></body></html>"""
+
+
 def page(current_user: str = "", section: str = "overview", history_post_id: str = "", selected_bot_id: str = "", impersonated_by: str = "") -> str:
     role = dashboard_role(current_user)
     owner = role == "owner"
@@ -3122,18 +3142,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 conn.commit()
             log_action(actor or "owner", "Project created", name)
-            body = auth_page(
-                f"Проект «{html.escape(name)}» создан. Сохраните токен подключения: "
-                f"<div class=\"token-notice\"><b>Токен подключения</b><span>Передайте его только участникам проекта.</span>"
-                f"<div class=\"token-value\"><code>{html.escape(join_token)}</code>"
-                f"<button class=\"copy-token\" type=\"button\">Копировать</button></div></div>",
-                message_is_html=True,
-            ).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self.send_html(project_created_page(actor, name, join_token))
             return
         if path == "/bot/create":
             if not is_owner(actor):
