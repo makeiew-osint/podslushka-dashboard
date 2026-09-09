@@ -26,6 +26,28 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+
+def _load_local_env() -> None:
+    """Load local .env values without overwriting deployment environment variables."""
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        return
+    try:
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip("\"'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+    except OSError:
+        logging.exception("Unable to load local environment file")
+
+
+_load_local_env()
+
 try:
     import psycopg
     from psycopg.rows import dict_row
