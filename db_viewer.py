@@ -2026,22 +2026,22 @@ body{{padding:0!important;overflow:hidden!important;background:#050607!important
 .public-nav #open-auth{{display:inline-flex!important;min-width:82px!important;background:#e8795f!important;color:#fff!important;box-shadow:0 3px 0 #8c3c42!important;font-weight:850!important}}
 .public-nav #open-auth:hover{{background:#f29476!important;color:#fff!important;transform:translateY(-2px)!important}}
 .auth-visible .public-nav{{display:none!important}}
-.auth.auth-open{{background:rgba(10,14,19,.96)!important;border:1px solid #2b3a45!important;box-shadow:0 28px 90px #000d,0 0 0 1px #77e4c533!important;backdrop-filter:blur(24px)!important}}
+.auth.auth-open{{background:rgba(10,14,22,.98)!important;border:1px solid #26364b!important;box-shadow:0 28px 90px #000e,0 0 0 1px #5576a322!important;backdrop-filter:blur(24px)!important}}
 .auth.auth-open h2{{color:#f2f7f5!important;letter-spacing:-.04em!important}}
 .auth.auth-open .sub,.auth.auth-open .hint{{color:#9aada9!important}}
 .auth.auth-open .field{{color:#c8d7d2!important}}
-.auth.auth-open .tabs{{background:#11191c!important;border:1px solid #2d3d40!important}}
-.auth.auth-open .tab{{color:#8fa39f!important;box-shadow:none!important}}
-.auth.auth-open .tab.active{{background:#72ddc2!important;color:#07100e!important;box-shadow:0 3px 0 #3c8f7d!important}}
-.auth.auth-open input{{background:#0d1518!important;border-color:#2f4447!important;color:#f1f7f5!important;box-shadow:inset 0 1px #ffffff0a!important}}
-.auth.auth-open input::placeholder{{color:#738883!important}}
-.auth.auth-open input:focus{{border-color:#72ddc2!important;box-shadow:0 0 0 3px #72ddc233!important;transform:none!important}}
-.auth.auth-open .submit{{background:#72ddc2!important;border-color:#9aefda!important;color:#07100e!important;box-shadow:0 4px 0 #3c8f7d,0 12px 28px #72ddc233!important}}
-.auth.auth-open .submit:hover{{background:#91ecd5!important}}
-.auth.auth-open .oauth{{border-top-color:#2d3d40!important}}
-.auth.auth-open .oauth-title{{color:#c8d7d2!important}}
-.auth.auth-open .oauth-button,.auth.auth-open .telegram-button{{background:#121b1e!important;border-color:#304447!important;color:#e7f1ee!important;box-shadow:0 3px 0 #080c0d!important}}
-.auth.auth-open .auth-mark img{{background:#0b1113!important;border-color:#72ddc266!important}}
+.auth.auth-open .tabs{{background:#101722!important;border:1px solid #293b53!important}}
+.auth.auth-open .tab{{color:#8798ad!important;box-shadow:none!important}}
+.auth.auth-open .tab.active{{background:#34557a!important;color:#f4f7fb!important;box-shadow:0 3px 0 #1d3049!important}}
+.auth.auth-open input{{background:#0b111b!important;border-color:#2b405c!important;color:#e9eff7!important;box-shadow:inset 0 1px #ffffff08!important}}
+.auth.auth-open input::placeholder{{color:#697c95!important}}
+.auth.auth-open input:focus{{border-color:#6b91bd!important;box-shadow:0 0 0 3px #5576a333!important;transform:none!important}}
+.auth.auth-open .submit{{background:#496f9b!important;border-color:#6f98c3!important;color:#f7fbff!important;box-shadow:0 4px 0 #2b4666,0 12px 28px #355a8233!important}}
+.auth.auth-open .submit:hover{{background:#5b83b1!important}}
+.auth.auth-open .oauth{{border-top-color:#293b53!important}}
+.auth.auth-open .oauth-title{{color:#b7c5d6!important}}
+.auth.auth-open .oauth-button,.auth.auth-open .telegram-button{{background:#111a27!important;border-color:#2c4059!important;color:#e5ebf3!important;box-shadow:0 3px 0 #080c12!important}}
+.auth.auth-open .auth-mark img{{background:#0a111b!important;border-color:#5576a366!important}}
 @media(max-width:700px){{.public-nav{{top:12px!important;width:calc(100% - 20px)!important;max-width:430px!important;flex-wrap:wrap!important;gap:3px!important;padding:5px!important}}.public-nav a{{height:34px!important;padding:0 10px!important;font-size:11px!important}}.public-nav .nav-links{{gap:1px!important}}.public-nav #open-auth{{min-width:70px!important}}.intro{{padding:94px 24px 36px!important}}.intro h1{{font-size:54px!important}}.features{{grid-template-columns:1fr!important;gap:10px!important;margin-top:22px!important}}.feature{{border-top:0;padding-top:0!important}}.auth{{padding:25px 20px!important}}}}
 </style></head><body><nav class="public-nav"><a href="/about">О проекте</a><div class="nav-links"><a href="/why">Почему мы</a><a href="/support">Поддержка</a></div></nav><div class="shell">
 <section class="intro"><div class="brand"><img class="brand-logo" src="/assets/podslushka-avatar-bg.svg" alt="Podslushka DB"><span>Podslushka DB</span></div>
