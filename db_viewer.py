@@ -3491,19 +3491,24 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 .content{{background:rgba(13,17,23,.66)!important}}
 .sidebar{{background:rgba(22,27,34,.9)!important}}
 .card,.insight-card,.toolbar,.table-wrap,.setup-card,.bot-center,.health-item,.group-ai{{background:rgba(22,27,34,.78)!important}}
-.osint-search-form{{display:grid;gap:16px;margin:18px 0;padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--panel2)}}
-.osint-search-form label{{display:grid;gap:7px;color:var(--muted);font-size:12px;font-weight:700}}
-.osint-search-form fieldset{{display:flex;gap:14px;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:12px}}
-.osint-search-form fieldset label{{display:flex;align-items:center;gap:6px;color:var(--text);font-weight:500}}
-.osint-search-form input[type=text],.osint-search-form input:not([type]){{width:100%}}
-.osint-status{{min-height:24px;color:var(--muted);margin:12px 0}}
-.osint-results{{display:grid;gap:10px}}
+.osint-search-form{{display:grid;grid-template-columns:minmax(220px,1.2fr) minmax(360px,2fr) auto;align-items:end;gap:14px;margin:18px 0;padding:18px;border:1px solid #334155;border-radius:16px;background:linear-gradient(135deg,#182333e8,#101923e8);box-shadow:0 16px 34px #02071344}}
+.osint-search-form label{{display:grid;gap:7px;color:var(--muted);font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.06em}}
+.osint-search-form fieldset{{display:flex;align-items:center;gap:8px;min-height:64px;margin:0;border:0;padding:10px 12px;border-radius:12px;background:#0b1220aa}}
+.osint-search-form fieldset legend{{display:block;margin:0 0 6px;color:var(--muted);font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.08em}}
+.osint-search-form fieldset label{{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid transparent;border-radius:9px;color:var(--text);font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;cursor:pointer;transition:background .18s,border-color .18s}}
+.osint-search-form fieldset label:hover{{background:#ffffff08;border-color:#ffffff18}}
+.osint-search-form input[type=text],.osint-search-form input:not([type]){{width:100%;min-height:42px}}
+.osint-search-form>.submit{{min-height:42px;white-space:nowrap}}
+.osint-status{{min-height:24px;margin:12px 0;color:var(--muted);font-size:13px}}
+.osint-results{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}}
 .osint-result,.osint-summary{{padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}}
 .osint-result header{{display:flex;justify-content:space-between;gap:10px;margin-bottom:8px}}
 .osint-result ul{{margin:0;padding-left:20px;display:grid;gap:5px}}
 .osint-result a{{color:var(--accent);overflow-wrap:anywhere}}
-.osint-summary{{border-color:#f08c6c88;background:#f08c6c12}}
-.osint-notice{{margin-top:16px;color:var(--muted)}}
+.osint-summary{{grid-column:1/-1;border-color:#f08c6c88;background:#f08c6c12}}
+.osint-notice{{margin-top:16px;color:var(--muted);font-size:12px}}
+@media(max-width:1100px){{.osint-search-form{{grid-template-columns:1fr 1fr}}.osint-search-form>.submit{{grid-column:1/-1}}.osint-results{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
+@media(max-width:680px){{.osint-search-form{{grid-template-columns:1fr}}.osint-search-form fieldset{{flex-wrap:wrap;height:auto}}.osint-search-form>.submit{{grid-column:auto;width:100%}}.osint-results{{grid-template-columns:1fr}}}}
 </style></head><body data-monitoring-owner="{'1' if owner else '0'}"><iframe class="dashboard-flow" src="/assets/structure-flow.html" title="Structure Flow background"></iframe><div class="ambient-scene" aria-hidden="true"><div class="ambient-orbit orbit-one"></div><div class="ambient-orbit orbit-two"></div><div class="ambient-sphere"></div><div class="ambient-cube"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="ambient-particle particle-one"></span><span class="ambient-particle particle-two"></span></div><div class="layout">
 <aside class="sidebar"><div class="brand"><img class="brand-logo" src="/assets/podslushka-avatar-bg.svg" alt="Podslushka DB"><span>Podslushka DB</span></div><div class="theme-menu"><label for="theme-select">Тема интерфейса</label><select id="theme-select"><option value="dark">GitHub Dark</option><option value="light">GitHub Light</option><option value="midnight">Midnight Blue</option><option value="nord">Nord</option><option value="purple">Purple Night</option><option value="emerald">Emerald Forest</option><option value="rose">Rose Pine</option><option value="cyan">Cyber Cyan</option><option value="forest">Forest Green</option><option value="coffee">A Cup of Coffee</option><option value="ocean">Ocean Blue</option><option value="mono">Monochrome</option><option value="sunset">Sunset Red</option><option value="dracula">Dracula</option><option value="solarized">Solarized</option><option value="onedark">One Dark</option><option value="catppuccin">Catppuccin</option><option value="gruvbox">Gruvbox</option><option value="tokyo">Tokyo Night</option><option value="matrix">Matrix</option><option value="amethyst">Amethyst</option><option value="slate">Slate</option><option value="sand">Sandstone</option><option value="cherry">Cherry</option><option value="aqua">Aqua</option><option value="github-dimmed">GitHub Dimmed</option><option value="github-high">GitHub High Contrast</option><option value="ayu">Ayu</option><option value="ayu-mirage">Ayu Mirage</option><option value="ayu-light">Ayu Light</option><option value="vscode-dark">VS Code Dark</option><option value="vscode-light">VS Code Light</option><option value="monokai">Monokai</option><option value="material">Material</option><option value="material-ocean">Material Ocean</option><option value="solarized-light">Solarized Light</option><option value="rose-pine">Rosé Pine</option><option value="everforest">Everforest</option><option value="kanagawa">Kanagawa</option><option value="palenight">Palenight</option><option value="night-owl">Night Owl</option><option value="cobalt">Cobalt</option><option value="cyberpunk">Cyberpunk</option><option value="synthwave">Synthwave</option><option value="horizon">Horizon</option><option value="paper">Paper</option><option value="mint">Mint</option><option value="lavender">Lavender</option><option value="terminal">Terminal</option><option value="obsidian">Obsidian</option><option value="coral">Coral Night</option><option value="amber">Amber Desk</option><option value="arctic">Arctic Blue</option><option value="transparent">Прозрачная</option></select><button type="button" class="theme-picker-button" id="dashboard-theme-open">🎨 Все темы и примеры</button></div><div class="menu-title">Навигация</div><nav class="nav">
 <a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a><a class="{'active' if section == 'health' else ''}" href="/?view=health"><span class="icon">♥</span>Здоровье системы</a><a class="{'active' if section == 'monitoring' else ''}" href="/?view=monitoring"><span class="icon">◉</span>Мониторинг</a>
@@ -3657,9 +3662,10 @@ animateRows();
 const search = document.getElementById('search');
 const status = document.getElementById('status');
 const detailSearch = document.getElementById('detail-search');
-const osintForm = document.getElementById('osint-search-form');
-const osintStatus = document.getElementById('osint-status');
-const osintResults = document.getElementById('osint-results');
+let osintForm = document.getElementById('osint-search-form');
+let osintStatus = document.getElementById('osint-status');
+let osintResults = document.getElementById('osint-results');
+let osintPollingJob = '';
 const aiCard = document.getElementById('ai-card');
 const aiCardBody = document.getElementById('ai-card-body');
 function closeAiCard() {{
@@ -3705,16 +3711,34 @@ function renderOsint(job) {{
   osintResults.innerHTML = `${{job.ai_summary ? `<div class="osint-summary"><b>Резюме ИИ</b><p>${{escapeHtml(job.ai_summary)}}</p></div>` : ''}}${{groups || '<p class="muted">Результатов нет.</p>'}}`;
 }}
 async function pollOsint(jobId) {{
+  if (osintPollingJob === jobId) return;
+  osintPollingJob = jobId;
+  sessionStorage.setItem('podslushka-osint-job', jobId);
   for (let attempt = 0; attempt < 120; attempt++) {{
-    const response = await fetch(`/api/osint-search?id=${{encodeURIComponent(jobId)}}`, {{cache: 'no-store'}});
-    const job = await response.json();
-    renderOsint(job);
-    if (job.status !== 'running') return;
+    try {{
+      const response = await fetch(`/api/osint-search?id=${{encodeURIComponent(jobId)}}`, {{cache: 'no-store'}});
+      const job = await response.json();
+      renderOsint(job);
+      if (job.status !== 'running') {{
+        sessionStorage.removeItem('podslushka-osint-job');
+        osintPollingJob = '';
+        return;
+      }}
+    }} catch (_) {{
+      if (osintStatus) osintStatus.textContent = 'Соединение прервано. Продолжаем проверку…';
+    }}
     await new Promise(resolve => setTimeout(resolve, 1500));
   }}
   if (osintStatus) osintStatus.textContent = 'Поиск выполняется дольше ожидаемого. Обновите страницу позже.';
+  osintPollingJob = '';
 }}
-if (osintForm) osintForm.addEventListener('submit', async event => {{
+function bindOsintSearch() {{
+  osintForm = document.getElementById('osint-search-form');
+  osintStatus = document.getElementById('osint-status');
+  osintResults = document.getElementById('osint-results');
+  if (!osintForm || osintForm.dataset.bound === '1') return;
+  osintForm.dataset.bound = '1';
+  osintForm.addEventListener('submit', async event => {{
   event.preventDefault();
   const tools = [...osintForm.querySelectorAll('input[name="tool"]:checked')].map(item => item.value);
   const ai = osintForm.querySelector('input[name="ai"]:checked')?.value === '1';
@@ -3728,11 +3752,22 @@ if (osintForm) osintForm.addEventListener('submit', async event => {{
     }});
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || 'Не удалось запустить поиск.');
+    sessionStorage.setItem('podslushka-osint-job', payload.id);
     await pollOsint(payload.id);
   }} catch (error) {{
     osintStatus.textContent = error.message || 'Не удалось запустить поиск.';
   }}
-}});
+  }});
+}}
+function resumeOsintSearch() {{
+  const savedOsintJob = sessionStorage.getItem('podslushka-osint-job');
+  if (savedOsintJob && osintForm) {{
+    osintStatus.textContent = 'Восстанавливаем активный поиск после обновления…';
+    pollOsint(savedOsintJob);
+  }}
+}}
+bindOsintSearch();
+resumeOsintSearch();
 async function requestAiAnalysis(button) {{
   const postId = button.dataset.postId;
   if (!postId || button.disabled) return;
@@ -3876,6 +3911,8 @@ async function refreshPage() {{
       window.scrollTo(0, scrollY);
       if (oldHash) location.hash = oldHash.slice(1);
       bindControls();
+      bindOsintSearch();
+      resumeOsintSearch();
       if (focusKey) {{
         const focused = document.getElementById(focusKey) || document.querySelector(`[name="${{CSS.escape(focusKey)}}"]`);
         if (focused) focused.focus({{preventScroll: true}});
