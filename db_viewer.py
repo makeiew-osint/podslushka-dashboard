@@ -60,6 +60,11 @@ try:
 except ImportError:  # Only needed when the owner configures managed bots.
     Fernet = None
 
+try:
+    import qrcode
+except ImportError:  # QR setup is unavailable until the optional dependency is installed.
+    qrcode = None
+
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "podslushka.db"
@@ -725,6 +730,8 @@ def _init_auth_once() -> None:
             "email": "TEXT",
             "display_name": "TEXT",
             "totp_secret": "TEXT",
+            "language": "TEXT",
+            "avatar_url": "TEXT",
         }.items():
             if name not in columns:
                 conn.execute(f"ALTER TABLE dashboard_users ADD COLUMN {name} {definition}")
@@ -758,6 +765,14 @@ def _init_auth_once() -> None:
             expires_at INTEGER NOT NULL,
             ip TEXT,
             user_agent TEXT
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS dashboard_login_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            event TEXT NOT NULL,
+            ip TEXT,
+            user_agent TEXT,
+            created_at INTEGER NOT NULL
         )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS dashboard_impersonation (
             session_token TEXT PRIMARY KEY,
@@ -1409,8 +1424,43 @@ def create_session(username: str, handler: BaseHTTPRequestHandler) -> str:
             ),
         )
         conn.commit()
+        conn.execute(
+            """INSERT INTO dashboard_login_events
+               (username, event, ip, user_agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (username, "login", handler.client_address[0] if handler.client_address else "",
+             handler.headers.get("User-Agent", "")[:500], now),
+        )
+        conn.commit()
     SESSIONS[token] = username
     return token
+
+
+def record_login_event(handler: BaseHTTPRequestHandler, username: str, event: str) -> None:
+    with db_connect() as conn:
+        conn.execute(
+            """INSERT INTO dashboard_login_events
+               (username, event, ip, user_agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (username, event, handler.client_address[0] if handler.client_address else "",
+             handler.headers.get("User-Agent", "")[:500], int(time.time())),
+        )
+        conn.commit()
+
+
+def totp_qr_data_uri(username: str, secret: str) -> str:
+    if not qrcode:
+        return ""
+    issuer = "Podslushka DB"
+    uri = (
+        "otpauth://totp/" + urllib.parse.quote(f"{issuer}:{username}") +
+        "?secret=" + urllib.parse.quote(secret) +
+        "&issuer=" + urllib.parse.quote(issuer)
+    )
+    image = qrcode.make(uri)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
 def destroy_session(handler: BaseHTTPRequestHandler) -> str | None:
@@ -1419,8 +1469,16 @@ def destroy_session(handler: BaseHTTPRequestHandler) -> str | None:
                   if item.startswith("session=")), None)
     if token:
         with db_connect() as conn:
+            row = conn.execute("SELECT username FROM dashboard_sessions WHERE token=?", (token,)).fetchone()
             conn.execute("DELETE FROM dashboard_sessions WHERE token=?", (token,))
             conn.execute("DELETE FROM dashboard_impersonation WHERE session_token=?", (token,))
+            if row:
+                conn.execute(
+                    "INSERT INTO dashboard_login_events (username,event,ip,user_agent,created_at) VALUES (?,?,?,?,?)",
+                    (row_value(row, "username", 0), "logout",
+                     handler.client_address[0] if handler.client_address else "",
+                     handler.headers.get("User-Agent", "")[:500], int(time.time())),
+                )
             conn.commit()
         SESSIONS.pop(token, None)
     return token
@@ -1954,13 +2012,14 @@ def profile_page(current_user: str) -> str:
     if not current_user or not role:
         return auth_page("Сессия истекла. Войдите снова.")
     account = db_rows(
-        "SELECT username, role, status, email, display_name, created_at "
+        "SELECT username, role, status, email, display_name, language, avatar_url, totp_secret, created_at "
         "FROM dashboard_users WHERE username=?",
         (current_user,),
     )
     row = account[0] if account else {
         "username": current_user, "role": role, "status": "approved",
-        "email": "", "display_name": "", "created_at": int(time.time()),
+        "email": "", "display_name": "", "language": "ru", "avatar_url": "",
+        "totp_secret": "", "created_at": int(time.time()),
     }
     bots = managed_bot_rows(current_user)
     if not bots and (TELEGRAM_BOT_TOKEN or os.getenv("BOT_TOKEN")):
@@ -1981,6 +2040,34 @@ def profile_page(current_user: str) -> str:
     profile_health = "Стабильная" if not bots or running_bots == len(bots) else "Требует внимания"
     profile_health_class = "healthy" if profile_health == "Стабильная" else "warning"
     joined_at = fmt_time(row_value(row, "created_at"), True)
+    sessions = db_rows(
+        "SELECT token, created_at, expires_at, ip, user_agent FROM dashboard_sessions "
+        "WHERE username=? AND expires_at>? ORDER BY created_at DESC",
+        (current_user, int(time.time())),
+    )
+    login_events = db_rows(
+        "SELECT event, ip, user_agent, created_at FROM dashboard_login_events "
+        "WHERE username=? ORDER BY created_at DESC LIMIT 30",
+        (current_user,),
+    )
+    session_rows = "".join(
+        f"<tr><td>{esc(fmt_time(item['created_at'], True))}</td><td>{esc(item['ip'] or '—')}</td>"
+        f"<td>{esc((item['user_agent'] or '—')[:90])}</td><td><form method='post' action='/profile/session/revoke'>"
+        f"<input type='hidden' name='token' value='{esc(item['token'])}'><button class='mini-button'>Завершить</button></form></td></tr>"
+        for item in sessions
+    ) or "<tr><td colspan='4'>Активных сессий нет</td></tr>"
+    login_rows = "".join(
+        f"<tr><td>{esc(fmt_time(item['created_at'], True))}</td><td>{'Вход' if item['event'] == 'login' else 'Выход'}</td>"
+        f"<td>{esc(item['ip'] or '—')}</td><td>{esc((item['user_agent'] or '—')[:90])}</td></tr>"
+        for item in login_events
+    ) or "<tr><td colspan='4'>История пока пуста</td></tr>"
+    avatar_url = str(row_value(row, "avatar_url") or "").strip()
+    avatar_markup = (
+        f"<img class='avatar-image' src='{esc(avatar_url)}' alt='Аватар'>"
+        if avatar_url.startswith(("https://", "http://")) else "◈"
+    )
+    totp_secret = str(row_value(row, "totp_secret") or "")
+    qr_uri = totp_qr_data_uri(current_user, totp_secret) if totp_secret else ""
     owner_controls = (
         "<section><h2>Управление владельца</h2><div class='profile-actions'>"
         "<a href='/?view=bots'>⚙ Управление ботами</a>"
@@ -1992,7 +2079,7 @@ def profile_page(current_user: str) -> str:
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Профиль · Podslushka DB</title>
 <style>
-*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;padding:28px;background:radial-gradient(circle at 12% 0,#286dff66,transparent 27%),radial-gradient(circle at 88% 95%,#00d8d033,transparent 30%),#060b19;color:#f3f7ff;font:15px Segoe UI,Arial,sans-serif;overflow-x:hidden}}body:before,body:after{{content:"";position:fixed;pointer-events:none;border:1px solid #308cff55;filter:drop-shadow(0 0 18px #1686ff66);transform:rotate(35deg);animation:orbit 11s ease-in-out infinite}}body:before{{width:210px;height:210px;right:4%;top:11%;border-radius:38px}}body:after{{width:90px;height:90px;left:7%;bottom:13%;border-radius:50%;animation-delay:-4s}}main{{position:relative;z-index:1;max-width:1080px;margin:auto}}a,button{{display:inline-block;color:#fff;text-decoration:none;border:0;border-radius:11px;padding:11px 15px;font-weight:700;background:linear-gradient(135deg,#2686ff,#735cf3);box-shadow:5px 6px 0 #0b1733;cursor:pointer;transition:.2s}}a:hover,button:hover{{transform:translateY(-3px);filter:brightness(1.12)}}.profile-head{{display:flex;align-items:center;gap:20px;margin:32px 0 28px;padding:25px;border:1px solid #3a65a7;border-radius:24px;background:linear-gradient(110deg,#132b57dd,#111a36dd);box-shadow:12px 14px 0 #050914,0 0 55px #167bff22;backdrop-filter:blur(12px)}}.avatar{{width:92px;height:92px;display:grid;place-items:center;border-radius:28px;background:linear-gradient(145deg,#2a8cff,#6958ef);font-size:40px;box-shadow:9px 10px 0 #0a1630,0 0 35px #2787ff88;animation:float 4s ease-in-out infinite}}.profile-head h1{{margin:0 0 7px;font-size:32px}}.muted{{color:#a9bddf}}section{{margin-top:20px;padding:24px;border:1px solid #314a7e;border-radius:20px;background:linear-gradient(145deg,#15264aee,#101a34ee);box-shadow:9px 10px 0 #060b18,0 20px 45px #0006;animation:rise .5s both}}.metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}.metric{{padding:16px;border:1px solid #38558e;border-radius:15px;background:linear-gradient(145deg,#203766,#172744);box-shadow:4px 5px 0 #0c1730}}.metric small,.profile-bot span,.profile-bot small{{display:block;color:#a9bddf}}.metric b{{display:block;font-size:22px;margin-top:7px}}.profile-bot{{display:grid;gap:6px;padding:17px;margin-top:12px;border:1px solid #3e67a2;border-radius:15px;background:linear-gradient(145deg,#17345d,#11203d);box-shadow:5px 6px 0 #09152b;transition:.25s}}.profile-bot:hover{{transform:translateY(-4px);box-shadow:8px 10px 0 #09152b,0 0 30px #167bff22}}.profile-bot-link{{width:max-content;padding:7px 10px;font-size:12px;box-shadow:3px 4px 0 #0b1733}}.profile-actions{{display:flex;flex-wrap:wrap;gap:10px}}.profile-actions a{{font-size:13px}}.worker-state{{display:inline-block;padding:3px 8px;border-radius:99px;background:#24385c;color:#c8dcff;font-size:11px}}.worker-state.running,.worker-state.online,.worker-state.started{{background:#123f48;color:#7ff3d4}}.worker-state.stopped,.worker-state.error{{background:#4c2638;color:#ffb2c8}}.profile-health{{display:flex;align-items:center;gap:12px;margin-top:16px;padding:13px 15px;border:1px solid #34578f;border-radius:14px;background:#0e1a32}}.health-dot{{width:11px;height:11px;border-radius:50%;background:#6cf0c5;box-shadow:0 0 16px #4de5bd;animation:pulse 1.8s infinite}}.health-dot.warning{{background:#ffc46b;box-shadow:0 0 16px #ff9d4d}}.profile-health b{{display:block}}.profile-health small{{display:block;color:#9fb7dc;margin-top:3px}}.profile-scene{{position:relative;min-height:190px;margin-top:20px;overflow:hidden;border:1px solid #416ca9;border-radius:20px;background:radial-gradient(circle at 50% 48%,#377cff55,transparent 25%),linear-gradient(145deg,#132d59,#091328);perspective:900px;isolation:isolate}}.profile-scene:before{{content:"";position:absolute;inset:18px;border:1px solid #5b9bff4d;border-radius:50%;transform:rotateX(68deg);animation:sceneRing 10s linear infinite;box-shadow:0 0 25px #3d8dff2e}}.profile-scene:after{{content:"";position:absolute;width:200px;height:200px;left:50%;top:50%;transform:translate(-50%,-50%);border:1px solid #67e9d966;border-radius:50%;animation:sceneRingReverse 8s linear infinite}}.scene-orb{{position:absolute;left:50%;top:50%;width:65px;height:65px;margin:-32px;border-radius:50%;background:radial-gradient(circle at 30% 25%,#d8ffff,#58d9ff 18%,#3878f0 58%,#4736b8);box-shadow:0 0 28px #4ba5ff,0 0 70px #3275ff99;animation:sceneOrb 4.5s ease-in-out infinite;transform-style:preserve-3d;z-index:2}}.scene-orb:after{{content:"";position:absolute;inset:-12px;border:2px solid #9bffff77;border-radius:50%;transform:rotateX(70deg);animation:sceneRingReverse 4s linear infinite}}.scene-particle{{position:absolute;width:5px;height:5px;border-radius:50%;background:#9cf8e9;box-shadow:0 0 12px #65f5df;animation:particleDrift 5s ease-in-out infinite}}.scene-particle.one{{left:18%;top:27%}}.scene-particle.two{{right:19%;top:64%;animation-delay:-1.6s;background:#91baff}}.scene-particle.three{{left:31%;bottom:20%;animation-delay:-3s}}.scene-caption{{position:absolute;left:18px;bottom:14px;z-index:3;color:#cce1ff;font-size:11px;letter-spacing:1.4px;text-transform:uppercase}}.detail-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}}.detail-card{{padding:14px;border:1px solid #38588e;border-radius:14px;background:linear-gradient(145deg,#1c335d,#12203d);box-shadow:4px 5px 0 #09152b}}.detail-card small{{display:block;color:#9fb7dc}}.detail-card b{{display:block;margin-top:6px;font-size:16px;color:#e8f1ff}}@keyframes float{{50%{{transform:translateY(-7px) rotate(2deg)}}}}@keyframes orbit{{50%{{transform:rotate(62deg) translateY(-18px)}}}}@keyframes rise{{from{{opacity:0;transform:translateY(14px)}}to{{opacity:1;transform:none}}}}@keyframes pulse{{50%{{transform:scale(1.35);opacity:.65}}}}@keyframes sceneRing{{to{{transform:rotateX(68deg) rotateZ(360deg)}}}}@keyframes sceneRingReverse{{to{{transform:rotateY(360deg) rotateZ(-360deg)}}}}@keyframes sceneOrb{{50%{{transform:translate3d(-10px,-10px,30px) scale(1.12)}}}}@keyframes particleDrift{{50%{{transform:translate3d(18px,-23px,30px);opacity:.35}}}}@media(max-width:700px){{body{{padding:16px}}.profile-head{{padding:18px;gap:13px}}.profile-head h1{{font-size:25px}}.avatar{{width:70px;height:70px;font-size:30px}}.metrics{{grid-template-columns:1fr 1fr}}.detail-grid{{grid-template-columns:1fr}}section{{padding:18px}}}}
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;padding:28px;background:radial-gradient(circle at 12% 0,#286dff66,transparent 27%),radial-gradient(circle at 88% 95%,#00d8d033,transparent 30%),#060b19;color:#f3f7ff;font:15px Segoe UI,Arial,sans-serif;overflow-x:hidden}}body:before,body:after{{content:"";position:fixed;pointer-events:none;border:1px solid #308cff55;filter:drop-shadow(0 0 18px #1686ff66);transform:rotate(35deg);animation:orbit 11s ease-in-out infinite}}body:before{{width:210px;height:210px;right:4%;top:11%;border-radius:38px}}body:after{{width:90px;height:90px;left:7%;bottom:13%;border-radius:50%;animation-delay:-4s}}main{{position:relative;z-index:1;max-width:1080px;margin:auto}}a,button{{display:inline-block;color:#fff;text-decoration:none;border:0;border-radius:11px;padding:11px 15px;font-weight:700;background:linear-gradient(135deg,#2686ff,#735cf3);box-shadow:5px 6px 0 #0b1733;cursor:pointer;transition:.2s}}a:hover,button:hover{{transform:translateY(-3px);filter:brightness(1.12)}}.profile-head{{display:flex;align-items:center;gap:20px;margin:32px 0 28px;padding:25px;border:1px solid #3a65a7;border-radius:24px;background:linear-gradient(110deg,#132b57dd,#111a36dd);box-shadow:12px 14px 0 #050914,0 0 55px #167bff22;backdrop-filter:blur(12px)}}.avatar{{width:92px;height:92px;display:grid;place-items:center;border-radius:28px;background:linear-gradient(145deg,#2a8cff,#6958ef);font-size:40px;box-shadow:9px 10px 0 #0a1630,0 0 35px #2787ff88;animation:float 4s ease-in-out infinite;overflow:hidden}}.avatar-image{{width:100%;height:100%;object-fit:cover}}.profile-head h1{{margin:0 0 7px;font-size:32px}}.muted{{color:#a9bddf}}section{{margin-top:20px;padding:24px;border:1px solid #314a7e;border-radius:20px;background:linear-gradient(145deg,#15264aee,#101a34ee);box-shadow:9px 10px 0 #060b18,0 20px 45px #0006;animation:rise .5s both}}.metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}.metric{{padding:16px;border:1px solid #38558e;border-radius:15px;background:linear-gradient(145deg,#203766,#172744);box-shadow:4px 5px 0 #0c1730}}.metric small,.profile-bot span,.profile-bot small{{display:block;color:#a9bddf}}.metric b{{display:block;font-size:22px;margin-top:7px}}.profile-bot{{display:grid;gap:6px;padding:17px;margin-top:12px;border:1px solid #3e67a2;border-radius:15px;background:linear-gradient(145deg,#17345d,#11203d);box-shadow:5px 6px 0 #09152b;transition:.25s}}.profile-bot:hover{{transform:translateY(-4px);box-shadow:8px 10px 0 #09152b,0 0 30px #167bff22}}.profile-bot-link{{width:max-content;padding:7px 10px;font-size:12px;box-shadow:3px 4px 0 #0b1733}}.profile-actions{{display:flex;flex-wrap:wrap;gap:10px}}.profile-actions a{{font-size:13px}}.worker-state{{display:inline-block;padding:3px 8px;border-radius:99px;background:#24385c;color:#c8dcff;font-size:11px}}.worker-state.running,.worker-state.online,.worker-state.started{{background:#123f48;color:#7ff3d4}}.worker-state.stopped,.worker-state.error{{background:#4c2638;color:#ffb2c8}}.profile-health{{display:flex;align-items:center;gap:12px;margin-top:16px;padding:13px 15px;border:1px solid #34578f;border-radius:14px;background:#0e1a32}}.health-dot{{width:11px;height:11px;border-radius:50%;background:#6cf0c5;box-shadow:0 0 16px #4de5bd;animation:pulse 1.8s infinite}}.health-dot.warning{{background:#ffc46b;box-shadow:0 0 16px #ff9d4d}}.profile-health b{{display:block}}.profile-health small{{display:block;color:#9fb7dc;margin-top:3px}}.profile-scene{{position:relative;min-height:190px;margin-top:20px;overflow:hidden;border:1px solid #416ca9;border-radius:20px;background:radial-gradient(circle at 50% 48%,#377cff55,transparent 25%),linear-gradient(145deg,#132d59,#091328);perspective:900px;isolation:isolate}}.profile-scene:before{{content:"";position:absolute;inset:18px;border:1px solid #5b9bff4d;border-radius:50%;transform:rotateX(68deg);animation:sceneRing 10s linear infinite;box-shadow:0 0 25px #3d8dff2e}}.profile-scene:after{{content:"";position:absolute;width:200px;height:200px;left:50%;top:50%;transform:translate(-50%,-50%);border:1px solid #67e9d966;border-radius:50%;animation:sceneRingReverse 8s linear infinite}}.scene-orb{{position:absolute;left:50%;top:50%;width:65px;height:65px;margin:-32px;border-radius:50%;background:radial-gradient(circle at 30% 25%,#d8ffff,#58d9ff 18%,#3878f0 58%,#4736b8);box-shadow:0 0 28px #4ba5ff,0 0 70px #3275ff99;animation:sceneOrb 4.5s ease-in-out infinite;transform-style:preserve-3d;z-index:2}}.scene-orb:after{{content:"";position:absolute;inset:-12px;border:2px solid #9bffff77;border-radius:50%;transform:rotateX(70deg);animation:sceneRingReverse 4s linear infinite}}.scene-particle{{position:absolute;width:5px;height:5px;border-radius:50%;background:#9cf8e9;box-shadow:0 0 12px #65f5df;animation:particleDrift 5s ease-in-out infinite}}.scene-particle.one{{left:18%;top:27%}}.scene-particle.two{{right:19%;top:64%;animation-delay:-1.6s;background:#91baff}}.scene-particle.three{{left:31%;bottom:20%;animation-delay:-3s}}.scene-caption{{position:absolute;left:18px;bottom:14px;z-index:3;color:#cce1ff;font-size:11px;letter-spacing:1.4px;text-transform:uppercase}}.detail-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}}.detail-card{{padding:14px;border:1px solid #38588e;border-radius:14px;background:linear-gradient(145deg,#1c335d,#12203d);box-shadow:4px 5px 0 #09152b}}.detail-card small{{display:block;color:#9fb7dc}}.detail-card b{{display:block;margin-top:6px;font-size:16px;color:#e8f1ff}}@keyframes float{{50%{{transform:translateY(-7px) rotate(2deg)}}}}@keyframes orbit{{50%{{transform:rotate(62deg) translateY(-18px)}}}}@keyframes rise{{from{{opacity:0;transform:translateY(14px)}}to{{opacity:1;transform:none}}}}@keyframes pulse{{50%{{transform:scale(1.35);opacity:.65}}}}@keyframes sceneRing{{to{{transform:rotateX(68deg) rotateZ(360deg)}}}}@keyframes sceneRingReverse{{to{{transform:rotateY(360deg) rotateZ(-360deg)}}}}@keyframes sceneOrb{{50%{{transform:translate3d(-10px,-10px,30px) scale(1.12)}}}}@keyframes particleDrift{{50%{{transform:translate3d(18px,-23px,30px);opacity:.35}}}}@media(max-width:700px){{body{{padding:16px}}.profile-head{{padding:18px;gap:13px}}.profile-head h1{{font-size:25px}}.avatar{{width:70px;height:70px;font-size:30px}}.metrics{{grid-template-columns:1fr 1fr}}.detail-grid{{grid-template-columns:1fr}}section{{padding:18px}}}}
 .profile-theme-bar{{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}}
 .profile-theme-bar>a{{padding:9px 12px;font-size:13px}}
 .theme-picker-button{{padding:9px 13px;background:linear-gradient(135deg,#243b70,#5865f2);box-shadow:4px 5px 0 #101b3d}}
@@ -2070,15 +2157,27 @@ body.theme-mint{{--theme-bg:#effbf5;--theme-panel:#fff;--theme-panel-2:#e0f5e9;-
 body.theme-lavender{{--theme-bg:#f5f0ff;--theme-panel:#fff;--theme-panel-2:#eee7ff;--theme-line:#d7c9f2;--theme-accent:#7c3aed;--theme-accent-2:#0891b2}}
 body.theme-terminal{{--theme-bg:#050505;--theme-panel:#101010;--theme-panel-2:#181818;--theme-line:#2a2a2a;--theme-accent:#00ff66;--theme-accent-2:#00ccff}}
 body.theme-light{{--theme-bg:#f6f8fa;--theme-panel:#fff;--theme-panel-2:#f6f8fa;--theme-line:#d0d7de;--theme-accent:#0969da;--theme-accent-2:#1a7f37}}
-</style><style>.profile-head{{position:relative;overflow:hidden;transform-style:preserve-3d;animation:profileEnter .7s cubic-bezier(.2,.8,.2,1) both}}.profile-head:before{{content:"";position:absolute;width:180px;height:180px;right:7%;top:-75px;border:1px solid #76aaff66;border-radius:42px;transform:rotate(35deg) translateZ(30px);animation:profileModel 8s ease-in-out infinite}}.profile-head:after{{content:"";position:absolute;width:90px;height:90px;right:18%;bottom:-40px;border-radius:50%;background:#2bd3c044;filter:blur(8px);animation:profileOrb 5s ease-in-out infinite}}.profile-head>*{{position:relative;z-index:1}}.avatar{{transform-style:preserve-3d;animation:avatarFloat 4s ease-in-out infinite}}section{{transform-style:preserve-3d;transition:transform .3s,box-shadow .3s}}section:hover{{transform:translateY(-4px) rotateX(1deg);box-shadow:12px 14px 0 #060b18,0 24px 50px #167bff24}}.metric,.profile-bot{{transform-style:preserve-3d;animation:metricIn .6s both}}.password-form{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px}}.password-form button{{grid-column:1/-1;width:max-content}}@keyframes profileEnter{{from{{opacity:0;transform:translateY(20px) rotateX(5deg)}}to{{opacity:1;transform:none}}}}@keyframes profileModel{{50%{{transform:rotate(68deg) translate3d(-10px,14px,30px)}}}}@keyframes profileOrb{{50%{{transform:translate3d(-18px,-12px,20px) scale(1.2)}}}}@keyframes avatarFloat{{50%{{transform:translateY(-8px) rotateY(12deg) rotateX(5deg)}}}}@keyframes metricIn{{from{{opacity:0;transform:translateY(12px) translateZ(-15px)}}to{{opacity:1;transform:none}}}}.password-form input{{width:100%;padding:12px 14px;border:1px solid #45659c;border-radius:10px;background:linear-gradient(145deg,#0d1b34,#142646);color:#f3f7ff;font:inherit;box-shadow:inset 0 1px #ffffff12,0 4px 0 #09152b;outline:none;transition:.2s}}.password-form input:focus{{border-color:#55dcca;box-shadow:0 0 0 3px #27d3c233,0 5px 0 #09152b;transform:translateY(-2px)}}.password-form button{{position:relative;overflow:hidden;border:1px solid #a9c4ff55;background:linear-gradient(135deg,#318dff,#7c59f5);box-shadow:0 5px 0 #172d68,0 12px 22px #347cff44}}@media(max-width:700px){{.password-form{{grid-template-columns:1fr}}.password-form button{{width:100%}}}}</style></head><body><main><div class="profile-theme-bar"><a href="/">← В панель</a><button type="button" class="theme-picker-button" id="open-theme-picker">🎨 Все темы</button></div><div class="theme-modal" id="theme-modal" aria-hidden="true"><div class="theme-modal-card" role="dialog" aria-modal="true" aria-labelledby="theme-modal-title"><div class="theme-modal-head"><div><h2 id="theme-modal-title">Выберите оформление</h2><p class="muted">Нажмите на карточку — тема применится сразу и сохранится.</p></div><button type="button" class="theme-close" id="close-theme-picker">Закрыть</button></div><div class="theme-grid" id="theme-grid"></div></div></div><div class="profile-head"><div class="avatar">◈</div><div><h1>{esc(row['display_name'] or row['username'])}</h1><p class="muted">{esc(row['username'])} · роль: {esc(row['role'])}</p></div></div>
+</style><style>.profile-head{{position:relative;overflow:hidden;transform-style:preserve-3d;animation:profileEnter .7s cubic-bezier(.2,.8,.2,1) both}}.profile-head:before{{content:"";position:absolute;width:180px;height:180px;right:7%;top:-75px;border:1px solid #76aaff66;border-radius:42px;transform:rotate(35deg) translateZ(30px);animation:profileModel 8s ease-in-out infinite}}.profile-head:after{{content:"";position:absolute;width:90px;height:90px;right:18%;bottom:-40px;border-radius:50%;background:#2bd3c044;filter:blur(8px);animation:profileOrb 5s ease-in-out infinite}}.profile-head>*{{position:relative;z-index:1}}.avatar{{transform-style:preserve-3d;animation:avatarFloat 4s ease-in-out infinite}}section{{transform-style:preserve-3d;transition:transform .3s,box-shadow .3s}}section:hover{{transform:translateY(-4px) rotateX(1deg);box-shadow:12px 14px 0 #060b18,0 24px 50px #167bff24}}.metric,.profile-bot{{transform-style:preserve-3d;animation:metricIn .6s both}}.password-form{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px}}.password-form button{{grid-column:1/-1;width:max-content}}@keyframes profileEnter{{from{{opacity:0;transform:translateY(20px) rotateX(5deg)}}to{{opacity:1;transform:none}}}}@keyframes profileModel{{50%{{transform:rotate(68deg) translate3d(-10px,14px,30px)}}}}@keyframes profileOrb{{50%{{transform:translate3d(-18px,-12px,20px) scale(1.2)}}}}@keyframes avatarFloat{{50%{{transform:translateY(-8px) rotateY(12deg) rotateX(5deg)}}}}@keyframes metricIn{{from{{opacity:0;transform:translateY(12px) translateZ(-15px)}}to{{opacity:1;transform:none}}}}.password-form input{{width:100%;padding:12px 14px;border:1px solid #45659c;border-radius:10px;background:linear-gradient(145deg,#0d1b34,#142646);color:#f3f7ff;font:inherit;box-shadow:inset 0 1px #ffffff12,0 4px 0 #09152b;outline:none;transition:.2s}}.password-form input:focus{{border-color:#55dcca;box-shadow:0 0 0 3px #27d3c233,0 5px 0 #09152b;transform:translateY(-2px)}}.password-form button{{position:relative;overflow:hidden;border:1px solid #a9c4ff55;background:linear-gradient(135deg,#318dff,#7c59f5);box-shadow:0 5px 0 #172d68,0 12px 22px #347cff44}}@media(max-width:700px){{.password-form{{grid-template-columns:1fr}}.password-form button{{width:100%}}}}</style></head><body><main><div class="profile-theme-bar"><a href="/">← В панель</a><button type="button" class="theme-picker-button" id="open-theme-picker">🎨 Все темы</button></div><div class="theme-modal" id="theme-modal" aria-hidden="true"><div class="theme-modal-card" role="dialog" aria-modal="true" aria-labelledby="theme-modal-title"><div class="theme-modal-head"><div><h2 id="theme-modal-title">Выберите оформление</h2><p class="muted">Нажмите на карточку — тема применится сразу и сохранится.</p></div><button type="button" class="theme-close" id="close-theme-picker">Закрыть</button></div><div class="theme-grid" id="theme-grid"></div></div></div><div class="profile-head"><div class="avatar">{avatar_markup}</div><div><h1>{esc(row['display_name'] or row['username'])}</h1><p class="muted">{esc(row['username'])} · роль: {esc(row['role'])}</p></div></div>
 <section><h2>Профиль доступа</h2><div class="metrics"><div class="metric"><small>Логин</small><b>{esc(row['username'])}</b></div><div class="metric"><small>Роль</small><b>{esc(row['role'])}</b></div><div class="metric"><small>Статус</small><b>{esc(row['status'])}</b></div><div class="metric"><small>Ботов доступно</small><b>{len(bots)}</b></div></div><div class="profile-health"><span class="health-dot {profile_health_class}"></span><div><b>Состояние аккаунта: {profile_health}</b><small>Worker онлайн: {running_bots} из {len(bots)} · аккаунт создан: {esc(joined_at)}</small></div></div><div class="detail-grid"><div class="detail-card"><small>Центр управления</small><b>Podslushka DB</b></div><div class="detail-card"><small>Защита</small><b>Токены зашифрованы</b></div><div class="detail-card"><small>Доступ</small><b>Проверен системой</b></div></div></section>
 <section><h2>3D-сцена профиля</h2><div class="profile-scene" id="profile-scene" aria-label="Интерактивная 3D-сцена"><div class="scene-orb"></div><i class="scene-particle one"></i><i class="scene-particle two"></i><i class="scene-particle three"></i><span class="scene-caption">secure control core · live interface</span></div></section>
 <section><h2>Мои боты</h2>{bot_cards}</section>{owner_controls}
-<section><h2>Безопасность</h2><p class="muted">Токены ботов не отображаются. Они хранятся зашифрованными и передаются worker-процессу только во время запуска.</p>
+<section><h2>Данные профиля</h2><form method="post" action="/profile/settings" class="password-form">
+<input name="display_name" placeholder="Имя" value="{esc(row['display_name'] or '')}" maxlength="120">
+<input type="email" name="email" placeholder="Email" value="{esc(row['email'] or '')}" maxlength="190">
+<input name="avatar_url" type="url" placeholder="Ссылка на аватар" value="{esc(avatar_url)}" maxlength="500">
+<select name="language"><option value="ru" {'selected' if row_value(row, 'language') != 'en' else ''}>Русский</option><option value="en" {'selected' if row_value(row, 'language') == 'en' else ''}>English</option></select>
+<button type="submit">Сохранить профиль</button></form></section>
+<section><h2>Активные сессии</h2><p class="muted">Завершайте доступ на устройствах, которыми больше не пользуетесь.</p>
+<div class="table"><table><tr><th>Создана</th><th>IP</th><th>Устройство</th><th></th></tr>{session_rows}</table></div>
+<form method="post" action="/profile/sessions/revoke-all" onsubmit="return confirm('Завершить все сессии?')"><button class="danger-button">Выйти со всех устройств</button></form></section>
+<section><h2>Безопасность и 2FA</h2><p class="muted">Токены ботов не отображаются. Они хранятся зашифрованными и передаются worker-процессу только во время запуска.</p>
+<p><b>Двухфакторная защита: </b>{'включена' if totp_secret else 'не настроена'}</p>
+{f"<div class='qr-box'><img src='{qr_uri}' alt='QR-код для приложения-аутентификатора'><span>Отсканируйте QR в Google Authenticator или Authy, затем введите код для включения.</span></div><form method='post' action='/profile/2fa' class='password-form'><input name='otp' inputmode='numeric' maxlength='6' placeholder='Код из приложения' required><button type='submit'>Отключить 2FA</button></form>" if qr_uri else "<form method='post' action='/profile/2fa/setup'><button type='submit'>Настроить 2FA и показать QR-код</button></form>"}
 <form method="post" action="/profile/password" class="password-form"><input type="password" name="current_password" placeholder="Текущий пароль" required minlength="8">
 <input type="password" name="new_password" placeholder="Новый пароль" required minlength="8">
 <input type="password" name="confirm_password" placeholder="Повторите новый пароль" required minlength="8">
 <button type="submit">Обновить пароль</button></form></section>
+<section><h2>Журнал входов</h2><div class="table"><table><tr><th>Дата</th><th>Событие</th><th>IP</th><th>Устройство</th></tr>{login_rows}</table></div></section>
 </main><script>
 const themeCatalog = [
   ['dark','GitHub Dark','#0d1117','#161b22','#30363d','#58a6ff','#3fb950'],
@@ -3835,6 +3934,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if impersonation_owner(self) and path in {
             "/profile/password", "/bot/create", "/bot/import-legacy",
+            "/profile/settings", "/profile/session/revoke", "/profile/sessions/revoke-all",
+            "/profile/2fa/setup", "/profile/2fa",
             "/bot/admin/add", "/bot/admin/remove", "/bot/token",
             "/bot/toggle", "/bot/restart", "/bot/ai-toggle", "/bot/ai-threshold",
             "/legacy/ai-toggle", "/project/create", "/project/join",
@@ -4079,6 +4180,89 @@ class Handler(BaseHTTPRequestHandler):
             return
         fields = parse_qs(raw_body.decode("utf-8"))
         actor = auth_user(self)
+        if path == "/profile/settings":
+            if not actor:
+                self.send_error(401)
+                return
+            display_name = fields.get("display_name", [""])[0].strip()[:120]
+            email = fields.get("email", [""])[0].strip()[:190]
+            avatar_url = fields.get("avatar_url", [""])[0].strip()[:500]
+            language = fields.get("language", ["ru"])[0]
+            if language not in {"ru", "en"}:
+                self.send_error(400, "Unsupported language")
+                return
+            if avatar_url and not avatar_url.startswith(("https://", "http://")):
+                self.send_error(400, "Avatar must be an HTTP(S) URL")
+                return
+            with db_connect() as conn:
+                conn.execute(
+                    "UPDATE dashboard_users SET display_name=?, email=?, avatar_url=?, language=? WHERE username=?",
+                    (display_name, email, avatar_url, language, actor),
+                )
+                conn.commit()
+            log_action(actor, "Profile updated", actor)
+            self.send_response(302)
+            self.send_header("Location", "/profile")
+            self.end_headers()
+            return
+        if path == "/profile/2fa/setup":
+            if not actor:
+                self.send_error(401)
+                return
+            secret = base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+            with db_connect() as conn:
+                conn.execute("UPDATE dashboard_users SET totp_secret=? WHERE username=?", (secret, actor))
+                conn.commit()
+            log_action(actor, "2FA setup started", actor)
+            self.send_response(302)
+            self.send_header("Location", "/profile")
+            self.end_headers()
+            return
+        if path == "/profile/2fa":
+            if not actor:
+                self.send_error(401)
+                return
+            otp = fields.get("otp", [""])[0].strip()
+            with db_connect(readonly=True) as conn:
+                account = conn.execute("SELECT totp_secret FROM dashboard_users WHERE username=?", (actor,)).fetchone()
+            secret = row_value(account, "totp_secret", 0) if account else ""
+            if not secret or not totp_valid(secret, otp):
+                self.send_error(403, "Неверный код 2FA")
+                return
+            with db_connect() as conn:
+                conn.execute("UPDATE dashboard_users SET totp_secret=NULL WHERE username=?", (actor,))
+                conn.commit()
+            log_action(actor, "2FA disabled", actor)
+            self.send_response(302)
+            self.send_header("Location", "/profile")
+            self.end_headers()
+            return
+        if path == "/profile/session/revoke":
+            if not actor:
+                self.send_error(401)
+                return
+            token = fields.get("token", [""])[0]
+            with db_connect() as conn:
+                conn.execute("DELETE FROM dashboard_sessions WHERE token=? AND username=?", (token, actor))
+                conn.commit()
+            log_action(actor, "Session revoked", actor)
+            self.send_response(302)
+            self.send_header("Location", "/profile")
+            self.end_headers()
+            return
+        if path == "/profile/sessions/revoke-all":
+            if not actor:
+                self.send_error(401)
+                return
+            current = session_token(self)
+            with db_connect() as conn:
+                conn.execute("DELETE FROM dashboard_sessions WHERE username=? AND token<>?", (actor, current or ""))
+                conn.commit()
+            log_action(actor, "All other sessions revoked", actor)
+            self.send_response(302)
+            self.send_header("Location", "/profile")
+            self.end_headers()
+            return
         if path == "/profile/password":
             if not actor:
                 self.send_error(401)
@@ -4678,7 +4862,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 configured_totp = OWNER_2FA_SECRET if OWNER_2FA_REQUIRED else ""
                 if row and row_value(row, "totp_secret", 2):
-                    configured_totp = row_value(row, "totp_secret", 2) if OWNER_2FA_REQUIRED else ""
+                    configured_totp = row_value(row, "totp_secret", 2)
                 valid_password = owner_login or (
                     bool(row)
                     and row_value(row, "status", 1) == "approved"
