@@ -3901,6 +3901,17 @@ async function pollOsint(jobId) {{
   for (let attempt = 0; attempt < 120; attempt++) {{
     try {{
       const response = await fetch(`/api/osint-search?id=${{encodeURIComponent(jobId)}}`, {{cache: 'no-store'}});
+      if (!response.ok) {{
+        if (response.status === 404) {{
+          sessionStorage.removeItem('podslushka-osint-job');
+          osintPollingJob = '';
+          osintSearchActive = false;
+          if (osintStatus) osintStatus.textContent = 'Предыдущий поиск устарел. Запустите новый поиск.';
+          if (osintResults) osintResults.innerHTML = '<div class="osint-results-empty"><div><div class="empty-icon">⌕</div></div><div><h3>Результаты появятся здесь</h3><p>Запустите новый поиск, чтобы получить актуальные данные.</p></div></div>';
+          return;
+        }}
+        throw new Error(`Сервер вернул ошибку ${response.status}.`);
+      }}
       const job = await response.json();
       renderOsint(job);
       if (job.status !== 'running') {{
