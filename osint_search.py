@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -143,6 +144,19 @@ def _run_tool(tool: str, username: str, workdir: Path) -> dict:
         ]
     if not repo.is_dir():
         return {"tool": tool, "status": "unavailable", "error": "Инструмент не скачан."}
+    if tool == "maigret":
+        settings_source = ROOT / "maigret_settings.json"
+        settings_target = repo / "maigret" / "resources" / "settings.json"
+        try:
+            settings_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(settings_source, settings_target)
+        except OSError as exc:
+            logging.exception("Unable to prepare Maigret settings")
+            return {
+                "tool": tool,
+                "status": "error",
+                "error": f"Не удалось подготовить настройки Maigret: {exc}",
+            }
     env = {
         **os.environ,
         "PYTHONUNBUFFERED": "1",
