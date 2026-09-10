@@ -3492,6 +3492,14 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 .content{{background:rgba(13,17,23,.66)!important}}
 .sidebar{{background:rgba(22,27,34,.9)!important}}
 .card,.insight-card,.toolbar,.table-wrap,.setup-card,.bot-center,.health-item,.group-ai{{background:rgba(22,27,34,.78)!important}}
+body[class*="theme-"] .layout{{background:transparent!important}}
+body[class*="theme-"] .content{{background:color-mix(in srgb,var(--bg) 82%,transparent)!important}}
+body[class*="theme-"] .sidebar{{background:color-mix(in srgb,var(--sidebar) 94%,transparent)!important}}
+body[class*="theme-"] .card,body[class*="theme-"] .insight-card,body[class*="theme-"] .toolbar,body[class*="theme-"] .table-wrap,body[class*="theme-"] .setup-card,body[class*="theme-"] .bot-center,body[class*="theme-"] .health-item,body[class*="theme-"] .group-ai{{background:var(--panel)!important;border-color:var(--line)!important;color:var(--text)}}
+body[class*="theme-"] .osint-search-form,body[class*="theme-"] .osint-results-shell{{background:var(--panel)!important;border-color:var(--line)!important;color:var(--text)}}
+body[class*="theme-"] .osint-search-form fieldset,body[class*="theme-"] .osint-tool-card,body[class*="theme-"] .osint-mode-card,body[class*="theme-"] .osint-live-card{{background:var(--panel2)!important;border-color:var(--line)!important;color:var(--text)}}
+body[class*="theme-"] .osint-search-form input,body[class*="theme-"] .osint-stat,body[class*="theme-"] .osint-downloads{{background:var(--input)!important;color:var(--text)!important;border-color:var(--line)!important}}
+body[class*="theme-"] .osint-search-form .submit{{background:linear-gradient(105deg,var(--blue),var(--blue2))!important;border-color:var(--blue)!important;color:#fff!important}}
 .osint-search-form{{display:grid;grid-template-columns:minmax(280px,.88fr) minmax(0,1.8fr);grid-template-rows:auto auto;align-items:stretch;gap:14px;margin:20px 0;padding:18px;border:1px solid #2465a8;border-radius:24px;background:linear-gradient(135deg,#071b35f8 0%,#0b1730f5 55%,#17145bf5 100%);box-shadow:0 22px 55px #02071388,0 0 70px #1d64d533 inset}}
 .osint-search-form{{overflow:hidden}}
 .osint-search-form label{{display:grid;gap:7px;color:var(--muted);font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.06em}}
@@ -3654,9 +3662,17 @@ if (dashboardThemeGrid) {{
 }}
 const dashboardThemeOpen = document.getElementById('dashboard-theme-open');
 const dashboardThemeClose = document.getElementById('dashboard-theme-close');
-if (dashboardThemeOpen) dashboardThemeOpen.addEventListener('click', () => {{ dashboardThemeModal.classList.add('open'); dashboardThemeModal.setAttribute('aria-hidden', 'false'); }});
-if (dashboardThemeClose) dashboardThemeClose.addEventListener('click', () => {{ dashboardThemeModal.classList.remove('open'); dashboardThemeModal.setAttribute('aria-hidden', 'true'); }});
-if (dashboardThemeModal) dashboardThemeModal.addEventListener('click', event => {{ if (event.target === dashboardThemeModal) dashboardThemeClose.click(); }});
+function openDashboardThemes() {{
+  const modal = document.getElementById('dashboard-theme-modal');
+  if (modal) {{ modal.classList.add('open'); modal.setAttribute('aria-hidden', 'false'); }}
+}}
+function closeDashboardThemes() {{
+  const modal = document.getElementById('dashboard-theme-modal');
+  if (modal) {{ modal.classList.remove('open'); modal.setAttribute('aria-hidden', 'true'); }}
+}}
+if (dashboardThemeOpen) dashboardThemeOpen.addEventListener('click', openDashboardThemes);
+if (dashboardThemeClose) dashboardThemeClose.addEventListener('click', closeDashboardThemes);
+if (dashboardThemeModal) dashboardThemeModal.addEventListener('click', event => {{ if (event.target === dashboardThemeModal) closeDashboardThemes(); }});
 const compactModeButton = document.getElementById('compact-mode-button');
 function applyCompactMode(enabled) {{
   document.body.classList.toggle('compact-mode', enabled);
@@ -3686,6 +3702,19 @@ function closeMobileMenu() {{ document.body.classList.remove('menu-open'); }}
 if (mobileMenuButton) mobileMenuButton.addEventListener('click', () => document.body.classList.toggle('menu-open'));
 if (mobileMenuOverlay) mobileMenuOverlay.addEventListener('click', closeMobileMenu);
 document.querySelectorAll('.sidebar a').forEach(link => link.addEventListener('click', closeMobileMenu));
+document.addEventListener('click', event => {{
+  const target = event.target;
+  if (target.closest('#dashboard-theme-open')) openDashboardThemes();
+  if (target.closest('#dashboard-theme-close')) closeDashboardThemes();
+  const help = target.closest('.help-button');
+  if (help && helpToast && helpToastText) {{
+    event.preventDefault();
+    helpToastText.textContent = help.dataset.help || help.title || 'Заполните это поле по инструкции.';
+    helpToast.classList.add('open');
+    clearTimeout(helpToastTimer);
+    helpToastTimer = setTimeout(() => helpToast.classList.remove('open'), 5000);
+  }}
+}});
 function animateCounters() {{
   document.querySelectorAll('.card strong').forEach(node => {{
     const target = Number((node.textContent || '').replace(/\\s/g, ''));
