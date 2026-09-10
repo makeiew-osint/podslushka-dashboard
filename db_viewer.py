@@ -158,7 +158,9 @@ def db_connect(readonly: bool = False):
         PG_CONNECTION_LOCK.acquire()
         try:
             if PG_CONNECTION is None or PG_CONNECTION.closed:
-                PG_CONNECTION = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+                PG_CONNECTION = psycopg.connect(
+                    DATABASE_URL, row_factory=dict_row, connect_timeout=5
+                )
             connection = PG_CONNECTION
         except Exception:
             PG_CONNECTION = None
@@ -955,9 +957,9 @@ def init_auth() -> None:
     if not DATABASE_URL:
         _init_auth_once()
         return
-    delay = 2
+    delay = 5
     last_error = None
-    for attempt in range(30):
+    for attempt in range(12):
         try:
             _init_auth_once()
             return
@@ -970,7 +972,6 @@ def init_auth() -> None:
                 exc,
             )
             time.sleep(delay)
-            delay = min(delay + 2, 15)
     raise RuntimeError("PostgreSQL did not release a connection slot during startup") from last_error
 
 

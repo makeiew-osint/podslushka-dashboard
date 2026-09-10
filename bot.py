@@ -60,6 +60,21 @@ async def _lang(user_id: int) -> str:
     return l or "ru"
 
 
+async def _admin_ids() -> set[int]:
+    """Use per-managed-bot administrators, while retaining global admins."""
+    ids = {int(value) for value in cfg.admin_ids}
+    if MANAGED_BOT_ID:
+        try:
+            ids.update(await db.list_bot_admin_ids(MANAGED_BOT_ID))
+        except Exception:
+            logging.exception("Could not load managed bot administrators")
+    return ids
+
+
+async def _is_admin(user_id: int) -> bool:
+    return user_id in await _admin_ids()
+
+
 async def _audit(actor: Any, action: str, target: Any = "", admin_log: bool = False):
     try:
         await db.log_dashboard_action(str(actor), action, str(target))
@@ -528,7 +543,7 @@ async def cmd_profile(message: Message, command: CommandObject):
     """Show a Telegram/user history card; admins may inspect another user."""
     uid = message.from_user.id
     query = (command.args or "").strip()
-    if query and uid not in cfg.admin_ids:
+    if query and not await _is_admin(uid):
         await message.answer("Команда без аргументов доступна только для вашего профиля.")
         await _audit(uid, "Bot /profile denied", query, admin_log=True)
         return
@@ -562,7 +577,7 @@ async def cmd_find(message: Message, command: CommandObject):
     """Admin-only user lookup by Telegram ID, username, first or last name."""
     admin_id = message.from_user.id
     query = (command.args or "").strip()
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         await _audit(admin_id, "Bot /find denied", query, admin_log=True)
         return
     if not query:
@@ -647,7 +662,7 @@ async def handle_incoming(message: Message, state: FSMContext):
         await message.answer(t("ru", "need_lang"))
         return
 
-    if uid not in cfg.admin_ids:
+    if not await _is_admin(uid):
         last = await db.last_post_time(uid, MANAGED_BOT_ID or None)
         if last and (time.time() - last) < cfg.cooldown_seconds:
             await _audit(uid, "Bot rate limit cooldown", "message")
@@ -844,7 +859,7 @@ async def cb_preview_send(callback: CallbackQuery, state: FSMContext):
 
 
 async def _notify_admins_simple(post_id: int, user_id: int, text: Optional[str], file_id: Optional[str], kind: str, from_user: Any):
-    for admin_id in cfg.admin_ids:
+    for admin_id in await _admin_ids():
         lang = await _lang(admin_id)
         user_card = await _build_user_card(user_id, from_user, lang)
         # Build message card manually (no Message object in preview flow)
@@ -882,7 +897,7 @@ async def _notify_admins_simple(post_id: int, user_id: int, text: Optional[str],
 
 
 async def _notify_admins(post_id: int, message: Message, is_media_group: bool = False, items: Optional[List[Dict]] = None):
-    for admin_id in cfg.admin_ids:
+    for admin_id in await _admin_ids():
         lang = await _lang(admin_id)
         user_card = await _build_user_card(message.from_user.id, message.from_user, lang)
         msg_card = await _build_message_card(message, lang)
@@ -957,7 +972,7 @@ async def _notify_admins(post_id: int, message: Message, is_media_group: bool = 
 async def cb_approve(callback: CallbackQuery):
     admin_id = callback.from_user.id
     lang = await _lang(admin_id)
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
     post_id = int(callback.data.split(":")[2])
@@ -991,7 +1006,7 @@ async def cb_approve(callback: CallbackQuery):
 async def cb_reject(callback: CallbackQuery, state: FSMContext):
     admin_id = callback.from_user.id
     lang = await _lang(admin_id)
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
     post_id = int(callback.data.split(":")[2])
@@ -1031,7 +1046,7 @@ async def st_reject_reason(message: Message, state: FSMContext):
 async def cb_ban(callback: CallbackQuery, state: FSMContext):
     admin_id = callback.from_user.id
     lang = await _lang(admin_id)
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
     parts = callback.data.split(":")
@@ -1065,7 +1080,7 @@ async def st_ban_reason(message: Message, state: FSMContext):
 async def cb_warn(callback: CallbackQuery):
     admin_id = callback.from_user.id
     lang = await _lang(admin_id)
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
     parts = callback.data.split(":")
@@ -1090,7 +1105,7 @@ async def cb_warn(callback: CallbackQuery):
 async def cb_queue(callback: CallbackQuery):
     admin_id = callback.from_user.id
     lang = await _lang(admin_id)
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
     await _audit(admin_id, "Bot queue viewed", "", admin_log=True)
@@ -1118,7 +1133,7 @@ async def cb_queue(callback: CallbackQuery):
 async def cb_bulk_confirm(callback: CallbackQuery):
     admin_id = callback.from_user.id
     lang = await _lang(admin_id)
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
     action = "publish" if callback.data.endswith("publish:confirm") else "reject"
@@ -1140,7 +1155,7 @@ async def cb_bulk_confirm(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "admin:bulk:cancel")
 async def cb_bulk_cancel(callback: CallbackQuery):
-    if callback.from_user.id not in cfg.admin_ids:
+    if not await _is_admin(callback.from_user.id):
         await callback.answer("Нет доступа.", show_alert=True)
         return
     await callback.message.edit_text("Массовое действие отменено.")
@@ -1151,7 +1166,7 @@ async def cb_bulk_cancel(callback: CallbackQuery):
 async def cb_bulk_run(callback: CallbackQuery):
     admin_id = callback.from_user.id
     lang = await _lang(admin_id)
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
     action = "publish" if callback.data.endswith("publish:run") else "reject"
@@ -1201,7 +1216,7 @@ async def cb_bulk_run(callback: CallbackQuery):
 async def cb_stats(callback: CallbackQuery):
     admin_id = callback.from_user.id
     lang = await _lang(admin_id)
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         await callback.answer(t(lang, "admin_no_access"), show_alert=True)
         return
     await _audit(admin_id, "Bot stats viewed", "", admin_log=True)
@@ -1226,7 +1241,7 @@ async def cb_stats(callback: CallbackQuery):
 async def cmd_queue(message: Message):
     admin_id = message.from_user.id
     lang = await _lang(admin_id)
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         return
     await _audit(admin_id, "Bot queue viewed", "", admin_log=True)
     pending = await db.list_pending(MANAGED_BOT_ID or None)
@@ -1252,7 +1267,7 @@ async def cmd_queue(message: Message):
 async def cmd_stats(message: Message):
     admin_id = message.from_user.id
     lang = await _lang(admin_id)
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         return
     await _audit(admin_id, "Bot stats viewed", "", admin_log=True)
     s = await db.stats(MANAGED_BOT_ID or None)
@@ -1275,7 +1290,7 @@ async def cmd_stats(message: Message):
 async def cmd_ban(message: Message, command: CommandObject):
     admin_id = message.from_user.id
     lang = await _lang(admin_id)
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         return
     if not command.args:
         await message.answer("Usage: /ban <user_id> [reason]")
@@ -1294,7 +1309,7 @@ async def cmd_ban(message: Message, command: CommandObject):
 @dp.message(Command("unban"))
 async def cmd_unban(message: Message, command: CommandObject):
     admin_id = message.from_user.id
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         return
     if not command.args:
         await message.answer("Usage: /unban <user_id>")
@@ -1311,7 +1326,7 @@ async def cmd_unban(message: Message, command: CommandObject):
 async def cmd_warn(message: Message, command: CommandObject):
     admin_id = message.from_user.id
     lang = await _lang(admin_id)
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         return
     if not command.args:
         await message.answer("Usage: /warn <user_id> [reason]")
@@ -1334,7 +1349,7 @@ async def cmd_warn(message: Message, command: CommandObject):
 @dp.message(Command("addword"))
 async def cmd_addword(message: Message, command: CommandObject):
     admin_id = message.from_user.id
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         return
     if not command.args:
         await message.answer("Usage: /addword <word>")
@@ -1350,7 +1365,7 @@ async def cmd_addword(message: Message, command: CommandObject):
 @dp.message(Command("delword"))
 async def cmd_delword(message: Message, command: CommandObject):
     admin_id = message.from_user.id
-    if admin_id not in cfg.admin_ids:
+    if not await _is_admin(admin_id):
         return
     if not command.args:
         await message.answer("Usage: /delword <word>")
@@ -1363,7 +1378,7 @@ async def cmd_delword(message: Message, command: CommandObject):
 
 @dp.message(Command("words"))
 async def cmd_words(message: Message):
-    if message.from_user.id not in cfg.admin_ids:
+    if not await _is_admin(message.from_user.id):
         return
     words = await db.list_banned_words(MANAGED_BOT_ID or None)
     if not words:
@@ -1374,7 +1389,7 @@ async def cmd_words(message: Message):
 
 @dp.message(Command("broadcast"))
 async def cmd_broadcast(message: Message, command: CommandObject):
-    if message.from_user.id not in cfg.admin_ids:
+    if not await _is_admin(message.from_user.id):
         return
     if not command.args:
         await message.answer("Usage: /broadcast <text>")
@@ -1434,7 +1449,7 @@ async def st_report(message: Message, state: FSMContext):
     await state.clear()
     lang = await _lang(message.from_user.id)
     await message.answer(t(lang, "report_sent"))
-    for admin_id in cfg.admin_ids:
+    for admin_id in await _admin_ids():
         try:
             al = await _lang(admin_id)
             text = t(al, "admin_report_recvd", public_id=public_id) + chr(10)

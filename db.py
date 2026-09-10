@@ -25,7 +25,7 @@ class Database:
             if psycopg is None:
                 raise RuntimeError("psycopg is required when DATABASE_URL is set")
             self._conn = await psycopg.AsyncConnection.connect(
-                self.database_url, row_factory=dict_row
+                self.database_url, row_factory=dict_row, connect_timeout=5
             )
         else:
             self._conn = await aiosqlite.connect(self.path)
@@ -722,6 +722,32 @@ class Database:
             return min(0.99, max(0.5, float(row["ai_publish_threshold"]))) if row else 0.92
         except (TypeError, ValueError):
             return 0.92
+
+    async def list_bot_admin_ids(self, bot_id: int | None = None) -> list[int]:
+        """Return the configured Telegram recipients for this bot."""
+        if not bot_id:
+            return []
+        ids: set[int] = set()
+        cur = await self._execute(
+            "SELECT telegram_admin_id FROM managed_bots WHERE id=?",
+            (bot_id,),
+        )
+        owner = await cur.fetchone()
+        if owner and owner["telegram_admin_id"] is not None:
+            try:
+                ids.add(int(owner["telegram_admin_id"]))
+            except (TypeError, ValueError):
+                pass
+        cur = await self._execute(
+            "SELECT telegram_id FROM bot_admins WHERE bot_id=?",
+            (bot_id,),
+        )
+        for row in await cur.fetchall():
+            try:
+                ids.add(int(row["telegram_id"]))
+            except (TypeError, ValueError):
+                continue
+        return sorted(ids)
 
     async def get_post_by_public(self, public_id: int, bot_id: int | None = None) -> Optional[aiosqlite.Row]:
         query = "SELECT * FROM posts WHERE public_id = ?"
