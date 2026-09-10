@@ -149,7 +149,7 @@ start: python db_viewer.py
 | `DASHBOARD_SYNC_URL` | URL dashboard, например `https://podslushka-dashboard.onrender.com` |
 
 Дополнительные настройки: `GEMINI_API_KEY`, `GEMINI_MODEL`, `HF_TOKEN`,
-`HF_MODEL` и `AI_PROVIDER`,
+`HF_MODEL`, `DEEPSEEK_MODEL` и `AI_PROVIDER`,
 `TELEGRAM_BOT_USERNAME`, `TELEGRAM_UPDATES_CHAT_ID`, `OAUTH_BASE_URL`,
 `OAUTH_SIGNING_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 `OWNER_2FA_SECRET`, `OWNER_2FA_REQUIRED` и `SITE_MAINTENANCE_MODE`.
@@ -176,6 +176,17 @@ HF_MODEL=Qwen/Qwen3.8-27B
 добавлять в Git, README или отправлять в чат. Модель не клонируется на Render:
 запросы идут через Hugging Face Router, поэтому не требуется скачивать десятки
 гигабайт весов на бесплатный web-service.
+
+Для DeepSeek через тот же Hugging Face Router выберите `DeepSeek` в панели:
+
+```env
+AI_PROVIDER=deepseek
+HF_TOKEN=hf_...
+DEEPSEEK_MODEL=deepseek-ai/DeepSeek-V4.1-Flash
+```
+
+Qwen и DeepSeek используют один `HF_TOKEN`, но разные модели. В интерфейсе
+панели можно переключать Gemini, Qwen и DeepSeek перед запуском анализа.
 
 Для получения сообщений от всех managed-ботов укажите числовой Telegram ID
 владельца в `OWNER_TELEGRAM_ID`. Бот отправляет владельцу те же уведомления,

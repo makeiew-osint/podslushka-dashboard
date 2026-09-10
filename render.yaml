@@ -28,6 +28,8 @@ services:
         sync: false
       - key: HF_MODEL
         value: Qwen/Qwen3.8-27B
+      - key: DEEPSEEK_MODEL
+        value: deepseek-ai/DeepSeek-V4.1-Flash
       - key: AI_PROVIDER
         value: gemini
       - key: TELEGRAM_BOT_USERNAME

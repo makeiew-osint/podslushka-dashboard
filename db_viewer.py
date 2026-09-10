@@ -88,6 +88,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview").strip() or "gemini-3-flash-preview"
 HF_TOKEN = os.getenv("HF_TOKEN", "").strip()
 HF_MODEL = os.getenv("HF_MODEL", "Qwen/Qwen3.8-27B").strip() or "Qwen/Qwen3.8-27B"
+DEEPSEEK_MODEL = os.getenv(
+    "DEEPSEEK_MODEL", "deepseek-ai/DeepSeek-V4.1-Flash"
+).strip() or "deepseek-ai/DeepSeek-V4.1-Flash"
 AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").strip().lower() or "gemini"
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
 NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-v4-pro-0813").strip() or "deepseek-ai/deepseek-v4-pro-0813"
@@ -1414,7 +1417,7 @@ def request_nvidia_analysis(text: str) -> dict:
     return cleaned
 
 
-def request_huggingface_analysis(text: str) -> dict:
+def request_huggingface_analysis(text: str, model: str | None = None) -> dict:
     """Analyze a submission through Hugging Face's OpenAI-compatible router."""
     if not HF_TOKEN:
         raise RuntimeError("configuration")
@@ -1429,7 +1432,7 @@ def request_huggingface_analysis(text: str) -> dict:
         "Текст заявки:\n" + text[:12000]
     )
     payload = json.dumps({
-        "model": HF_MODEL,
+        "model": model or HF_MODEL,
         "messages": [
             {"role": "system", "content": "Ты безопасный аналитик заявок для модерации."},
             {"role": "user", "content": prompt},
@@ -2717,6 +2720,7 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         ("Синхронизация", "настроена" if SYNC_SECRET and os.getenv("DASHBOARD_SYNC_URL") else "не настроена", ""),
         ("ИИ Gemini", "настроен" if GEMINI_API_KEY else "не настроен", GEMINI_MODEL),
         ("ИИ Qwen", "настроен" if HF_TOKEN else "не настроен", HF_MODEL),
+        ("ИИ DeepSeek", "настроен" if HF_TOKEN else "не настроен", DEEPSEEK_MODEL),
     ]
     notification_state = (
         "не настроены" if not (TELEGRAM_BOT_TOKEN and TELEGRAM_UPDATES_CHAT_ID)
@@ -3451,7 +3455,7 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 {('<a class="' + ('active' if section == 'all-info' else '') + '" href="/?view=all-info"><span class="icon">✹</span>Информация о всех</a><a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Боты</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'group' else '') + '" href="/?view=group"><span class="icon">✦</span>Группа</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else ('<a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Мой бот</a>' if can_access(current_user, 'bots') else ''))}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
 <div class="theme-modal" id="dashboard-theme-modal" aria-hidden="true"><div class="theme-modal-card" role="dialog" aria-modal="true" aria-labelledby="dashboard-theme-title"><div class="theme-modal-head"><div><h2 id="dashboard-theme-title">Галерея тем</h2><p class="muted">Выберите оформление по живому примеру.</p></div><button type="button" class="theme-close" id="dashboard-theme-close">Закрыть</button></div><div class="theme-grid" id="dashboard-theme-grid"></div></div></div>
-<main class="content">{impersonation_notice}<div class="topbar"><div class="topbar-title"><button type="button" class="mobile-menu-button" id="mobile-menu-button" aria-label="Открыть меню">☰</button><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div></div><div class="topbar-actions"><select id="ai-provider" aria-label="Провайдер ИИ"><option value="gemini" {'selected' if AI_PROVIDER == 'gemini' else ''} {'disabled' if not GEMINI_API_KEY else ''}>ИИ: Gemini {'· доступен' if GEMINI_API_KEY else '· не настроен'}</option><option value="qwen" {'selected' if AI_PROVIDER in {'qwen', 'huggingface', 'hf'} else ''} {'disabled' if not HF_TOKEN else ''}>ИИ: Qwen {'· доступен' if HF_TOKEN else '· не настроен'}</option></select><select id="refresh-interval" aria-label="Частота обновления"><option value="5">Обновление: 5 сек</option><option value="15">Обновление: 15 сек</option><option value="30">Обновление: 30 сек</option><option value="60">Обновление: 1 мин</option><option value="0">Обновление выключено</option></select><select id="interface-language" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="en">English</option></select><button type="button" id="compact-mode-button">Компактный режим</button><a class="button-link" href="/profile">◉ Профиль</a><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
+<main class="content">{impersonation_notice}<div class="topbar"><div class="topbar-title"><button type="button" class="mobile-menu-button" id="mobile-menu-button" aria-label="Открыть меню">☰</button><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div></div><div class="topbar-actions"><select id="ai-provider" aria-label="Провайдер ИИ"><option value="gemini" {'selected' if AI_PROVIDER == 'gemini' else ''} {'disabled' if not GEMINI_API_KEY else ''}>ИИ: Gemini {'· доступен' if GEMINI_API_KEY else '· не настроен'}</option><option value="qwen" {'selected' if AI_PROVIDER in {'qwen', 'huggingface', 'hf'} else ''} {'disabled' if not HF_TOKEN else ''}>ИИ: Qwen {'· доступен' if HF_TOKEN else '· не настроен'}</option><option value="deepseek" {'selected' if AI_PROVIDER == 'deepseek' else ''} {'disabled' if not HF_TOKEN else ''}>ИИ: DeepSeek {'· доступен' if HF_TOKEN else '· не настроен'}</option></select><select id="refresh-interval" aria-label="Частота обновления"><option value="5">Обновление: 5 сек</option><option value="15">Обновление: 15 сек</option><option value="30">Обновление: 30 сек</option><option value="60">Обновление: 1 мин</option><option value="0">Обновление выключено</option></select><select id="interface-language" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="en">English</option></select><button type="button" id="compact-mode-button">Компактный режим</button><a class="button-link" href="/profile">◉ Профиль</a><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
 {('<section id="overview"><div class="cards">' + cards + '</div><div class="insights"><section class="insight-card chart-card"><div class="insight-head"><div><b>Активность за 7 дней</b><span class="muted">Заявки по дням</span></div><span class="live-pill"><i></i> live</span></div><div class="chart">' + chart_bars + '</div></section><section class="insight-card"><div class="insight-head"><div><b>Центр событий</b><span class="muted">Последние изменения</span></div><a class="text-link" href="/?view=actions">Все события →</a></div><ul class="event-list">' + notification_rows + '</ul></section></div></section>' if section == 'overview' and (owner or selected_bot) else '')}
 {('<div class="toolbar"><input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off"><select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select><select id="kind"><option value="">Все типы</option><option value="text">Текст</option><option value="photo">Фото</option><option value="video">Видео</option><option value="media_group">Медиагруппа</option></select><div class="filter-tabs"><button type="button" class="filter-tab active" data-status="">Все</button><button type="button" class="filter-tab" data-status="pending">На модерации</button><button type="button" class="filter-tab" data-status="published">Опубликовано</button></div><button type="button" onclick="refreshPage()">↻ Обновить</button><a class="button-link" href="/backup">↓ Резервная копия</a></div>' if section == 'overview' else '')}
 {('<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_rows + '</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section><section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>' if section == 'overview' else '')}
@@ -3627,7 +3631,8 @@ async function requestAiAnalysis(button) {{
   const providerSelect = document.getElementById('ai-provider');
   const provider = providerSelect ? providerSelect.value : 'gemini';
   button.disabled = true;
-  aiCardBody.innerHTML = `<div class="ai-loading">Анализируем заявку через ${{provider === 'qwen' ? 'Qwen' : 'Gemini'}}…</div>`;
+  const providerName = provider === 'qwen' ? 'Qwen' : (provider === 'deepseek' ? 'DeepSeek' : 'Gemini');
+  aiCardBody.innerHTML = `<div class="ai-loading">Анализируем заявку через ${{providerName}}…</div>`;
   aiCard.classList.add('open');
   aiCard.setAttribute('aria-hidden', 'false');
   try {{
@@ -3650,7 +3655,7 @@ async function requestAiAnalysis(button) {{
 const aiProviderSelect = document.getElementById('ai-provider');
 if (aiProviderSelect) {{
   const savedProvider = localStorage.getItem('podslushka-ai-provider');
-  if (savedProvider === 'gemini' || savedProvider === 'qwen') aiProviderSelect.value = savedProvider;
+  if (savedProvider === 'gemini' || savedProvider === 'qwen' || savedProvider === 'deepseek') aiProviderSelect.value = savedProvider;
   aiProviderSelect.addEventListener('change', () => {{
     localStorage.setItem('podslushka-ai-provider', aiProviderSelect.value);
   }});
@@ -4503,7 +4508,7 @@ class Handler(BaseHTTPRequestHandler):
                 if post_id <= 0:
                     raise ValueError
                 provider = str(request_data.get("provider", AI_PROVIDER)).strip().lower()
-                if provider not in {"gemini", "qwen"}:
+                if provider not in {"gemini", "qwen", "deepseek"}:
                     raise ValueError
                 target = ai_analysis_target(post_id)
             except (UnicodeDecodeError, ValueError, TypeError, KeyError, json.JSONDecodeError):
@@ -4513,10 +4518,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             log_action(actor, "AI analysis request", target)
-            provider_ready = bool(HF_TOKEN) if provider == "qwen" else bool(GEMINI_API_KEY)
+            provider_ready = (
+                bool(HF_TOKEN) if provider in {"qwen", "deepseek"} else bool(GEMINI_API_KEY)
+            )
             if not provider_ready:
                 log_action(actor, "AI analysis error", f"{target}:configuration")
-                required_key = "HF_TOKEN" if provider == "qwen" else "GEMINI_API_KEY"
+                required_key = "HF_TOKEN" if provider in {"qwen", "deepseek"} else "GEMINI_API_KEY"
                 send_ai_json({"error": f"ИИ-анализ временно недоступен: не настроен {required_key}."}, 503)
                 return
 
@@ -4556,7 +4563,9 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 try:
                     if provider == "qwen":
-                        analysis = request_huggingface_analysis(text)
+                        analysis = request_huggingface_analysis(text, HF_MODEL)
+                    elif provider == "deepseek":
+                        analysis = request_huggingface_analysis(text, DEEPSEEK_MODEL)
                     else:
                         analysis = request_gemini_analysis(text)
                 except TimeoutError:
@@ -4568,7 +4577,7 @@ class Handler(BaseHTTPRequestHandler):
                     if str(exc) == "hf_forbidden":
                         error_message = (
                             "Hugging Face отклонил запрос (403): проверьте Read-токен "
-                            "и доступ модели через Inference Providers."
+                            "и доступ выбранной модели через Inference Providers."
                         )
                     else:
                         error_message = "Сервис ИИ вернул ошибку. Попробуйте позже."
