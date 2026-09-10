@@ -39,3 +39,4 @@ chardet
 charset-normalizer
 about-time==4.2.1
 graphemeu==0.7.2
+xmind
