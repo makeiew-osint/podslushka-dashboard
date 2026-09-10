@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vertex 9 Global Data</title>
+<style>
+html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#050505}
+#webgl-canvas{position:fixed!important;inset:0!important;width:100%!important;height:100%!important;z-index:0!important;pointer-events:none!important}
+body>*:not(#webgl-canvas){display:none!important}
+#webgl-canvas canvas{display:block;width:100%!important;height:100%!important}
+</style>
+</head>
+<body>
+<script>
+(async function () {
+  const response = await fetch("https://threeui.com/source-code/data-field.json");
+  if (!response.ok) throw new Error("Unable to load registered Data Field source");
+  const bundle = await response.json();
+  const source = bundle.files.find(function (file) {
+    return file.path.endsWith("/vertex-9.html");
+  });
+  if (!source || typeof source.code !== "string") {
+    throw new Error("Registered Data Field source is incomplete");
+  }
+  document.open();
+  document.write(source.code.replace("</head>", [
+    "<style>",
+    "html,body{width:100%!important;height:100%!important;min-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;background:#050505!important}",
+    "body{display:block!important;position:relative!important}",
+    "body>*{visibility:hidden!important}",
+    "#webgl-canvas{visibility:visible!important;position:fixed!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;z-index:0!important;pointer-events:none!important}",
+    "#webgl-canvas canvas{display:block;width:100%!important;height:100%!important}",
+    "</style></head>"
+  ].join("")));
+  document.close();
+})();
+</script>
+</body>
+</html>
