@@ -3458,6 +3458,43 @@ applyRefreshInterval();
 </body></html>"""
 
 
+def error_page(status: int, message: str = "") -> str:
+    """Render a friendly GitHub-style error page instead of browser defaults."""
+    details = message or {
+        400: "Запрос содержит неверные данные.",
+        401: "Нужно войти в панель управления.",
+        403: "У вас нет доступа к этому действию.",
+        404: "Такой страницы не существует или она была перемещена.",
+        500: "Внутренняя ошибка сервера.",
+        502: "Сервис временно не отвечает.",
+        503: "Сервис временно недоступен. Попробуйте через минуту.",
+    }.get(status, "Произошла непредвиденная ошибка.")
+    title = {
+        400: "Неверный запрос", 401: "Требуется вход", 403: "Доступ запрещён",
+        404: "Страница не найдена", 500: "Что-то пошло не так",
+        502: "Сервис не отвечает", 503: "Сервис временно недоступен",
+    }.get(status, "Произошла ошибка")
+    return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{status} · Podslushka DB</title><style>
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:#f6f8fa;color:#1f2328;font:15px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:grid;place-items:center;padding:24px}}
+.error-card{{width:min(760px,100%);text-align:center;padding:48px 34px 42px;background:#fff;border:1px solid #d0d7de;border-radius:14px;box-shadow:0 16px 45px #1f232812}}
+.mark{{width:110px;height:110px;margin:0 auto 24px;border-radius:50%;display:grid;place-items:center;background:#f6f8fa;border:1px solid #d0d7de;color:#0969da}}
+.mark svg{{width:62px;height:62px}}.code{{margin:0 0 8px;color:#656d76;font-size:13px;font-weight:600;letter-spacing:.12em}}
+h1{{margin:0 0 14px;font-size:28px;letter-spacing:-.02em}}p{{margin:0 auto 26px;max-width:560px;color:#656d76;line-height:1.6}}
+.actions{{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}}a,button{{border:1px solid #1f6feb;border-radius:7px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer;text-decoration:none}}
+a.primary,button{{background:#1f6feb;color:#fff}}a.secondary{{background:#fff;color:#1f6feb;border-color:#d0d7de}}
+.foot{{margin-top:30px;color:#8c959f;font-size:12px}}@media(max-width:520px){{.error-card{{padding:34px 20px}}h1{{font-size:23px}}}}
+</style></head><body><main class="error-card"><div class="mark" aria-hidden="true">
+<svg viewBox="0 0 64 64" fill="none"><path d="M18 9h23l11 11v35H18V9Z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+<path d="M41 9v12h11M25 33h20M25 42h14" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+<circle cx="46" cy="48" r="9" fill="#cf222e" stroke="#fff" stroke-width="3"/><path d="M46 44v5M46 52h.01" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>
+</div><p class="code">ERROR {status}</p><h1>{esc(title)}</h1><p>{esc(details)}</p>
+<div class="actions"><button onclick="location.reload()">Повторить</button><a class="secondary" href="/">На главную</a></div>
+<div class="foot">Podslushka DB · если проблема повторяется, проверьте логи Render</div>
+</main></body></html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     def send_html(self, content: str, status: int = 200) -> None:
         body = content.encode("utf-8")
@@ -3467,6 +3504,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def send_error(self, code, message=None, explain=None):
+        """Use the branded error screen for all explicit HTTP errors."""
+        try:
+            self.send_html(error_page(code, message or ""), code)
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -3520,13 +3564,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_html(profile_page(actor))
             except DB_ERRORS:
                 logging.exception("Profile page database error for %s", actor)
-                self.send_html(
-                    auth_page("Профиль временно недоступен: база данных не отвечает. Повторите через минуту."),
-                    503,
-                )
+                self.send_html(error_page(
+                    503, "Профиль временно недоступен: база данных не отвечает. Повторите через минуту."
+                ), 503)
             except Exception:
                 logging.exception("Profile page rendering error for %s", actor)
-                self.send_html(auth_page("Профиль временно недоступен. Повторите попытку позже."), 500)
+                self.send_html(error_page(
+                    500, "Профиль временно недоступен. Повторите попытку позже."
+                ), 500)
             return
         # OAuth endpoints are deliberately available before a dashboard session.
         # A verified identity is shown to the user, but is not silently converted into
@@ -3877,13 +3922,22 @@ class Handler(BaseHTTPRequestHandler):
             requested_section = query_data.get("view", ["overview"])[0]
             history_post_id = query_data.get("post_id", [""])[0]
             selected_bot_id = query_data.get("bot_id", [""])[0]
-            body = page(
-                auth_user(self) or "",
-                requested_section,
-                history_post_id,
-                selected_bot_id,
-                impersonation_owner(self) or "",
-            ).encode("utf-8")
+            try:
+                body = page(
+                    auth_user(self) or "",
+                    requested_section,
+                    history_post_id,
+                    selected_bot_id,
+                    impersonation_owner(self) or "",
+                ).encode("utf-8")
+            except DB_ERRORS:
+                logging.exception("Dashboard page database error")
+                self.send_error(503, "Панель временно недоступна: база данных не отвечает.")
+                return
+            except Exception:
+                logging.exception("Dashboard page rendering error")
+                self.send_error(500)
+                return
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
         elif path == "/backup":
