@@ -8,6 +8,8 @@ services:
       git clone --depth 1 https://github.com/antoniaci/blackbird.git tools/blackbird &&
       git clone --depth 1 https://github.com/soxoj/maigret.git tools/maigret &&
       git clone --depth 1 https://github.com/sherlock-project/sherlock.git tools/sherlock &&
+      curl -fsSL https://raw.githubusercontent.com/soxoj/maigret/main/maigret/resources/settings.json
+      -o tools/maigret/settings.json &&
       pip install -q -e tools/maigret --no-deps -e tools/sherlock --no-deps &&
       pip install -q rich python-dotenv aiodns aiohttp-socks colorama html5lib lxml pycountry
       PySocks python-dateutil requests socid-extractor soupsieve alive-progress
