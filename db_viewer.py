@@ -25,6 +25,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+import osint_search
 
 
 def _load_local_env() -> None:
@@ -91,6 +92,7 @@ HF_MODEL = os.getenv("HF_MODEL", "Qwen/Qwen3.8-27B").strip() or "Qwen/Qwen3.8-27
 DEEPSEEK_MODEL = os.getenv(
     "DEEPSEEK_MODEL", "deepseek-ai/DeepSeek-V4.1-Flash"
 ).strip() or "deepseek-ai/DeepSeek-V4.1-Flash"
+GLM_MODEL = os.getenv("GLM_MODEL", "zai-org/GLM-5.3").strip() or "zai-org/GLM-5.3"
 AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").strip().lower() or "gemini"
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
 NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-v4-pro-0813").strip() or "deepseek-ai/deepseek-v4-pro-0813"
@@ -2761,6 +2763,7 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         ("ИИ Gemini", "настроен" if GEMINI_API_KEY else "не настроен", GEMINI_MODEL),
         ("ИИ Qwen", "настроен" if HF_TOKEN else "не настроен", HF_MODEL),
         ("ИИ DeepSeek", "настроен" if HF_TOKEN else "не настроен", DEEPSEEK_MODEL),
+        ("ИИ GLM-5.3", "настроен" if HF_TOKEN else "не настроен", GLM_MODEL),
     ]
     notification_state = (
         "не настроены" if not (TELEGRAM_BOT_TOKEN and TELEGRAM_UPDATES_CHAT_ID)
@@ -3488,6 +3491,19 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 .content{{background:rgba(13,17,23,.66)!important}}
 .sidebar{{background:rgba(22,27,34,.9)!important}}
 .card,.insight-card,.toolbar,.table-wrap,.setup-card,.bot-center,.health-item,.group-ai{{background:rgba(22,27,34,.78)!important}}
+.osint-search-form{{display:grid;gap:16px;margin:18px 0;padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--panel2)}}
+.osint-search-form label{{display:grid;gap:7px;color:var(--muted);font-size:12px;font-weight:700}}
+.osint-search-form fieldset{{display:flex;gap:14px;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:12px}}
+.osint-search-form fieldset label{{display:flex;align-items:center;gap:6px;color:var(--text);font-weight:500}}
+.osint-search-form input[type=text],.osint-search-form input:not([type]){{width:100%}}
+.osint-status{{min-height:24px;color:var(--muted);margin:12px 0}}
+.osint-results{{display:grid;gap:10px}}
+.osint-result,.osint-summary{{padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}}
+.osint-result header{{display:flex;justify-content:space-between;gap:10px;margin-bottom:8px}}
+.osint-result ul{{margin:0;padding-left:20px;display:grid;gap:5px}}
+.osint-result a{{color:var(--accent);overflow-wrap:anywhere}}
+.osint-summary{{border-color:#f08c6c88;background:#f08c6c12}}
+.osint-notice{{margin-top:16px;color:var(--muted)}}
 </style></head><body data-monitoring-owner="{'1' if owner else '0'}"><iframe class="dashboard-flow" src="/assets/structure-flow.html" title="Structure Flow background"></iframe><div class="ambient-scene" aria-hidden="true"><div class="ambient-orbit orbit-one"></div><div class="ambient-orbit orbit-two"></div><div class="ambient-sphere"></div><div class="ambient-cube"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="ambient-particle particle-one"></span><span class="ambient-particle particle-two"></span></div><div class="layout">
 <aside class="sidebar"><div class="brand"><img class="brand-logo" src="/assets/podslushka-avatar-bg.svg" alt="Podslushka DB"><span>Podslushka DB</span></div><div class="theme-menu"><label for="theme-select">Тема интерфейса</label><select id="theme-select"><option value="dark">GitHub Dark</option><option value="light">GitHub Light</option><option value="midnight">Midnight Blue</option><option value="nord">Nord</option><option value="purple">Purple Night</option><option value="emerald">Emerald Forest</option><option value="rose">Rose Pine</option><option value="cyan">Cyber Cyan</option><option value="forest">Forest Green</option><option value="coffee">A Cup of Coffee</option><option value="ocean">Ocean Blue</option><option value="mono">Monochrome</option><option value="sunset">Sunset Red</option><option value="dracula">Dracula</option><option value="solarized">Solarized</option><option value="onedark">One Dark</option><option value="catppuccin">Catppuccin</option><option value="gruvbox">Gruvbox</option><option value="tokyo">Tokyo Night</option><option value="matrix">Matrix</option><option value="amethyst">Amethyst</option><option value="slate">Slate</option><option value="sand">Sandstone</option><option value="cherry">Cherry</option><option value="aqua">Aqua</option><option value="github-dimmed">GitHub Dimmed</option><option value="github-high">GitHub High Contrast</option><option value="ayu">Ayu</option><option value="ayu-mirage">Ayu Mirage</option><option value="ayu-light">Ayu Light</option><option value="vscode-dark">VS Code Dark</option><option value="vscode-light">VS Code Light</option><option value="monokai">Monokai</option><option value="material">Material</option><option value="material-ocean">Material Ocean</option><option value="solarized-light">Solarized Light</option><option value="rose-pine">Rosé Pine</option><option value="everforest">Everforest</option><option value="kanagawa">Kanagawa</option><option value="palenight">Palenight</option><option value="night-owl">Night Owl</option><option value="cobalt">Cobalt</option><option value="cyberpunk">Cyberpunk</option><option value="synthwave">Synthwave</option><option value="horizon">Horizon</option><option value="paper">Paper</option><option value="mint">Mint</option><option value="lavender">Lavender</option><option value="terminal">Terminal</option><option value="obsidian">Obsidian</option><option value="coral">Coral Night</option><option value="amber">Amber Desk</option><option value="arctic">Arctic Blue</option><option value="transparent">Прозрачная</option></select><button type="button" class="theme-picker-button" id="dashboard-theme-open">🎨 Все темы и примеры</button></div><div class="menu-title">Навигация</div><nav class="nav">
 <a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a><a class="{'active' if section == 'health' else ''}" href="/?view=health"><span class="icon">♥</span>Здоровье системы</a><a class="{'active' if section == 'monitoring' else ''}" href="/?view=monitoring"><span class="icon">◉</span>Мониторинг</a>
@@ -3495,13 +3511,13 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 {('<a class="' + ('active' if section == 'all-info' else '') + '" href="/?view=all-info"><span class="icon">✹</span>Информация о всех</a><a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Боты</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'group' else '') + '" href="/?view=group"><span class="icon">✦</span>Группа</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else ('<a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Мой бот</a>' if can_access(current_user, 'bots') else ''))}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
 <div class="theme-modal" id="dashboard-theme-modal" aria-hidden="true"><div class="theme-modal-card" role="dialog" aria-modal="true" aria-labelledby="dashboard-theme-title"><div class="theme-modal-head"><div><h2 id="dashboard-theme-title">Галерея тем</h2><p class="muted">Выберите оформление по живому примеру.</p></div><button type="button" class="theme-close" id="dashboard-theme-close">Закрыть</button></div><div class="theme-grid" id="dashboard-theme-grid"></div></div></div>
-<main class="content">{impersonation_notice}<div class="topbar"><div class="topbar-title"><button type="button" class="mobile-menu-button" id="mobile-menu-button" aria-label="Открыть меню">☰</button><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div></div><div class="topbar-actions"><select id="ai-provider" aria-label="Провайдер ИИ"><option value="gemini" {'selected' if AI_PROVIDER == 'gemini' else ''} {'disabled' if not GEMINI_API_KEY else ''}>ИИ: Gemini {'· доступен' if GEMINI_API_KEY else '· не настроен'}</option><option value="qwen" {'selected' if AI_PROVIDER in {'qwen', 'huggingface', 'hf'} else ''} {'disabled' if not HF_TOKEN else ''}>ИИ: Qwen {'· доступен' if HF_TOKEN else '· не настроен'}</option><option value="deepseek" {'selected' if AI_PROVIDER == 'deepseek' else ''} {'disabled' if not HF_TOKEN else ''}>ИИ: DeepSeek {'· доступен' if HF_TOKEN else '· не настроен'}</option></select><select id="refresh-interval" aria-label="Частота обновления"><option value="5">Обновление: 5 сек</option><option value="15">Обновление: 15 сек</option><option value="30">Обновление: 30 сек</option><option value="60">Обновление: 1 мин</option><option value="0">Обновление выключено</option></select><select id="interface-language" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="en">English</option></select><button type="button" id="compact-mode-button">Компактный режим</button><a class="button-link" href="/profile">◉ Профиль</a><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
+<main class="content">{impersonation_notice}<div class="topbar"><div class="topbar-title"><button type="button" class="mobile-menu-button" id="mobile-menu-button" aria-label="Открыть меню">☰</button><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div></div><div class="topbar-actions"><select id="ai-provider" aria-label="Провайдер ИИ"><option value="gemini" {'selected' if AI_PROVIDER == 'gemini' else ''} {'disabled' if not GEMINI_API_KEY else ''}>ИИ: Gemini {'· доступен' if GEMINI_API_KEY else '· не настроен'}</option><option value="qwen" {'selected' if AI_PROVIDER in {'qwen', 'huggingface', 'hf'} else ''} {'disabled' if not HF_TOKEN else ''}>ИИ: Qwen {'· доступен' if HF_TOKEN else '· не настроен'}</option><option value="deepseek" {'selected' if AI_PROVIDER == 'deepseek' else ''} {'disabled' if not HF_TOKEN else ''}>ИИ: DeepSeek {'· доступен' if HF_TOKEN else '· не настроен'}</option><option value="glm" {'selected' if AI_PROVIDER == 'glm' else ''} {'disabled' if not HF_TOKEN else ''}>ИИ: GLM-5.3 {'· доступен' if HF_TOKEN else '· не настроен'}</option></select><select id="refresh-interval" aria-label="Частота обновления"><option value="5">Обновление: 5 сек</option><option value="15">Обновление: 15 сек</option><option value="30">Обновление: 30 сек</option><option value="60">Обновление: 1 мин</option><option value="0">Обновление выключено</option></select><select id="interface-language" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="en">English</option></select><button type="button" id="compact-mode-button">Компактный режим</button><a class="button-link" href="/profile">◉ Профиль</a><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
 {('<section id="overview"><div class="cards">' + cards + '</div><div class="insights"><section class="insight-card chart-card"><div class="insight-head"><div><b>Активность за 7 дней</b><span class="muted">Заявки по дням</span></div><span class="live-pill"><i></i> live</span></div><div class="chart">' + chart_bars + '</div></section><section class="insight-card"><div class="insight-head"><div><b>Центр событий</b><span class="muted">Последние изменения</span></div><a class="text-link" href="/?view=actions">Все события →</a></div><ul class="event-list">' + notification_rows + '</ul></section></div></section>' if section == 'overview' and (owner or selected_bot) else '')}
 {('<div class="toolbar"><input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off"><select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select><select id="kind"><option value="">Все типы</option><option value="text">Текст</option><option value="photo">Фото</option><option value="video">Видео</option><option value="media_group">Медиагруппа</option></select><div class="filter-tabs"><button type="button" class="filter-tab active" data-status="">Все</button><button type="button" class="filter-tab" data-status="pending">На модерации</button><button type="button" class="filter-tab" data-status="published">Опубликовано</button></div><button type="button" onclick="refreshPage()">↻ Обновить</button><a class="button-link" href="/backup">↓ Резервная копия</a></div>' if section == 'overview' else '')}
 {('<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_rows + '</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section><section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>' if section == 'overview' else '')}
 {('<section id="users"><h2>Все пользователи</h2><div class="toolbar"><input id="detail-search" placeholder="Поиск по ID, имени, username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'users' else '')}
 {('<section id="posts"><h2>Все заявки</h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table></div></section>' if section == 'posts' else '')}
-{('<section id="user-search"><h2>Поиск пользователя</h2><div class="toolbar"><input id="detail-search" placeholder="Введите ID, имя или username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'user-search' else '')}
+{('<section id="user-search"><div class="section-heading"><div><h2>Поиск пользователя</h2><p class="muted">Проверка username только по открытым веб-источникам. Не вводите пароли, email или закрытые данные.</p></div><span class="status">Публичные данные</span></div><form class="osint-search-form" id="osint-search-form"><label>Username<input id="osint-username" name="username" placeholder="@username" maxlength="32" autocomplete="off" required></label><fieldset><legend>Инструменты</legend><label><input type="checkbox" name="tool" value="blackbird" checked> Blackbird</label><label><input type="checkbox" name="tool" value="maigret" checked> Maigret</label><label><input type="checkbox" name="tool" value="sherlock" checked> Sherlock</label></fieldset><fieldset><legend>Режим</legend><label><input type="radio" name="ai" value="0" checked> Без ИИ</label><label><input type="radio" name="ai" value="1"> С ИИ — краткое резюме публичных ссылок</label></fieldset><button class="submit" type="submit">Запустить поиск</button></form><div id="osint-status" class="osint-status" role="status" aria-live="polite"></div><div id="osint-results" class="osint-results"></div><details class="osint-notice"><summary>Условия использования</summary><p>Результаты могут быть неполными и не подтверждают личность владельца username. Используйте инструменты только законно, с разрешением и с учётом правил сайтов.</p></details></section>' if section == 'user-search' else '')}
 {all_info_section}{bot_switcher}{approval}{bots_section}{project_join_section}{leave_project_section}{system_section}{monitoring_section}{group_section}
 </main></div><div class="mobile-menu-overlay" id="mobile-menu-overlay"></div><div class="help-toast" id="help-toast" role="status" aria-live="polite"><b>Подсказка</b><span id="help-toast-text"></span></div><div class="ai-card" id="ai-card" aria-hidden="true"><div class="ai-card-panel" role="dialog" aria-modal="true" aria-labelledby="ai-card-title"><div class="ai-card-head"><h2 id="ai-card-title">ИИ-анализ заявки</h2><button type="button" class="ai-close" id="ai-close">Закрыть</button></div><div id="ai-card-body"></div></div></div><script>
 const themeSelect = document.getElementById('theme-select');
@@ -3641,6 +3657,9 @@ animateRows();
 const search = document.getElementById('search');
 const status = document.getElementById('status');
 const detailSearch = document.getElementById('detail-search');
+const osintForm = document.getElementById('osint-search-form');
+const osintStatus = document.getElementById('osint-status');
+const osintResults = document.getElementById('osint-results');
 const aiCard = document.getElementById('ai-card');
 const aiCardBody = document.getElementById('ai-card-body');
 function closeAiCard() {{
@@ -3668,13 +3687,59 @@ function escapeHtml(value) {{
   node.textContent = value == null ? '' : String(value);
   return node.innerHTML;
 }}
+function renderOsint(job) {{
+  if (!osintResults) return;
+  if (job.status === 'running') {{
+    osintStatus.textContent = 'Поиск выполняется. Это может занять несколько минут…';
+    return;
+  }}
+  if (job.status !== 'completed') {{
+    osintStatus.textContent = job.error || 'Поиск завершился с ошибкой.';
+    return;
+  }}
+  const groups = (job.results || []).map(group => {{
+    const rows = (group.results || []).map(item => `<li><a href="${{escapeHtml(item.url)}}" target="_blank" rel="noopener noreferrer">${{escapeHtml(item.site)}}</a></li>`).join('');
+    return `<article class="osint-result"><header><b>${{escapeHtml(group.tool)}}</b><span class="status">${{escapeHtml(group.status)}}</span></header>${{rows ? `<ul>${{rows}}</ul>` : '<p class="muted">Совпадений не найдено.</p>'}}${{group.error ? `<p class="all-info-error">${{escapeHtml(group.error)}}</p>` : ''}}</article>`;
+  }}).join('');
+  osintStatus.textContent = `Проверка @${{escapeHtml(job.username)}} завершена.`;
+  osintResults.innerHTML = `${{job.ai_summary ? `<div class="osint-summary"><b>Резюме ИИ</b><p>${{escapeHtml(job.ai_summary)}}</p></div>` : ''}}${{groups || '<p class="muted">Результатов нет.</p>'}}`;
+}}
+async function pollOsint(jobId) {{
+  for (let attempt = 0; attempt < 120; attempt++) {{
+    const response = await fetch(`/api/osint-search?id=${{encodeURIComponent(jobId)}}`, {{cache: 'no-store'}});
+    const job = await response.json();
+    renderOsint(job);
+    if (job.status !== 'running') return;
+    await new Promise(resolve => setTimeout(resolve, 1500));
+  }}
+  if (osintStatus) osintStatus.textContent = 'Поиск выполняется дольше ожидаемого. Обновите страницу позже.';
+}}
+if (osintForm) osintForm.addEventListener('submit', async event => {{
+  event.preventDefault();
+  const tools = [...osintForm.querySelectorAll('input[name="tool"]:checked')].map(item => item.value);
+  const ai = osintForm.querySelector('input[name="ai"]:checked')?.value === '1';
+  osintStatus.textContent = 'Запускаем проверку…';
+  osintResults.innerHTML = '';
+  try {{
+    const response = await fetch('/api/osint-search', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{username: document.getElementById('osint-username').value, tools, ai}})
+    }});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Не удалось запустить поиск.');
+    await pollOsint(payload.id);
+  }} catch (error) {{
+    osintStatus.textContent = error.message || 'Не удалось запустить поиск.';
+  }}
+}});
 async function requestAiAnalysis(button) {{
   const postId = button.dataset.postId;
   if (!postId || button.disabled) return;
   const providerSelect = document.getElementById('ai-provider');
   const provider = providerSelect ? providerSelect.value : 'gemini';
   button.disabled = true;
-  const providerName = provider === 'qwen' ? 'Qwen' : (provider === 'deepseek' ? 'DeepSeek' : 'Gemini');
+  const providerName = provider === 'qwen' ? 'Qwen' : (provider === 'deepseek' ? 'DeepSeek' : (provider === 'glm' ? 'GLM-5.3' : 'Gemini'));
   aiCardBody.innerHTML = `<div class="ai-loading">Анализируем заявку через ${{providerName}}…</div>`;
   aiCard.classList.add('open');
   aiCard.setAttribute('aria-hidden', 'false');
@@ -3698,7 +3763,7 @@ async function requestAiAnalysis(button) {{
 const aiProviderSelect = document.getElementById('ai-provider');
 if (aiProviderSelect) {{
   const savedProvider = localStorage.getItem('podslushka-ai-provider');
-  if (savedProvider === 'gemini' || savedProvider === 'qwen' || savedProvider === 'deepseek') aiProviderSelect.value = savedProvider;
+  if (savedProvider === 'gemini' || savedProvider === 'qwen' || savedProvider === 'deepseek' || savedProvider === 'glm') aiProviderSelect.value = savedProvider;
   aiProviderSelect.addEventListener('change', () => {{
     localStorage.setItem('podslushka-ai-provider', aiProviderSelect.value);
   }});
@@ -4184,6 +4249,39 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if path == "/api/osint-tools":
+            actor = auth_user(self)
+            if not can_access(actor, "user-search"):
+                self.send_error(403)
+                return
+            body = json.dumps({"tools": osint_search.tool_status()}, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/api/osint-search":
+            actor = auth_user(self)
+            if not can_access(actor, "user-search"):
+                self.send_error(403)
+                return
+            query = parse_qs(parsed.query)
+            job_id = query.get("id", [""])[0].strip()
+            try:
+                job = osint_search.get_job(job_id)
+            except KeyError:
+                self.send_error(404, "Поиск не найден или срок хранения истёк.")
+                return
+            body = json.dumps(job, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path == "/api/state":
             updated = scalar("SELECT MAX(created_at) FROM posts") or 0
             updated = max(updated, scalar("SELECT MAX(last_seen) FROM users") or 0)
@@ -4528,6 +4626,49 @@ class Handler(BaseHTTPRequestHandler):
             log_action(auth_user(self) or "unknown", "Impersonation restricted action", path)
             self.send_error(403, "Управляющие действия отключены в режиме проверки")
             return
+        if path == "/api/osint-search":
+            actor = auth_user(self)
+            if not can_access(actor, "user-search"):
+                self.send_error(403)
+                return
+            try:
+                if len(raw_body) > 16 * 1024:
+                    raise ValueError
+                request_data = json.loads(raw_body.decode("utf-8"))
+                username = str(request_data.get("username", ""))
+                tools = request_data.get("tools", [])
+                ai = bool(request_data.get("ai", False))
+                if not isinstance(tools, list):
+                    raise ValueError
+                job = osint_search.start_job(username, [str(item) for item in tools], ai)
+            except (UnicodeDecodeError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+                log_action(actor or "anonymous", "OSINT search error", "invalid_request")
+                body = json.dumps({"error": str(exc) or "Укажите username и инструменты."}, ensure_ascii=False).encode("utf-8")
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            except RuntimeError as exc:
+                body = json.dumps({"error": str(exc)}, ensure_ascii=False).encode("utf-8")
+                self.send_response(429)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            log_action(actor, "OSINT search started", f"{job['username']}:{','.join(job['tools'])}")
+            body = json.dumps(job, ensure_ascii=False).encode("utf-8")
+            self.send_response(202)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path == "/api/ai-analysis":
             actor = auth_user(self)
             target = "unknown"
@@ -4556,7 +4697,7 @@ class Handler(BaseHTTPRequestHandler):
                 if post_id <= 0:
                     raise ValueError
                 provider = str(request_data.get("provider", AI_PROVIDER)).strip().lower()
-                if provider not in {"gemini", "qwen", "deepseek"}:
+                if provider not in {"gemini", "qwen", "deepseek", "glm"}:
                     raise ValueError
                 target = ai_analysis_target(post_id)
             except (UnicodeDecodeError, ValueError, TypeError, KeyError, json.JSONDecodeError):
@@ -4567,11 +4708,11 @@ class Handler(BaseHTTPRequestHandler):
 
             log_action(actor, "AI analysis request", target)
             provider_ready = (
-                bool(HF_TOKEN) if provider in {"qwen", "deepseek"} else bool(GEMINI_API_KEY)
+                bool(HF_TOKEN) if provider in {"qwen", "deepseek", "glm"} else bool(GEMINI_API_KEY)
             )
             if not provider_ready:
                 log_action(actor, "AI analysis error", f"{target}:configuration")
-                required_key = "HF_TOKEN" if provider in {"qwen", "deepseek"} else "GEMINI_API_KEY"
+                required_key = "HF_TOKEN" if provider in {"qwen", "deepseek", "glm"} else "GEMINI_API_KEY"
                 send_ai_json({"error": f"ИИ-анализ временно недоступен: не настроен {required_key}."}, 503)
                 return
 
@@ -4614,6 +4755,8 @@ class Handler(BaseHTTPRequestHandler):
                         analysis = request_huggingface_analysis(text, HF_MODEL)
                     elif provider == "deepseek":
                         analysis = request_huggingface_analysis(text, DEEPSEEK_MODEL)
+                    elif provider == "glm":
+                        analysis = request_huggingface_analysis(text, GLM_MODEL)
                     else:
                         analysis = request_gemini_analysis(text)
                 except TimeoutError:

@@ -2,7 +2,18 @@ services:
   - type: web
     name: podslushka-dashboard
     runtime: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: >-
+      pip install -r requirements.txt &&
+      mkdir -p tools &&
+      git clone --depth 1 https://github.com/antoniaci/blackbird.git tools/blackbird &&
+      git clone --depth 1 https://github.com/soxoj/maigret.git tools/maigret &&
+      git clone --depth 1 https://github.com/sherlock-project/sherlock.git tools/sherlock &&
+      pip install -q -e tools/maigret --no-deps -e tools/sherlock --no-deps
+      rich python-dotenv aiodns aiohttp-socks colorama html5lib lxml pycountry
+      PySocks python-dateutil requests socid-extractor soupsieve alive-progress
+      typing-extensions networkx pyvis reportlab flask platformdirs curl-cffi
+      tomli requests-futures stem pandas openpyxl pycares python-socks urllib3
+      pillow beautifulsoup4 chardet charset-normalizer
     startCommand: python db_viewer.py
     plan: free
     envVars:
@@ -30,6 +41,8 @@ services:
         value: Qwen/Qwen3.8-27B
       - key: DEEPSEEK_MODEL
         value: deepseek-ai/DeepSeek-V4.1-Flash
+      - key: GLM_MODEL
+        value: zai-org/GLM-5.3
       - key: AI_PROVIDER
         value: gemini
       - key: TELEGRAM_BOT_USERNAME

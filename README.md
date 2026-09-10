@@ -91,6 +91,8 @@ sequenceDiagram
 - Расширенная галерея тем dashboard: `Obsidian`, `Coral Night`, `Amber Desk`,
   `Arctic Blue` и прозрачная тема с `backdrop-filter`.
 - Резервное копирование, CSV-экспорт и журнал действий.
+- Поиск публичного username через Blackbird, Maigret и Sherlock с фоновыми
+  задачами, таймаутом и необязательным AI-резюме.
 - Branded-страницы ошибок `400/401/403/404/500/502/503` в стиле GitHub.
 - Локальный запуск через SQLite или production-запуск через PostgreSQL.
 
@@ -105,6 +107,7 @@ sequenceDiagram
 | `i18n.py` | Локализация Telegram-бота |
 | `render.yaml` | Конфигурация Render |
 | `site_monitor.py` | Проверка доступности сайта |
+| `osint_search.py` | Ограниченный фоновый запуск OSINT-инструментов |
 | `.github/workflows/site-monitor.yml` | Мониторинг сайта каждые 5 минут |
 
 ## Архитектура деплоя
@@ -173,7 +176,7 @@ start: python db_viewer.py
 | `DASHBOARD_SYNC_URL` | URL dashboard, например `https://podslushka-dashboard.onrender.com` |
 
 Дополнительные настройки: `GEMINI_API_KEY`, `GEMINI_MODEL`, `HF_TOKEN`,
-`HF_MODEL`, `DEEPSEEK_MODEL` и `AI_PROVIDER`,
+`HF_MODEL`, `DEEPSEEK_MODEL`, `GLM_MODEL` и `AI_PROVIDER`,
 `TELEGRAM_BOT_USERNAME`, `TELEGRAM_UPDATES_CHAT_ID`, `OAUTH_BASE_URL`,
 `OAUTH_SIGNING_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 `OWNER_2FA_SECRET`, `OWNER_2FA_REQUIRED` и `SITE_MAINTENANCE_MODE`.
@@ -210,7 +213,33 @@ DEEPSEEK_MODEL=deepseek-ai/DeepSeek-V4.1-Flash
 ```
 
 Qwen и DeepSeek используют один `HF_TOKEN`, но разные модели. В интерфейсе
-панели можно переключать Gemini, Qwen и DeepSeek перед запуском анализа.
+панели можно переключать Gemini, Qwen, DeepSeek и GLM-5.3 перед запуском
+анализа.
+
+Для GLM-5.3 через Hugging Face Router:
+
+```env
+AI_PROVIDER=glm
+HF_TOKEN=hf_...
+GLM_MODEL=zai-org/GLM-5.3
+```
+
+Модель GLM-5.3 не скачивается в приложение: запросы идут через
+Hugging Face Router, поэтому токен хранится только в переменных окружения.
+
+### Поиск пользователя
+
+В разделе «Поиск пользователей» можно указать username и выбрать Blackbird,
+Maigret или Sherlock. Результаты собираются только из открытых URL; пароли,
+email, закрытые профили, обход CAPTCHA и подключение к чужим аккаунтам не
+используются. Режим «С ИИ» передаёт провайдеру только найденные публичные URL
+для краткого резюме и не устанавливает личность владельца username.
+
+Для локального запуска инструменты хранятся в `tools/` и устанавливаются
+отдельно от зависимостей dashboard. На Render они скачиваются во время сборки
+из публичных репозиториев с MIT-лицензиями Maigret и Sherlock; Blackbird
+подключается из `antoniaci/blackbird` и сохраняет собственный образовательный
+дисклеймер.
 
 Для получения сообщений от всех managed-ботов укажите числовой Telegram ID
 владельца в `OWNER_TELEGRAM_ID`. Бот отправляет владельцу те же уведомления,
