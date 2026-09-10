@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Structure Flow</title>
+<style>
+  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #050607; }
+  .threeui-background { position: relative; width: 100%; height: 100%; overflow: hidden; background: #050607; opacity: .8; }
+  .threeui-background canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+  @media (prefers-reduced-motion: reduce) { .threeui-background canvas { opacity: .72; } }
+</style>
+</head>
+<body>
+<div class="threeui-background structure-flow" style="mask-image:linear-gradient(to bottom,transparent 20%,black 50%,black 100%);-webkit-mask-image:linear-gradient(to bottom,transparent 20%,black 50%,black 100%)">
+<canvas id="structure-flow-canvas"></canvas>
+</div>
+<script src="/assets/inner-green-assets/three.min.js"></script>
+<script>
+/* StructureFlowBackground adapted from the registered ThreeUI renderer. */
+(function () {
+  const canvas = document.getElementById('structure-flow-canvas');
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  camera.position.z = 30;
+  camera.position.y = 5;
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const geometry = new THREE.BufferGeometry();
+  const count = 15000;
+  const positions = new Float32Array(count * 3);
+  const radius = 25;
+  for (let index = 0; index < count; index += 1) {
+    const u = Math.random();
+    Math.random();
+    const theta = u * 2 * Math.PI;
+    const phi = Math.acos(Math.random() * 0.8 + 0.2);
+    positions[index * 3] = radius * Math.sin(phi) * Math.cos(theta);
+    positions[index * 3 + 1] = radius * Math.cos(phi) - 20;
+    positions[index * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+  }
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const material = new THREE.PointsMaterial({
+    size: 0.08, color: 0xffffff, transparent: true, opacity: 0.4,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  });
+  const particles = new THREE.Points(geometry, material);
+  scene.add(particles);
+  function resize() {
+    const width = Math.max(1, window.innerWidth);
+    const height = Math.max(1, window.innerHeight);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+    renderer.setSize(width, height, false);
+  }
+  function render() {
+    particles.rotation.y += 0.0008;
+    particles.rotation.z += 0.0002;
+    renderer.render(scene, camera);
+    requestAnimationFrame(render);
+  }
+  window.addEventListener('resize', resize, { passive: true });
+  resize();
+  render();
+})();
+</script>
+</body>
+</html>

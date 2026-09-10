@@ -1715,6 +1715,59 @@ def complete_oauth(handler: BaseHTTPRequestHandler, provider: str, subject: str,
     handler.end_headers()
 
 
+def public_info_page(section: str = "about") -> str:
+    sections = {
+        "about": ("О проекте", "Podslushka DB — спокойный центр управления Telegram-ботами, заявками и модерацией."),
+        "why": ("Почему мы", "Одна панель вместо разрозненных чатов, таблиц и ручных проверок."),
+        "support": ("Поддержка", "Ответы на частые вопросы, диагностика ошибок и способы поддержать развитие проекта."),
+    }
+    title, lead = sections.get(section, sections["about"])
+    active = lambda key: "active" if key == section else ""
+    support_content = """
+      <div class="faq">
+        <details open><summary>Бот не отвечает</summary><p>Проверьте, что процесс worker запущен, токен верный, а бот добавлен администратором канала. В панели откройте «Боты → Мониторинг» и посмотрите последнюю ошибку.</p></details>
+        <details><summary>Заявка не появилась в панели</summary><p>Обновите раздел заявок и проверьте, что используется нужный managed-бот. Фоновая обработка не блокирует быстрый ответ пользователю.</p></details>
+        <details><summary>Не получается войти</summary><p>Убедитесь, что логин одобрен владельцем, пароль введён без пробелов, а код 2FA действителен. После нескольких неудачных попыток действует временное ограничение.</p></details>
+        <details><summary>ИИ-анализ возвращает ошибку</summary><p>Проверьте ключ выбранного провайдера Gemini или Qwen в переменных окружения. Ошибка 403 Hugging Face означает отсутствие доступа токена к Inference Provider.</p></details>
+      </div>
+      <div class="support-block"><h2>Поддержать проект</h2><p>Вы можете поддержать развитие Podslushka DB криптовалютой:</p>
+        <div class="wallets">
+          <div><b>TON (GRAM)</b><code>UQBkuXi2eXAG3py9XDyC7V0AMO8iuqKclDJ_emGaL2vIGFOO</code></div>
+          <div><b>ERC20 (Ethereum)</b><code>0x79C6fa74C4634F244ac39dB52110359fdF57ACC6</code></div>
+          <div><b>SOLANA</b><code>8Rhe4Gvtfo4CywLUAXEr76hXs2yGGaTrBG7VEUxZTY9p</code></div>
+          <div><b>BEP20 (BSC)</b><code>0x79C6fa74C4634F244ac39dB52110359fdF57ACC6</code></div>
+          <div><b>TRC20 (Tron)</b><code>TRErYRVTKRRaPdw5vQ6yHSGu3iKCqT5z1h</code></div>
+        </div>
+      </div>
+    """ if section == "support" else ""
+    why_content = """
+      <div class="reason-grid"><article><strong>01</strong><h2>Быстрый ответ</h2><p>Пользователь получает подтверждение сразу, пока обработка заявки идёт в фоне.</p></article>
+      <article><strong>02</strong><h2>Контроль доступа</h2><p>Роли, одобрение владельцем, 2FA и изоляция данных по каждому боту.</p></article>
+      <article><strong>03</strong><h2>Честный мониторинг</h2><p>Состояние worker, Telegram-соединения и базы видно в одном рабочем месте.</p></article>
+    </div>
+    """ if section == "why" else ""
+    about_content = """
+      <div class="about-story"><p>Проект объединяет Telegram worker, веб-панель, базу данных и модерацию в понятный рабочий процесс.</p>
+      <div class="flow"><span>Сообщение</span><i>→</i><span>Проверка</span><i>→</i><span>Решение</span><i>→</i><span>Публикация</span></div></div>
+    """ if section == "about" else ""
+    return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{esc(title)} · Podslushka DB</title><style>
+:root{{--ink:#f4f7fb;--muted:#aab8cb;--line:#26364d;--panel:#0d1728;--accent:#83f3d2;--blue:#8ab4ff}}
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:#050607;color:var(--ink);font:16px Inter,Segoe UI,Arial,sans-serif;overflow-x:hidden}}
+.flow-bg{{position:fixed;inset:0;z-index:-1;opacity:.34;pointer-events:none}}.flow-bg iframe{{width:100%;height:100%;border:0}}
+.page{{width:min(1180px,calc(100% - 48px));margin:0 auto;padding:22px 0 70px}}.nav{{display:flex;align-items:center;justify-content:space-between;gap:22px;padding:10px 0 48px}}
+.brand{{display:flex;gap:12px;align-items:center;color:var(--ink);text-decoration:none;font-weight:800}}.brand img{{width:42px;height:42px;border-radius:12px}}
+.links{{display:flex;gap:8px;flex-wrap:wrap}}.links a,.back{{padding:10px 14px;border:1px solid transparent;border-radius:9px;color:var(--muted);text-decoration:none}}.links a:hover,.links .active{{border-color:var(--line);background:#101c2e;color:#fff}}
+.hero{{max-width:850px;padding:46px 0 54px}}h1{{max-width:820px;margin:0 0 20px;font-size:clamp(42px,7vw,86px);line-height:.98;letter-spacing:-.07em}}.lead{{max-width:650px;color:var(--muted);font-size:20px;line-height:1.55}}
+.eyebrow{{color:var(--accent);font-size:12px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;margin-bottom:20px}}.content{{max-width:860px}}h2{{margin:28px 0 10px;font-size:27px;letter-spacing:-.03em}}p{{line-height:1.7;color:var(--muted)}}
+.flow,.reason-grid,.wallets{{display:grid;gap:12px;margin-top:28px}}.flow{{grid-template-columns:repeat(7,auto);align-items:center;justify-content:start}}.flow span,.flow i{{padding:13px 15px;border:1px solid var(--line);background:#0b1422dd;border-radius:10px;font-style:normal}}.flow i{{border:0;color:var(--accent);padding:0}}
+.reason-grid{{grid-template-columns:repeat(3,1fr)}}.reason-grid article,.support-block,.faq details{{padding:22px;border:1px solid var(--line);border-radius:14px;background:#0b1422dd}}.reason-grid strong{{color:var(--accent);font-size:13px}}.reason-grid h2{{font-size:21px}}
+.faq{{display:grid;gap:10px;margin-top:28px}}.faq details{{padding:0}}.faq summary{{padding:19px 22px;cursor:pointer;font-weight:750}}.faq p{{padding:0 22px 18px;margin:0}}
+.support-block{{margin-top:26px}}.wallets{{grid-template-columns:repeat(2,1fr)}}.wallets div{{padding:14px;border:1px solid var(--line);border-radius:10px;background:#09111ddd}}.wallets b{{display:block;color:var(--accent);margin-bottom:8px;font-size:13px}}code{{display:block;overflow:auto;color:#dce7f6;font:12px Consolas,monospace;white-space:nowrap}}
+.cta{{display:inline-flex;margin-top:26px;padding:13px 18px;background:var(--accent);color:#071018;border-radius:9px;text-decoration:none;font-weight:800}}@media(max-width:720px){{.page{{width:min(100% - 30px,600px)}}.nav{{align-items:flex-start;flex-direction:column;padding-bottom:28px}}.reason-grid,.wallets{{grid-template-columns:1fr}}.flow{{grid-template-columns:1fr;gap:5px}}.flow i{{transform:rotate(90deg);justify-self:center}}h1{{font-size:50px}}}}
+</style></head><body><div class="flow-bg"><iframe src="/assets/structure-flow.html" title="Structure Flow background"></iframe></div><main class="page"><nav class="nav"><a class="brand" href="/"><img src="/assets/podslushka-logo.png" alt=""><span>Podslushka DB</span></a><div class="links"><a class="{active('about')}" href="/about">О проекте</a><a class="{active('why')}" href="/why">Почему мы</a><a class="{active('support')}" href="/support">Поддержка</a><a href="/">Войти</a></div></nav><section class="hero"><div class="eyebrow">Podslushka DB / {esc(title)}</div><h1>{esc(lead)}</h1><div class="content">{about_content}{why_content}{support_content}<a class="cta" href="/">Открыть панель →</a></div></section></main></body></html>"""
+
+
 def auth_page(message: str = "", message_is_html: bool = False) -> str:
     message_markup = message if message_is_html else esc(message)
     google_link = (f'<a class="button oauth-button google-button" href="/auth/google"><span class="oauth-icon google-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="#4285f4" d="M21.35 12.27c0-.71-.06-1.24-.2-1.79H12v3.39h5.37a4.58 4.58 0 0 1-1.99 3.01v2.5h3.22c1.88-1.73 2.75-4.28 2.75-7.11Z"/><path fill="#34a853" d="M12 21.75c2.7 0 4.97-.89 6.63-2.42l-3.22-2.5c-.89.6-2.03.96-3.41.96-2.61 0-4.83-1.76-5.62-4.13H3.05v2.58A10.01 10.01 0 0 0 12 21.75Z"/><path fill="#fbbc05" d="M6.38 13.66a6.02 6.02 0 0 1 0-3.82V7.26H3.05a10 10 0 0 0 0 8.98l3.33-2.58Z"/><path fill="#ea4335" d="M12 5.71c1.47 0 2.79.5 3.83 1.49l2.87-2.87C16.96 2.7 14.7 1.75 12 1.75a10.01 10.01 0 0 0-8.95 5.51l3.33 2.58C7.17 7.47 9.39 5.71 12 5.71Z"/></svg></span><span>Продолжить с Google</span></a>'
@@ -1934,9 +1987,18 @@ body{{padding:0!important;overflow:hidden!important}}
 .auth{{min-height:100vh!important;padding:64px clamp(38px,6vw,110px)!important}}
 @media(max-width:900px){{.sylva-hero-frame{{opacity:.5!important}}}}
 @media(max-width:900px){{body{{overflow:auto!important}}.shell{{width:100%!important;height:auto!important;min-height:100vh!important;border-radius:0!important;grid-template-columns:1fr!important}}.intro{{min-height:58vh!important;padding:34px 30px!important}}.auth{{min-height:42vh!important;padding:40px 34px 46px!important}}}}
-</style></head><body><div class="shell">
+/* Structure Flow replaces the former living-green entry scene. */
+.sylva-hero-frame{{display:none!important}}
+.structure-flow-frame{{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;border:0!important;z-index:1!important;opacity:.72!important;pointer-events:none!important;background:#050607!important}}
+.intro{{background:#050607!important}}
+.intro:after{{display:none!important}}
+.intro h1,.intro p,.intro .features,.intro .brand{{position:relative;z-index:2}}
+.public-nav{{position:fixed;z-index:20;top:24px;left:34px;right:34px;display:flex;justify-content:space-between;align-items:center;gap:18px}}
+.public-nav a{{color:#d9e6f4;text-decoration:none;font-size:13px;font-weight:700;padding:10px 13px;border:1px solid #ffffff20;border-radius:9px;background:#07111dcc;backdrop-filter:blur(10px)}}
+.public-nav .nav-links{{display:flex;gap:7px;flex-wrap:wrap}}.public-nav a:hover{{border-color:#83f3d2aa;color:#83f3d2}}
+</style></head><body><nav class="public-nav"><a href="/about">О проекте</a><div class="nav-links"><a href="/why">Почему мы</a><a href="/support">Поддержка</a></div></nav><div class="shell">
 <section class="intro"><div class="brand"><img class="brand-logo" src="/assets/podslushka-logo.png" alt="Podslushka DB"><span>Podslushka DB</span></div>
-<iframe class="sylva-hero-frame" src="/assets/inner-green-3d.html" title="Sylva living green 3D scene"></iframe>
+<iframe class="structure-flow-frame" src="/assets/structure-flow.html" title="Structure Flow particle background"></iframe>
 <h1>Ваша панель<br>под контролем.</h1><p>Управляйте заявками, пользователями и модерацией в одном защищённом рабочем пространстве.</p>
 <div class="features"><div class="feature"><span class="check">✓</span> Локальная защищённая база</div>
 <div class="feature"><span class="check">✓</span> Быстрый поиск и фильтры</div>
@@ -3301,7 +3363,10 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 .all-info-stats b{{display:block;color:var(--text);font-size:20px;margin-bottom:3px}}
 .all-info-error{{margin-top:12px;padding:9px 10px;border-radius:9px;background:#5a1f2b;color:#ffb7c5;font-size:12px}}
 @media(max-width:900px){{.all-info-total{{grid-template-columns:repeat(2,1fr)}}}}
-</style></head><body data-monitoring-owner="{'1' if owner else '0'}"><div class="ambient-scene" aria-hidden="true"><div class="ambient-orbit orbit-one"></div><div class="ambient-orbit orbit-two"></div><div class="ambient-sphere"></div><div class="ambient-cube"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="ambient-particle particle-one"></span><span class="ambient-particle particle-two"></span></div><div class="layout">
+</style><style>
+.dashboard-flow{{position:fixed;inset:0;width:100%;height:100%;border:0;opacity:.22;pointer-events:none;z-index:-1;mix-blend-mode:screen}}
+.layout{{position:relative;z-index:1}}
+</style></head><body data-monitoring-owner="{'1' if owner else '0'}"><iframe class="dashboard-flow" src="/assets/structure-flow.html" title="Structure Flow background"></iframe><div class="ambient-scene" aria-hidden="true"><div class="ambient-orbit orbit-one"></div><div class="ambient-orbit orbit-two"></div><div class="ambient-sphere"></div><div class="ambient-cube"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="ambient-particle particle-one"></span><span class="ambient-particle particle-two"></span></div><div class="layout">
 <aside class="sidebar"><div class="brand"><img class="brand-logo" src="/assets/podslushka-logo.png" alt="Podslushka DB"><span>Podslushka DB</span></div><div class="theme-menu"><label for="theme-select">Тема интерфейса</label><select id="theme-select"><option value="dark">GitHub Dark</option><option value="light">GitHub Light</option><option value="midnight">Midnight Blue</option><option value="nord">Nord</option><option value="purple">Purple Night</option><option value="emerald">Emerald Forest</option><option value="rose">Rose Pine</option><option value="cyan">Cyber Cyan</option><option value="forest">Forest Green</option><option value="coffee">A Cup of Coffee</option><option value="ocean">Ocean Blue</option><option value="mono">Monochrome</option><option value="sunset">Sunset Red</option><option value="dracula">Dracula</option><option value="solarized">Solarized</option><option value="onedark">One Dark</option><option value="catppuccin">Catppuccin</option><option value="gruvbox">Gruvbox</option><option value="tokyo">Tokyo Night</option><option value="matrix">Matrix</option><option value="amethyst">Amethyst</option><option value="slate">Slate</option><option value="sand">Sandstone</option><option value="cherry">Cherry</option><option value="aqua">Aqua</option><option value="github-dimmed">GitHub Dimmed</option><option value="github-high">GitHub High Contrast</option><option value="ayu">Ayu</option><option value="ayu-mirage">Ayu Mirage</option><option value="ayu-light">Ayu Light</option><option value="vscode-dark">VS Code Dark</option><option value="vscode-light">VS Code Light</option><option value="monokai">Monokai</option><option value="material">Material</option><option value="material-ocean">Material Ocean</option><option value="solarized-light">Solarized Light</option><option value="rose-pine">Rosé Pine</option><option value="everforest">Everforest</option><option value="kanagawa">Kanagawa</option><option value="palenight">Palenight</option><option value="night-owl">Night Owl</option><option value="cobalt">Cobalt</option><option value="cyberpunk">Cyberpunk</option><option value="synthwave">Synthwave</option><option value="horizon">Horizon</option><option value="paper">Paper</option><option value="mint">Mint</option><option value="lavender">Lavender</option><option value="terminal">Terminal</option></select><button type="button" class="theme-picker-button" id="dashboard-theme-open">🎨 Все темы и примеры</button></div><div class="menu-title">Навигация</div><nav class="nav">
 <a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a><a class="{'active' if section == 'health' else ''}" href="/?view=health"><span class="icon">♥</span>Здоровье системы</a><a class="{'active' if section == 'monitoring' else ''}" href="/?view=monitoring"><span class="icon">◉</span>Мониторинг</a>
 <a class="{'active' if section == 'user-search' else ''}" href="/?view=user-search"><span class="icon">⌕</span>Поиск пользователей</a>
@@ -3757,11 +3822,8 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         static_assets = {
-            "/assets/inner-green-3d.html": ("assets/inner-green-3d.html", "text/html; charset=utf-8"),
+            "/assets/structure-flow.html": ("assets/structure-flow.html", "text/html; charset=utf-8"),
             "/assets/inner-green-assets/three.min.js": ("assets/inner-green-assets/three.min.js", "text/javascript"),
-            "/assets/inner-green-assets/card-ecostove.jpg": ("assets/inner-green-assets/card-ecostove.jpg", "image/jpeg"),
-            "/assets/inner-green-assets/card-ethos.jpg": ("assets/inner-green-assets/card-ethos.jpg", "image/jpeg"),
-            "/assets/inner-green-assets/lexend-latin.woff2": ("assets/inner-green-assets/lexend-latin.woff2", "font/woff2"),
         }
         if path in static_assets:
             relative_path, content_type = static_assets[path]
@@ -3776,6 +3838,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return
+        if path in {"/about", "/why", "/support"}:
+            self.send_html(public_info_page(path.lstrip("/")))
             return
         if path == "/assets/podslushka-logo.png":
             asset = Path(__file__).resolve().parent / "assets" / "podslushka-logo.png"
