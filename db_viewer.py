@@ -3492,7 +3492,7 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 .content{{background:rgba(13,17,23,.66)!important}}
 .sidebar{{background:rgba(22,27,34,.9)!important}}
 .card,.insight-card,.toolbar,.table-wrap,.setup-card,.bot-center,.health-item,.group-ai{{background:rgba(22,27,34,.78)!important}}
-.osint-search-form{{display:grid;grid-template-columns:minmax(330px,.88fr) minmax(480px,1.8fr);align-items:stretch;gap:14px;margin:20px 0;padding:18px;border:1px solid #2465a8;border-radius:24px;background:linear-gradient(135deg,#071b35f8 0%,#0b1730f5 55%,#17145bf5 100%);box-shadow:0 22px 55px #02071388,0 0 70px #1d64d533 inset}}
+.osint-search-form{{display:grid;grid-template-columns:minmax(280px,.88fr) minmax(0,1.8fr);grid-template-rows:auto auto;align-items:stretch;gap:14px;margin:20px 0;padding:18px;border:1px solid #2465a8;border-radius:24px;background:linear-gradient(135deg,#071b35f8 0%,#0b1730f5 55%,#17145bf5 100%);box-shadow:0 22px 55px #02071388,0 0 70px #1d64d533 inset}}
 .osint-search-form{{overflow:hidden}}
 .osint-search-form label{{display:grid;gap:7px;color:var(--muted);font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.06em}}
 .osint-search-form>label{{justify-content:center;padding:18px 16px;border:1px solid #1c4b80;border-radius:18px;background:linear-gradient(160deg,#0d2645cc,#07152add)}}
@@ -3503,11 +3503,12 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 .osint-search-form fieldset label:has(input:checked){{border-color:#2f8cff;background:#1261b51f;box-shadow:0 0 0 1px #2f8cff22 inset}}
 .osint-search-form fieldset label span{{display:grid;gap:3px;min-width:92px}}
 .osint-search-form fieldset label span small{{color:#88a6c8;font-size:11px;font-weight:500}}
+.osint-search-form>fieldset:not(.osint-mode){{grid-column:2;grid-row:1;min-width:0}}
 .osint-search-form .osint-mode{{grid-column:1;grid-row:2}}
 .osint-search-form .osint-mode label{{flex:1;min-height:58px}}
 .osint-search-form input[type=text],.osint-search-form input:not([type]){{width:100%;min-height:42px}}
 .osint-search-form input[type=text],.osint-search-form input:not([type]){{margin-top:2px;border-color:#42648f;background:#111d2d;font-size:15px;font-weight:650}}
-.osint-search-form>.submit{{grid-column:2;grid-row:2;min-height:66px;white-space:nowrap;background:linear-gradient(105deg,#218bf6,#5268f5 58%,#7545e8);border:0;border-radius:15px;box-shadow:0 14px 32px #346bf655;font-size:15px;font-weight:800;letter-spacing:.01em}}
+.osint-search-form>.submit{{grid-column:2;grid-row:2;align-self:stretch;min-height:66px;white-space:nowrap;background:linear-gradient(105deg,#218bf6,#5268f5 58%,#7545e8);border:0;border-radius:15px;box-shadow:0 14px 32px #346bf655;font-size:15px;font-weight:800;letter-spacing:.01em}}
 .osint-search-form>.submit:hover{{transform:translateY(-1px);box-shadow:0 13px 28px #e9655155}}
 .osint-status{{min-height:24px;margin:14px 0;color:#9db6d7;font-size:13px;font-weight:650}}
 .osint-status::before{{content:"";display:inline-block;width:7px;height:7px;margin:0 8px 1px 1px;border-radius:50%;background:#4ba8ff;box-shadow:0 0 12px #4ba8ff;vertical-align:middle}}
@@ -3566,7 +3567,7 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 .osint-statbar{{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}}
 .osint-stat{{padding:8px 11px;border:1px solid #1b4777;border-radius:11px;background:#0a1a2e;color:#8da9cb;font-size:11px}}
 .osint-stat b{{color:#d7eaff;font-size:14px;margin-right:4px}}
-@media(max-width:1100px){{.osint-search-form{{grid-template-columns:1fr 1fr}}.osint-search-form>label{{grid-column:1/-1}}.osint-search-form>.submit{{grid-column:1/-1;grid-row:auto}}.osint-results{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
+@media(max-width:1100px){{.osint-search-form{{grid-template-columns:1fr 1fr;grid-template-rows:auto auto auto}}.osint-search-form>label{{grid-column:1/-1;grid-row:1}}.osint-search-form>fieldset:not(.osint-mode){{grid-column:1/-1;grid-row:2}}.osint-search-form .osint-mode{{grid-column:1/-1;grid-row:3}}.osint-search-form>.submit{{grid-column:1/-1;grid-row:4}}.osint-results{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 @media(max-width:1100px){{.osint-live-grid{{grid-template-columns:1fr}}}}
 @media(max-width:680px){{.osint-search-form{{grid-template-columns:1fr}}.osint-search-form fieldset{{flex-wrap:wrap;height:auto}}.osint-search-form>.submit{{grid-column:auto;width:100%}}.osint-results{{grid-template-columns:1fr}}}}
 @media(max-width:680px){{.osint-header{{display:block}}.osint-public{{display:inline-flex;margin-top:14px}}.osint-title h2{{font-size:23px}}.osint-results-empty{{align-items:flex-start}}}}
@@ -3586,7 +3587,7 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 {('<section id="user-search"><div class="osint-header"><div class="osint-title"><div class="osint-title-icon">⌕</div><div><h2>Поиск <span>пользователя</span></h2><p>Проверьте username только по открытым веб-источникам. Найдите аккаунты, связанные с этим пользователем.</p></div></div><div class="osint-public"><i></i> Публичные данные</div></div><form class="osint-search-form" id="osint-search-form" onsubmit="return false" novalidate><label><div class="osint-card-heading"><span class="glyph">♙</span><span><h3>Username</h3><p>Введите имя пользователя, никнейм или @username</p></span></div><input id="osint-username" name="username" placeholder="@username" maxlength="32" autocomplete="off" required><small class="muted">Например: @username или username</small></label><fieldset><legend>⌘ &nbsp; Источники поиска</legend><label class="osint-tool-card"><input type="checkbox" name="tool" value="blackbird" checked><span><b>◉ &nbsp;Blackbird</b><small>400+ сайтов</small></span></label><label class="osint-tool-card"><input type="checkbox" name="tool" value="maigret" checked><span><b>◉ &nbsp;Maigret</b><small>2500+ сайтов</small></span></label><label class="osint-tool-card"><input type="checkbox" name="tool" value="sherlock" checked><span><b>◉ &nbsp;Sherlock</b><small>400+ соцсетей</small></span></label></fieldset><fieldset class="osint-mode"><legend>⚙ &nbsp; Настройки отображения результатов</legend><label class="osint-mode-card"><input type="radio" name="ai" value="0" checked><span><b>Все</b><small>Полный поиск</small></span></label><label class="osint-mode-card"><input type="radio" name="ai" value="0"><span><b>Без ИИ</b><small>Только сырые данные</small></span></label><label class="osint-mode-card"><input type="radio" name="ai" value="1"><span><b>С ИИ</b><small>Краткое резюме и анализ</small></span></label></fieldset><button class="submit" type="button">⌕ &nbsp; Запустить поиск <b>→</b></button></form><div id="osint-status" class="osint-status" role="status" aria-live="polite"></div><div class="osint-results-shell"><div class="osint-card-heading"><span class="glyph">⌘</span><span><h3>Результаты поиска</h3><p>Найденные публичные аккаунты и источники</p></span></div><div id="osint-results" class="osint-results"><div class="osint-results-empty"><div><div class="empty-icon">⌕</div></div><div><h3>Результаты появятся здесь</h3><p>Введите username и запустите поиск, чтобы увидеть найденные аккаунты и информацию.</p></div></div></div></div><details class="osint-notice"><summary>Условия использования</summary><p>Результаты могут быть неполными и не подтверждают личность владельца username. Используйте инструменты только законно, с разрешением и с учётом правил сайтов.</p></details></section>' if section == 'user-search' else '')}
 {all_info_section}{bot_switcher}{approval}{bots_section}{project_join_section}{leave_project_section}{system_section}{monitoring_section}{group_section}
 </main></div><div class="mobile-menu-overlay" id="mobile-menu-overlay"></div><div class="help-toast" id="help-toast" role="status" aria-live="polite"><b>Подсказка</b><span id="help-toast-text"></span></div><div class="ai-card" id="ai-card" aria-hidden="true"><div class="ai-card-panel" role="dialog" aria-modal="true" aria-labelledby="ai-card-title"><div class="ai-card-head"><h2 id="ai-card-title">ИИ-анализ заявки</h2><button type="button" class="ai-close" id="ai-close">Закрыть</button></div><div id="ai-card-body"></div></div></div><script>
-const themeSelect = document.getElementById('theme-select');
+let themeSelect = document.getElementById('theme-select');
 const helpToast = document.getElementById('help-toast');
 const helpToastText = document.getElementById('help-toast-text');
 let helpToastTimer;
@@ -3600,6 +3601,7 @@ document.querySelectorAll('.help-button').forEach(button => button.addEventListe
   helpToastTimer = setTimeout(() => helpToast.classList.remove('open'), 5000);
 }}));
 function applyTheme(theme) {{
+  themeSelect = document.getElementById('theme-select') || themeSelect;
   const themes = ['light', 'midnight', 'nord', 'purple', 'emerald', 'rose', 'cyan', 'forest', 'coffee', 'ocean', 'mono', 'sunset', 'dracula', 'solarized', 'onedark', 'catppuccin', 'gruvbox', 'tokyo', 'matrix', 'amethyst', 'slate', 'sand', 'cherry', 'aqua', 'github-dimmed', 'github-high', 'ayu', 'ayu-mirage', 'ayu-light', 'vscode-dark', 'vscode-light', 'monokai', 'material', 'material-ocean', 'solarized-light', 'rose-pine', 'everforest', 'kanagawa', 'palenight', 'night-owl', 'cobalt', 'cyberpunk', 'synthwave', 'horizon', 'paper', 'mint', 'lavender', 'terminal', 'obsidian', 'coral', 'amber', 'arctic', 'transparent'];
   document.body.classList.remove('light', ...themes.map(item => `theme-${{item}}`));
   if (theme === 'light') document.body.classList.add('light');
@@ -3607,9 +3609,11 @@ function applyTheme(theme) {{
   if (themeSelect) themeSelect.value = theme;
 }}
 applyTheme(localStorage.getItem('podslushka-theme') || 'dark');
-if (themeSelect) themeSelect.addEventListener('change', () => {{
-  localStorage.setItem('podslushka-theme', themeSelect.value);
-  applyTheme(themeSelect.value);
+document.addEventListener('change', event => {{
+  if (event.target && event.target.id === 'theme-select') {{
+    localStorage.setItem('podslushka-theme', event.target.value);
+    applyTheme(event.target.value);
+  }}
 }});
 const dashboardThemeModal = document.getElementById('dashboard-theme-modal');
 const dashboardThemeGrid = document.getElementById('dashboard-theme-grid');
@@ -4061,6 +4065,8 @@ async function refreshPage() {{
       bindControls();
       bindOsintSearch();
       resumeOsintSearch();
+      themeSelect = document.getElementById('theme-select');
+      if (themeSelect) themeSelect.value = localStorage.getItem('podslushka-theme') || 'dark';
       if (focusKey) {{
         const focused = document.getElementById(focusKey) || document.querySelector(`[name="${{CSS.escape(focusKey)}}"]`);
         if (focused) focused.focus({{preventScroll: true}});
