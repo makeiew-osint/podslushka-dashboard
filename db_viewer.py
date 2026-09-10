@@ -3910,7 +3910,7 @@ async function pollOsint(jobId) {{
           if (osintResults) osintResults.innerHTML = '<div class="osint-results-empty"><div><div class="empty-icon">⌕</div></div><div><h3>Результаты появятся здесь</h3><p>Запустите новый поиск, чтобы получить актуальные данные.</p></div></div>';
           return;
         }}
-        throw new Error(`Сервер вернул ошибку ${response.status}.`);
+        throw new Error(`Сервер вернул ошибку ${{response.status}}.`);
       }}
       const job = await response.json();
       renderOsint(job);
