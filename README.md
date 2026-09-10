@@ -1,145 +1,111 @@
 # Podslushka DB
 
-<p align="center">
-  <img src="assets/podslushka-logo.png" alt="Podslushka DB" width="180">
-</p>
+Podslushka DB is a Telegram moderation dashboard with a local SQLite mode and
+production PostgreSQL support. It manages users, submissions, moderation,
+managed bots, audit events, backups and public username searches.
 
-<p align="center">
-  Панель управления Telegram-ботами, заявками и модерацией
-</p>
+## Product overview
 
-<p align="center">
-  <a href="https://podslushka-dashboard.onrender.com/">Открыть панель</a>
-  ·
-  <a href="https://github.com/makeiew-osint/podslushka-dashboard/issues">Сообщить о проблеме</a>
-</p>
+- Dashboard for users, posts, reports, bans and moderation events.
+- Roles: `owner`, `admin`, `moderator`, `read-only` and `user`.
+- Multiple managed Telegram bots with isolated data scopes.
+- PostgreSQL on Render and SQLite for local development.
+- Session authentication, optional OAuth, 2FA and audit logging.
+- Telegram worker with background processing and publication to a channel.
+- AI moderation integrations for Gemini, Qwen, DeepSeek and GLM.
+- Responsive dark dashboard with theme gallery, compact mode and language
+  selector.
+- Branded error pages for common HTTP failures.
 
-Podslushka DB — панель управления Telegram-ботами, заявками и модерацией.
-Проект включает веб-панель, Telegram worker, поддержку нескольких managed-ботов,
-изоляцию данных между ботами и публикацию одобренных материалов в канал.
+## OSINT username search
 
-## Онлайн-превью
+The **Search users** page checks a username only against public web sources.
+The available tools are:
 
-- [Главная и вход](https://podslushka-dashboard.onrender.com/)
-- [О проекте](https://podslushka-dashboard.onrender.com/about)
-- [Почему мы](https://podslushka-dashboard.onrender.com/why)
-- [Поддержка и FAQ](https://podslushka-dashboard.onrender.com/support)
-- [Все страницы ошибок](https://podslushka-dashboard.onrender.com/errors)
-- [Пример ошибки 404](https://podslushka-dashboard.onrender.com/errors/404)
+- **Blackbird** — broad public-site search.
+- **Maigret** — public username search across thousands of sites.
+- **Sherlock** — public social-profile search.
 
-Основные публичные страницы также проверены локальными браузерными скриншотами:
-главная, «О проекте», поддержка и ошибка `404`.
+Search jobs run in the background and update progressively. Each source has
+its own state: checking, completed, timeout or error. One failed source does
+not hide successful results from the other sources.
 
-### Скриншоты
+Results can be downloaded as:
 
-| Главная | О проекте |
+- TXT;
+- JavaScript;
+- HTML.
+
+The optional AI mode receives public result URLs for a short summary. It does
+not prove identity, access private accounts, bypass CAPTCHA or collect
+passwords.
+
+### OSINT interface
+
+![OSINT username search](assets/screenshots/osint-search-latest.png)
+
+The interface contains:
+
+1. Username input.
+2. Independent source selection for Blackbird, Maigret and Sherlock.
+3. Display modes: all results, raw results or AI summary.
+4. Progressive source cards and aggregate statistics.
+5. Export buttons for TXT, JavaScript and HTML.
+
+### Legal and privacy notice
+
+Use the search only for lawful, authorised research. Results may be incomplete
+or incorrect and must not be treated as proof that a username belongs to a
+specific person.
+
+## Screenshots
+
+| Public landing page | Dashboard |
 | --- | --- |
-| ![Главная Podslushka](assets/screenshots/home.png) | ![О проекте](assets/screenshots/about.png) |
+| ![Landing page](assets/screenshots/home.png) | ![Dashboard](assets/screenshots/osint-search-latest.png) |
 
-| Поддержка | Ошибка 404 |
+| About page | Support page |
 | --- | --- |
-| ![Поддержка](assets/screenshots/support.png) | ![Ошибка 404](assets/screenshots/error-404.png) |
+| ![About](assets/screenshots/about.png) | ![Support](assets/screenshots/support.png) |
 
-### OSINT-поиск
+| Error page |
+| --- |
+| ![Error 404](assets/screenshots/error-404.png) |
 
-![Экран поиска пользователя](assets/screenshots/osint-search.png)
-
-Экран поиска пользователя запускает Blackbird, Maigret и Sherlock параллельно,
-показывает progressive-статусы источников и сохраняет результаты в TXT,
-JavaScript или HTML. Инструменты используют отдельное окружение проекта и
-устанавливаются на Render явной командой сборки, поэтому зависимости не
-смешиваются с системным Python.
-
-## Как устроен проект
+## Architecture
 
 ```mermaid
 flowchart LR
-    U[Пользователь Telegram] --> B[Telegram Bot]
-    B --> W[bot.py<br/>Worker]
-    W --> D[(SQLite / PostgreSQL)]
-    W --> A[Администратор]
-    W --> C[Канал публикаций]
-    P[Веб-панель] --> D
-    P --> M[Модерация и управление]
-    M --> W
+    User[Telegram user] --> Bot[Telegram bot]
+    Bot --> Worker[bot.py worker]
+    Worker --> DB[(SQLite or PostgreSQL)]
+    Worker --> Channel[Publication channel]
+    Admin[Dashboard user] --> Web[db_viewer.py]
+    Web --> DB
+    Web --> OSINT[OSINT worker]
+    OSINT --> Blackbird
+    OSINT --> Maigret
+    OSINT --> Sherlock
 ```
 
-## Основной сценарий
+## Repository structure
 
-```mermaid
-sequenceDiagram
-    participant User as Пользователь
-    participant Bot as Telegram-бот
-    participant Worker as Worker
-    participant Admin as Администратор
-    participant DB as База данных
-
-    User->>Bot: Отправляет сообщение
-    Bot-->>User: Быстрый ответ
-    Bot->>Worker: Передаёт заявку в фон
-    Worker->>DB: Сохраняет заявку
-    Worker->>Admin: Информация о пользователе
-    Worker->>Admin: TXT-файл с данными
-    Admin->>Worker: Одобрить или отклонить
-    Worker->>DB: Сохраняет решение
-```
-
-## Возможности
-
-- Dashboard с пользователями, заявками, публикациями, жалобами и событиями.
-- Роли `owner`, `admin`, `moderator`, `read-only` и `user`.
-- Создание проектов и подключение нескольких Telegram-ботов.
-- Отдельные администраторы для каждого managed-бота.
-- Изоляция заявок, пользователей, банов, слов и статистики по `bot_id`.
-- Зашифрованное хранение токенов подключённых ботов.
-- Ручная модерация и осторожная AI-автомодерация с порогом уверенности.
-- Отправка администратору данных отправителя и отдельного `.txt`-файла с отчётом.
-- Быстрый ответ пользователю до фоновой обработки заявки.
-- Публикация одобренных материалов в Telegram-канал.
-- Мониторинг worker-процессов, Telegram-соединения и состояния базы.
-- Профиль с темами, аватаром, языком, сессиями, журналом входов и 2FA QR.
-- Расширенная галерея тем dashboard: `Obsidian`, `Coral Night`, `Amber Desk`,
-  `Arctic Blue` и прозрачная тема с `backdrop-filter`.
-- Резервное копирование, CSV-экспорт и журнал действий.
-- Поиск публичного username через Blackbird, Maigret и Sherlock с фоновыми
-  задачами, таймаутом и необязательным AI-резюме.
-- Branded-страницы ошибок `400/401/403/404/500/502/503` в стиле GitHub.
-- Локальный запуск через SQLite или production-запуск через PostgreSQL.
-
-## Структура
-
-| Файл | Назначение |
+| File or directory | Purpose |
 | --- | --- |
-| `db_viewer.py` | HTTP-панель, авторизация, профиль, API и supervisor |
-| `bot.py` | Telegram handlers, заявки, уведомления и модерация |
-| `db.py` | Асинхронный слой SQLite/PostgreSQL |
-| `config.py` | Настройки Telegram worker |
-| `i18n.py` | Локализация Telegram-бота |
-| `render.yaml` | Конфигурация Render |
-| `site_monitor.py` | Проверка доступности сайта |
-| `osint_search.py` | Ограниченный фоновый запуск OSINT-инструментов |
-| `.github/workflows/site-monitor.yml` | Мониторинг сайта каждые 5 минут |
+| `db_viewer.py` | HTTP dashboard, authentication, pages and dashboard APIs |
+| `bot.py` | Telegram handlers, moderation and notifications |
+| `db.py` | Database access and migrations |
+| `config.py` | Telegram worker configuration |
+| `i18n.py` | Telegram bot translations |
+| `osint_search.py` | Validated background OSINT jobs and result normalisation |
+| `render.yaml` | Render build, start and environment configuration |
+| `site_monitor.py` | Availability monitor |
+| `tools/` | Downloaded Blackbird, Maigret and Sherlock repositories |
+| `assets/screenshots/` | README preview screenshots |
 
-## Архитектура деплоя
+## Local Windows setup
 
-```mermaid
-flowchart TB
-    G[GitHub master] --> R[Render Web Service]
-    R --> S[db_viewer.py]
-    S --> DB[(Render PostgreSQL)]
-    S --> T[Telegram API]
-    T --> B[Основной и managed-боты]
-    G --> A[GitHub Actions]
-    A --> H[Проверка доступности сайта]
-```
-
-<p align="center">
-  <img src="assets/podslushka-logo.png" alt="Логотип проекта" width="96">
-</p>
-
-## Локальный запуск Windows
-
-Откройте PowerShell в папке проекта:
+Open PowerShell in the project directory:
 
 ```powershell
 python -m venv venv
@@ -147,53 +113,53 @@ python -m venv venv
 .\venv\Scripts\python.exe db_viewer.py
 ```
 
-Панель будет доступна по адресу `http://127.0.0.1:8765/`.
+The dashboard starts at `http://127.0.0.1:8765/`.
 
-Для локального запуска создайте `.env`. Минимальный набор:
+For local development, create `.env`:
 
 ```env
-BOT_TOKEN=токен_бота
-ADMIN_IDS=123456789,987654321
-CHANNEL_ID=@имя_канала
+BOT_TOKEN=your_telegram_bot_token
+ADMIN_IDS=123456789
+CHANNEL_ID=@your_channel
 OWNER_USERNAME=owner
-OWNER_PASSWORD=сильный_пароль
+OWNER_PASSWORD=use-a-strong-password
 ```
 
-При локальном запуске без `DATABASE_URL` используется файл `podslushka.db`.
+Without `DATABASE_URL`, the application uses `podslushka.db`.
 
-## Деплой на Render
+## Render deployment
 
-`render.yaml` создаёт один web-service:
+The Render service:
 
-```text
-build: pip install -r requirements.txt
-start: python db_viewer.py
-```
+1. Installs the dashboard and OSINT dependencies from `requirements.txt`.
+2. Downloads Blackbird, Maigret and Sherlock into `tools/`.
+3. Starts `db_viewer.py`.
 
-На Render обязательно настройте:
+Required production variables:
 
-| Переменная | Назначение |
+| Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | Internal Database URL подключённой Render PostgreSQL |
-| `OWNER_USERNAME` | Логин владельца панели |
-| `OWNER_PASSWORD` | Пароль владельца |
-| `BOT_TOKEN` | Токен основного Telegram-бота |
-| `ADMIN_IDS` | Telegram ID глобальных администраторов через запятую |
-| `OWNER_TELEGRAM_ID` | Telegram ID владельца для получения уведомлений от всех ботов |
-| `CHANNEL_ID` | `@username` канала или числовой ID `-100...` |
-| `MULTIBOT_ENCRYPTION_KEY` | Fernet-ключ для токенов managed-ботов |
-| `DASHBOARD_SYNC_SECRET` | Секрет синхронизации worker с dashboard |
-| `DASHBOARD_SYNC_URL` | URL dashboard, например `https://podslushka-dashboard.onrender.com` |
+| `DATABASE_URL` | Render PostgreSQL internal URL |
+| `OWNER_USERNAME` | Dashboard owner login |
+| `OWNER_PASSWORD` | Dashboard owner password |
+| `BOT_TOKEN` | Telegram bot token |
+| `ADMIN_IDS` | Global administrator IDs |
+| `CHANNEL_ID` | Publication channel |
+| `OWNER_TELEGRAM_ID` | Owner notification recipient |
+| `DASHBOARD_SYNC_SECRET` | Worker-to-dashboard authentication |
+| `MULTIBOT_ENCRYPTION_KEY` | Fernet key for managed bot tokens |
 
-Дополнительные настройки: `GEMINI_API_KEY`, `GEMINI_MODEL`, `HF_TOKEN`,
-`HF_MODEL`, `DEEPSEEK_MODEL`, `GLM_MODEL` и `AI_PROVIDER`,
-`TELEGRAM_BOT_USERNAME`, `TELEGRAM_UPDATES_CHAT_ID`, `OAUTH_BASE_URL`,
-`OAUTH_SIGNING_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
-`OWNER_2FA_SECRET`, `OWNER_2FA_REQUIRED` и `SITE_MAINTENANCE_MODE`.
+Optional variables include `GEMINI_API_KEY`, `HF_TOKEN`, `HF_MODEL`,
+`DEEPSEEK_MODEL`, `GLM_MODEL`, `AI_PROVIDER`, OAuth variables, 2FA settings
+and `SITE_MAINTENANCE_MODE`.
 
-### AI-провайдеры
+The public deployment is:
 
-По умолчанию используется Gemini:
+<https://podslushka-dashboard.onrender.com/>
+
+## AI providers
+
+Gemini:
 
 ```env
 AI_PROVIDER=gemini
@@ -201,162 +167,48 @@ GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-3-flash-preview
 ```
 
-Для Qwen через Hugging Face Inference API укажите в Render:
+Hugging Face providers:
 
 ```env
-AI_PROVIDER=qwen
 HF_TOKEN=hf_...
+AI_PROVIDER=qwen
 HF_MODEL=Qwen/Qwen3.8-27B
 ```
 
-`HF_TOKEN` создаётся в настройках Hugging Face с правом `Read`. Токен нельзя
-добавлять в Git, README или отправлять в чат. Модель не клонируется на Render:
-запросы идут через Hugging Face Router, поэтому не требуется скачивать десятки
-гигабайт весов на бесплатный web-service.
+The token is stored only in environment variables. Never commit secrets to
+GitHub or put them in README files.
 
-Для DeepSeek через тот же Hugging Face Router выберите `DeepSeek` в панели:
+## Validation
 
-```env
-AI_PROVIDER=deepseek
-HF_TOKEN=hf_...
-DEEPSEEK_MODEL=deepseek-ai/DeepSeek-V4.1-Flash
-```
-
-Qwen и DeepSeek используют один `HF_TOKEN`, но разные модели. В интерфейсе
-панели можно переключать Gemini, Qwen, DeepSeek и GLM-5.3 перед запуском
-анализа.
-
-Для GLM-5.3 через Hugging Face Router:
-
-```env
-AI_PROVIDER=glm
-HF_TOKEN=hf_...
-GLM_MODEL=zai-org/GLM-5.3
-```
-
-Модель GLM-5.3 не скачивается в приложение: запросы идут через
-Hugging Face Router, поэтому токен хранится только в переменных окружения.
-
-### Поиск пользователя
-
-В разделе «Поиск пользователей» можно указать username и выбрать Blackbird,
-Maigret или Sherlock. Результаты собираются только из открытых URL; пароли,
-email, закрытые профили, обход CAPTCHA и подключение к чужим аккаунтам не
-используются. Режим «С ИИ» передаёт провайдеру только найденные публичные URL
-для краткого резюме и не устанавливает личность владельца username.
-
-Для локального запуска инструменты хранятся в `tools/` и устанавливаются
-отдельно от зависимостей dashboard. На Render они скачиваются во время сборки
-из публичных репозиториев с MIT-лицензиями Maigret и Sherlock; Blackbird
-подключается из `antoniaci/blackbird` и сохраняет собственный образовательный
-дисклеймер.
-
-Для получения сообщений от всех managed-ботов укажите числовой Telegram ID
-владельца в `OWNER_TELEGRAM_ID`. Бот отправляет владельцу те же уведомления,
-что и назначенным администраторам, а доступ к этим отправкам остаётся виден в
-операционном журнале.
-
-### Важно про `DATABASE_URL`
-
-Не копируйте старый URL базы вручную. Если в логах появляется:
-
-```text
-failed to resolve host
-PostgreSQL did not release a connection slot during startup
-```
-
-откройте **Render → Web Service → Environment** и заново добавьте
-`DATABASE_URL` через **Add from database → Internal Database URL**. Затем
-проверьте, что PostgreSQL имеет статус `Available`, сохраните переменную и
-запустите **Manual Deploy → Deploy latest commit**.
-
-На бесплатном Render-инстансе сервис засыпает после простоя. Первый запрос после
-сна может занимать около минуты. Выключение компьютера не должно останавливать
-Render-сервис; если появляется `502`, проверяйте статус сервиса и логи деплоя.
-
-## Страница ошибок
-
-Приложение использует собственную страницу ошибок вместо стандартного ответа
-браузера. Она показывает код и понятное описание проблемы, а также кнопки
-**Повторить** и **На главную**. Для проверки 404 откройте любой несуществующий
-адрес:
-
-```text
-https://podslushka-dashboard.onrender.com/nonexistent-page
-```
-
-Если сам Render-инстанс полностью остановлен или деплой не запущен, страницу
-приложения показать невозможно: в этом случае Render отображает собственную
-страницу `502`. Сначала восстановите статус сервиса `Live`.
-
-Для визуальной проверки доступны отдельные маршруты:
-
-```text
-/errors/400
-/errors/401
-/errors/403
-/errors/404
-/errors/500
-/errors/502
-/errors/503
-```
-
-## Telegram-бот и администраторы
-
-1. Создайте бота через `@BotFather`.
-2. Добавьте его администратором канала с правом публикации.
-3. Укажите `CHANNEL_ID`.
-4. Для каждого администратора укажите числовой Telegram ID в панели.
-5. Каждый администратор должен открыть конкретного бота и один раз отправить
-   `/start`: Telegram запрещает боту первым писать пользователю.
-
-Для managed-бота уведомления получают владелец и администраторы, указанные для
-этого бота. При новой заявке отправляются обычное сообщение с информацией о
-пользователе и отдельный UTF-8 `.txt`-файл. Если база временно недоступна,
-worker пытается отправить резервное уведомление без данных из базы.
-
-## AI-модерация
-
-AI включается отдельно для managed-бота. Автопубликация выполняется только при
-валидном ответе модели, `publish=true` и достижении порога уверенности. При
-ошибке, сомнительном содержимом или prompt injection заявка остаётся на ручной
-проверке.
-
-## Профиль и безопасность
-
-В профиле доступны:
-
-- имя, email, язык и URL аватара;
-- выбор темы интерфейса и прозрачный режим панелей;
-- активные сессии и выход с других устройств;
-- журнал входов;
-- настройка и отключение 2FA через QR-код;
-- смена пароля.
-
-Токены ботов не показываются в интерфейсе и хранятся в зашифрованном виде.
-Owner-режим проверки администратора заметен в интерфейсе, записывается в журнал
-и блокирует опасные операции.
-
-## Мониторинг
-
-Workflow `Monitor Podslushka DB` запускается каждые пять минут. Для GitHub
-Actions добавьте Secrets:
-
-```text
-BOT_TOKEN
-TELEGRAM_UPDATES_CHAT_ID
-```
-
-Опционально задайте Repository Variable `SITE_URL`. Монитор отправляет
-уведомление при переходе `online -> offline` и сообщение о восстановлении при
-переходе `offline -> online`.
-
-## Проверка перед публикацией
+Run the basic checks before publishing:
 
 ```powershell
-python -m py_compile db_viewer.py db.py bot.py site_monitor.py
+.\venv\Scripts\python.exe -m py_compile db_viewer.py osint_search.py
 git diff --check
 ```
 
-Не добавляйте в Git `.env`, токены, пароли, Fernet-ключи и базы с реальными
-данными.
+To verify the local service:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:8765/
+```
+
+## Source size
+
+The current application contains **9,191 lines** across 12 source files,
+excluding `venv`, downloaded third-party repositories in `tools` and `.git`.
+Python files account for **8,966 lines**:
+
+| File | Lines |
+| --- | ---: |
+| `db_viewer.py` | 5,768 |
+| `bot.py` | 1,436 |
+| `db.py` | 1,090 |
+| `osint_search.py` | 312 |
+| Other Python files | 360 |
+
+## License and third-party tools
+
+The application code is maintained in this repository. Blackbird, Maigret and
+Sherlock are downloaded from their public repositories during deployment and
+remain subject to their respective licenses and terms.
