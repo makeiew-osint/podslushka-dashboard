@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
   <title id="title">Podslushka DB</title>
-  <desc id="desc">A signal mark shaped like a speech bubble and the letter P.</desc>
+  <desc id="desc">A database signal mark with a bold P monogram.</desc>
   <defs>
     <linearGradient id="signal" x1="35" y1="26" x2="99" y2="92" gradientUnits="userSpaceOnUse">
       <stop stop-color="#a7f3dc"/>
       <stop offset="1" stop-color="#52c9b0"/>
     </linearGradient>
   </defs>
-  <path d="M35 58c0-18 13-31 30-31s30 13 30 31-13 31-30 31H52l-14 12 3-17c-4-7-6-15-6-26Z" fill="none" stroke="url(#signal)" stroke-width="7" stroke-linejoin="round"/>
-  <path d="M54 73V48c0-4 3-7 7-7h9c7 0 12 5 12 12s-5 12-12 12H54m0-12h18" fill="none" stroke="#f3fff9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M101 43c5 6 7 12 7 19M108 34c9 8 13 18 13 28" fill="none" stroke="#f3fff9" stroke-width="4" stroke-linecap="round" opacity=".9"/>
-  <circle cx="22" cy="23" r="3" fill="#a7f3dc"/>
+  <circle cx="64" cy="64" r="41" fill="none" stroke="url(#signal)" stroke-width="6"/>
+  <path d="M48 83V44h17c10 0 17 6 17 15s-7 15-17 15H48m0-15h31" fill="none" stroke="#f3fff9" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M99 38c7 7 10 15 10 24M107 29c11 10 16 22 16 35" fill="none" stroke="#f3fff9" stroke-width="4" stroke-linecap="round" opacity=".9"/>
+  <circle cx="24" cy="24" r="4" fill="#a7f3dc"/>
 </svg>

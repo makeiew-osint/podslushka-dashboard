@@ -6,13 +6,13 @@
 <title>Structure Flow</title>
 <style>
   html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #050607; }
-  .threeui-background { position: relative; width: 100%; height: 100%; overflow: hidden; background: #050607; opacity: .8; }
+  .threeui-background { position: relative; width: 100%; height: 100%; overflow: hidden; background: radial-gradient(circle at 68% 42%, #335c6c 0, #10232c 22%, #050607 65%); opacity: 1; }
   .threeui-background canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
   @media (prefers-reduced-motion: reduce) { .threeui-background canvas { opacity: .72; } }
 </style>
 </head>
 <body>
-<div class="threeui-background structure-flow" style="mask-image:linear-gradient(to bottom,transparent 20%,black 50%,black 100%);-webkit-mask-image:linear-gradient(to bottom,transparent 20%,black 50%,black 100%)">
+<div class="threeui-background structure-flow">
 <canvas id="structure-flow-canvas"></canvas>
 </div>
 <script src="/assets/inner-green-assets/three.min.js"></script>
@@ -36,12 +36,12 @@
     const theta = u * 2 * Math.PI;
     const phi = Math.acos(Math.random() * 0.8 + 0.2);
     positions[index * 3] = radius * Math.sin(phi) * Math.cos(theta);
-    positions[index * 3 + 1] = radius * Math.cos(phi) - 20;
+    positions[index * 3 + 1] = radius * Math.cos(phi) - 7;
     positions[index * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
   }
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   const material = new THREE.PointsMaterial({
-    size: 0.08, color: 0xffffff, transparent: true, opacity: 0.4,
+    size: 0.14, color: 0xc8fff2, transparent: true, opacity: 0.72,
     blending: THREE.AdditiveBlending, depthWrite: false
   });
   const particles = new THREE.Points(geometry, material);
