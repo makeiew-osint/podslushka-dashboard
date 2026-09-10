@@ -40,6 +40,16 @@ Podslushka DB — панель управления Telegram-ботами, за�
 | --- | --- |
 | ![Поддержка](assets/screenshots/support.png) | ![Ошибка 404](assets/screenshots/error-404.png) |
 
+### OSINT-поиск
+
+![Экран поиска пользователя](assets/screenshots/osint-search.png)
+
+Экран поиска пользователя запускает Blackbird, Maigret и Sherlock параллельно,
+показывает progressive-статусы источников и сохраняет результаты в TXT,
+JavaScript или HTML. Инструменты используют отдельное окружение проекта и
+устанавливаются на Render явной командой сборки, поэтому зависимости не
+смешиваются с системным Python.
+
 ## Как устроен проект
 
 ```mermaid
