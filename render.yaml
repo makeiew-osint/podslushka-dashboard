@@ -83,3 +83,9 @@ services:
         value: "120"
       - key: OSINT_REQUEST_TIMEOUT
         value: "6"
+      - key: OSINT_BLACKBIRD_TIMEOUT
+        value: "45"
+      - key: OSINT_MAIGRET_TIMEOUT
+        value: "75"
+      - key: OSINT_SHERLOCK_TIMEOUT
+        value: "60"

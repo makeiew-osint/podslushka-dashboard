@@ -27,6 +27,11 @@ ALLOWED_TOOLS = {"blackbird", "maigret", "sherlock"}
 MAX_ACTIVE_JOBS = 2
 JOB_TIMEOUT = max(20, min(int(os.getenv("OSINT_JOB_TIMEOUT", "120")), 120))
 REQUEST_TIMEOUT = max(4, min(int(os.getenv("OSINT_REQUEST_TIMEOUT", "6")), 20))
+TOOL_TIMEOUTS = {
+    "blackbird": max(20, min(int(os.getenv("OSINT_BLACKBIRD_TIMEOUT", "45")), JOB_TIMEOUT)),
+    "maigret": max(20, min(int(os.getenv("OSINT_MAIGRET_TIMEOUT", "75")), JOB_TIMEOUT)),
+    "sherlock": max(20, min(int(os.getenv("OSINT_SHERLOCK_TIMEOUT", "60")), JOB_TIMEOUT)),
+}
 JOB_TTL = 30 * 60
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
@@ -173,12 +178,16 @@ def _run_tool(tool: str, username: str, workdir: Path) -> dict:
             cwd=repo,
             capture_output=True,
             text=True,
-            timeout=JOB_TIMEOUT,
+            timeout=TOOL_TIMEOUTS.get(tool, JOB_TIMEOUT),
             check=False,
             env=env,
         )
     except subprocess.TimeoutExpired:
-        return {"tool": tool, "status": "timeout", "error": f"Превышен таймаут {JOB_TIMEOUT} секунд."}
+        return {
+            "tool": tool,
+            "status": "timeout",
+            "error": f"Превышен таймаут {TOOL_TIMEOUTS.get(tool, JOB_TIMEOUT)} секунд.",
+        }
     except OSError as exc:
         logging.exception("Unable to start OSINT tool %s", tool)
         return {"tool": tool, "status": "error", "error": str(exc)[:300]}
