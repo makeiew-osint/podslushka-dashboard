@@ -5459,20 +5459,27 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    # Start Telegram polling before dashboard migrations. Render can spend
-    # noticeable time preparing PostgreSQL during a rolling restart; the bot
-    # should not wait for the web UI to finish initializing.
-    start_embedded_bot()
-    init_auth()
-    start_managed_bot_supervisor()
+    # Bind and serve the Render port before migrations. PostgreSQL can take
+    # time to release a connection during rolling deploys, but Render must
+    # see an open port while that initialization is in progress.
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     public_host = "127.0.0.1" if HOST == "0.0.0.0" else HOST
     url = f"http://{public_host}:{PORT}/"
-    print(f"DB viewer: {url}")
+    server_thread = threading.Thread(
+        target=server.serve_forever,
+        name="dashboard-http-server",
+        daemon=True,
+    )
+    server_thread.start()
+    print(f"DB viewer: {url}", flush=True)
+    init_auth()
+    # Start Telegram polling after the dashboard has claimed its HTTP port.
+    start_embedded_bot()
+    start_managed_bot_supervisor()
     if HOST == "127.0.0.1":
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
-        server.serve_forever()
+        server_thread.join()
     except KeyboardInterrupt:
         server.server_close()
     finally:
