@@ -1452,6 +1452,8 @@ def request_huggingface_analysis(text: str) -> dict:
             response_data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         logging.warning("Hugging Face analysis returned HTTP %s", exc.code)
+        if exc.code == 403:
+            raise RuntimeError("hf_forbidden") from exc
         raise RuntimeError("upstream_http") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         logging.warning("Hugging Face analysis network failure: %s", type(exc).__name__)
@@ -2558,6 +2560,7 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         ("База данных", database_state, f"{database_ms} мс"),
         ("Синхронизация", "настроена" if SYNC_SECRET and os.getenv("DASHBOARD_SYNC_URL") else "не настроена", ""),
         ("ИИ Gemini", "настроен" if GEMINI_API_KEY else "не настроен", GEMINI_MODEL),
+        ("ИИ Qwen", "настроен" if HF_TOKEN else "не настроен", HF_MODEL),
     ]
     notification_state = (
         "не настроены" if not (TELEGRAM_BOT_TOKEN and TELEGRAM_UPDATES_CHAT_ID)
@@ -3214,6 +3217,8 @@ body[class*="theme-"] button,body[class*="theme-"] input[type=submit],body[class
 .theme-menu option{{background:#161b22;color:#f0f6fc}}
 .theme-menu{{display:grid;gap:7px;margin:0 0 22px}}.theme-menu label{{color:var(--muted);font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase}}#theme-select{{width:100%;min-width:0;padding:9px 10px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:7px;font-size:12px}}.theme-picker-button{{width:100%;padding:8px 10px;background:linear-gradient(135deg,var(--blue),#7c59f5);color:#fff;border:1px solid var(--blue);border-radius:8px;font-size:12px;font-weight:800;cursor:pointer}}.theme-modal{{display:none;position:fixed;inset:0;z-index:200;padding:24px;background:#050914aa;backdrop-filter:blur(12px);overflow:auto}}.theme-modal.open{{display:grid;place-items:center}}.theme-modal-card{{width:min(900px,100%);padding:24px;border:1px solid var(--line);border-radius:20px;background:var(--panel);box-shadow:0 24px 80px #000b}}.theme-modal-head{{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:18px}}.theme-modal-head h2{{margin:0}}.theme-close{{padding:8px 11px;background:var(--panel2);color:var(--text);border:1px solid var(--line);box-shadow:none}}.theme-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}}.theme-card{{overflow:hidden;padding:0;text-align:left;border:1px solid var(--line);border-radius:13px;background:var(--panel2);box-shadow:none;transform:none}}.theme-card:hover,.theme-card.selected{{border-color:var(--blue);box-shadow:0 0 0 2px color-mix(in srgb,var(--blue) 35%,transparent),0 8px 20px #0004;transform:translateY(-2px)}}.theme-preview{{height:62px;padding:9px;display:flex;align-items:flex-end;gap:6px;background:var(--preview-bg)}}.theme-preview i{{height:20px;flex:1;border-radius:4px;background:var(--preview-panel);border:1px solid var(--preview-line)}}.theme-preview i:last-child{{background:var(--preview-accent);border:0}}.theme-card strong{{display:block;padding:9px 10px 2px;color:var(--text);font-size:12px}}.theme-card small{{display:block;padding:0 10px 10px;color:var(--muted);font-size:10px}}
 .ai-analysis-button{{font-size:12px;padding:8px 11px;white-space:nowrap;background:linear-gradient(145deg,#29d4c4,#3477e8);box-shadow:0 4px 0 #145c79,0 8px 16px #27d3c244}}.ai-analysis-button:hover{{box-shadow:0 6px 0 #145c79,0 12px 20px #27d3c255}}.ai-card{{position:fixed;z-index:100;inset:0;display:grid;place-items:center;padding:22px;background:#050817aa;backdrop-filter:blur(8px);pointer-events:none;opacity:0;transition:opacity .18s}}.ai-card.open{{opacity:1;pointer-events:auto}}.ai-card-panel{{width:min(680px,100%);max-height:min(760px,90vh);overflow:auto;padding:25px;background:linear-gradient(145deg,#263267,#141d3d);border:1px solid #6685d8;border-radius:20px;box-shadow:14px 16px 0 #050611,0 25px 70px #000c,0 0 40px #27d3c244;transform:translateZ(18px) rotateX(1deg)}}.ai-card-head{{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:16px}}.ai-card-head h2{{margin:0;color:#fff}}.ai-close{{padding:6px 10px!important;background:#273457!important;box-shadow:0 3px 0 #101a33!important}}.ai-loading,.ai-error{{padding:17px;border-radius:12px;background:#101a35;color:#bfd0f3;line-height:1.55}}.ai-error{{color:#ffb8c2;border:1px solid #a84d72}}.ai-result-grid{{display:grid;gap:12px}}.ai-result-block{{padding:14px;border:1px solid #4a629d;border-radius:12px;background:#19254a}}.ai-result-block b{{display:block;color:#89f0df;font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}}.ai-result-block p{{margin:0;line-height:1.55;color:#f4f6ff}}.ai-result-block ul{{margin:0;padding-left:21px;color:#f4f6ff;line-height:1.55}}@media(max-width:700px){{.ai-card-panel{{padding:18px}}}}
+.topbar-actions #ai-provider{{border-color:#37cbbd;color:#dffefa;background:#12283a;font-weight:800;box-shadow:0 0 0 1px #37cbbd22,0 5px 16px #1acbb322}}
+.ai-provider-note{{display:inline-flex;align-items:center;gap:7px;margin-left:8px;padding:5px 9px;border:1px solid #3b78c4;border-radius:999px;color:#b9d6ff;background:#17294a;font-size:11px;font-weight:700}}
 .empty{{display:none;color:#94a3b8;padding:16px}}.inline{{display:inline;margin:0}}.inline button{{margin:0}}.section-heading{{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}}.section-heading h2{{margin-bottom:4px}}.section-heading p{{margin:0 0 12px}}.bulk-actions{{display:flex;gap:8px;flex-wrap:wrap}}.bulk-actions button{{padding:10px 14px}}.bulk-actions button:disabled{{opacity:.45;cursor:not-allowed;filter:none}}.bulk-approve{{background:linear-gradient(135deg,#238636,#2ea043)!important;box-shadow:0 5px 0 #196c2e,0 10px 18px #23863633!important}}.bot-actions{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:205px}}.bot-actions .button-link,.bot-actions button{{white-space:nowrap;min-height:40px}}.owner-form{{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 16px}}.owner-form input{{min-width:220px}}section{{scroll-margin-top:20px}}
 @media(max-width:1150px){{.cards{{grid-template-columns:repeat(3,1fr)}}.insights{{grid-template-columns:1fr}}}}@keyframes ambientFloat{{0%,100%{{transform:translate3d(0,0,30px) scale(1)}}50%{{transform:translate3d(-25px,22px,90px) scale(1.08)}}}}@keyframes ambientSpin{{to{{transform:rotateX(66deg) rotateZ(378deg)}}}}@keyframes ambientCube{{to{{transform:rotateX(360deg) rotateY(360deg) rotateZ(180deg)}}}}@keyframes particleDrift{{0%,100%{{transform:translate3d(0,0,0);opacity:.35}}50%{{transform:translate3d(-32px,24px,70px);opacity:1}}}}@keyframes pageIn{{from{{opacity:0;transform:translateY(14px) scale(.985)}}to{{opacity:1;transform:none}}}}@keyframes cardIn{{from{{opacity:0;transform:translateY(18px) rotateX(5deg)}}to{{opacity:1;transform:translateY(0) rotateX(0)}}}}@keyframes pulseStatus{{0%,100%{{box-shadow:0 0 0 0 #42e6c700}}50%{{box-shadow:0 0 0 7px #42e6c722}}}}@keyframes newRow{{0%{{background:#27d3c455}}100%{{background:transparent}}}}@keyframes scan{{0%{{transform:translateX(-110%)}}100%{{transform:translateX(110%)}}}}@keyframes spin3d{{to{{transform:rotate(360deg)}}}}
 .content{{animation:pageIn .48s cubic-bezier(.2,.75,.25,1) both;transform-style:preserve-3d}}.card,.insight-card,.toolbar,.table-wrap{{animation:cardIn .55s cubic-bezier(.2,.75,.25,1) both;transform-style:preserve-3d}}.card:nth-child(2){{animation-delay:.06s}}.card:nth-child(3){{animation-delay:.12s}}.card:nth-child(4){{animation-delay:.18s}}.card:nth-child(5){{animation-delay:.24s}}.card:nth-child(6){{animation-delay:.3s}}.live-pill{{animation:pulseStatus 2.4s ease-in-out infinite}}.chart-bar{{transform-origin:bottom;animation:chartRise .7s cubic-bezier(.2,.8,.2,1) both}}@keyframes chartRise{{from{{height:0!important;opacity:0}}to{{opacity:1}}}}
@@ -3283,7 +3288,7 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 {('<a class="' + ('active' if section == 'all-info' else '') + '" href="/?view=all-info"><span class="icon">✹</span>Информация о всех</a><a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Боты</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'group' else '') + '" href="/?view=group"><span class="icon">✦</span>Группа</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else ('<a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Мой бот</a>' if can_access(current_user, 'bots') else ''))}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
 <div class="theme-modal" id="dashboard-theme-modal" aria-hidden="true"><div class="theme-modal-card" role="dialog" aria-modal="true" aria-labelledby="dashboard-theme-title"><div class="theme-modal-head"><div><h2 id="dashboard-theme-title">Галерея тем</h2><p class="muted">Выберите оформление по живому примеру.</p></div><button type="button" class="theme-close" id="dashboard-theme-close">Закрыть</button></div><div class="theme-grid" id="dashboard-theme-grid"></div></div></div>
-<main class="content">{impersonation_notice}<div class="topbar"><div class="topbar-title"><button type="button" class="mobile-menu-button" id="mobile-menu-button" aria-label="Открыть меню">☰</button><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div></div><div class="topbar-actions"><select id="refresh-interval" aria-label="Частота обновления"><option value="5">Обновление: 5 сек</option><option value="15">Обновление: 15 сек</option><option value="30">Обновление: 30 сек</option><option value="60">Обновление: 1 мин</option><option value="0">Обновление выключено</option></select><select id="interface-language" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="en">English</option></select><button type="button" id="compact-mode-button">Компактный режим</button><a class="button-link" href="/profile">◉ Профиль</a><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
+<main class="content">{impersonation_notice}<div class="topbar"><div class="topbar-title"><button type="button" class="mobile-menu-button" id="mobile-menu-button" aria-label="Открыть меню">☰</button><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div></div><div class="topbar-actions"><select id="ai-provider" aria-label="Провайдер ИИ"><option value="gemini" {'selected' if AI_PROVIDER == 'gemini' else ''} {'disabled' if not GEMINI_API_KEY else ''}>ИИ: Gemini {'· доступен' if GEMINI_API_KEY else '· не настроен'}</option><option value="qwen" {'selected' if AI_PROVIDER in {'qwen', 'huggingface', 'hf'} else ''} {'disabled' if not HF_TOKEN else ''}>ИИ: Qwen {'· доступен' if HF_TOKEN else '· не настроен'}</option></select><select id="refresh-interval" aria-label="Частота обновления"><option value="5">Обновление: 5 сек</option><option value="15">Обновление: 15 сек</option><option value="30">Обновление: 30 сек</option><option value="60">Обновление: 1 мин</option><option value="0">Обновление выключено</option></select><select id="interface-language" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="en">English</option></select><button type="button" id="compact-mode-button">Компактный режим</button><a class="button-link" href="/profile">◉ Профиль</a><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
 {('<section id="overview"><div class="cards">' + cards + '</div><div class="insights"><section class="insight-card chart-card"><div class="insight-head"><div><b>Активность за 7 дней</b><span class="muted">Заявки по дням</span></div><span class="live-pill"><i></i> live</span></div><div class="chart">' + chart_bars + '</div></section><section class="insight-card"><div class="insight-head"><div><b>Центр событий</b><span class="muted">Последние изменения</span></div><a class="text-link" href="/?view=actions">Все события →</a></div><ul class="event-list">' + notification_rows + '</ul></section></div></section>' if section == 'overview' and (owner or selected_bot) else '')}
 {('<div class="toolbar"><input id="search" placeholder="Поиск: имя, username, ID, текст..." autocomplete="off"><select id="status"><option value="">Все статусы</option><option value="pending">На модерации</option><option value="published">Опубликовано</option><option value="rejected">Отклонено</option><option value="deleted">Удалено</option></select><select id="kind"><option value="">Все типы</option><option value="text">Текст</option><option value="photo">Фото</option><option value="video">Видео</option><option value="media_group">Медиагруппа</option></select><div class="filter-tabs"><button type="button" class="filter-tab active" data-status="">Все</button><button type="button" class="filter-tab" data-status="pending">На модерации</button><button type="button" class="filter-tab" data-status="published">Опубликовано</button></div><button type="button" onclick="refreshPage()">↻ Обновить</button><a class="button-link" href="/backup">↓ Резервная копия</a></div>' if section == 'overview' else '')}
 {('<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_rows + '</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section><section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>' if section == 'overview' else '')}
@@ -3456,15 +3461,17 @@ function escapeHtml(value) {{
 async function requestAiAnalysis(button) {{
   const postId = button.dataset.postId;
   if (!postId || button.disabled) return;
+  const providerSelect = document.getElementById('ai-provider');
+  const provider = providerSelect ? providerSelect.value : 'gemini';
   button.disabled = true;
-  aiCardBody.innerHTML = '<div class="ai-loading">Анализируем заявку безопасно…</div>';
+  aiCardBody.innerHTML = `<div class="ai-loading">Анализируем заявку через ${{provider === 'qwen' ? 'Qwen' : 'Gemini'}}…</div>`;
   aiCard.classList.add('open');
   aiCard.setAttribute('aria-hidden', 'false');
   try {{
     const response = await fetch('/api/ai-analysis', {{
       method: 'POST',
       headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{post_id: Number(postId)}}),
+      body: JSON.stringify({{post_id: Number(postId), provider}}),
       cache: 'no-store'
     }});
     const payload = await response.json().catch(() => ({{}}));
@@ -3476,6 +3483,14 @@ async function requestAiAnalysis(button) {{
   }} finally {{
     button.disabled = false;
   }}
+}}
+const aiProviderSelect = document.getElementById('ai-provider');
+if (aiProviderSelect) {{
+  const savedProvider = localStorage.getItem('podslushka-ai-provider');
+  if (savedProvider === 'gemini' || savedProvider === 'qwen') aiProviderSelect.value = savedProvider;
+  aiProviderSelect.addEventListener('change', () => {{
+    localStorage.setItem('podslushka-ai-provider', aiProviderSelect.value);
+  }});
 }}
 document.addEventListener('click', event => {{
   const button = event.target.closest('.ai-analysis-button');
@@ -4254,6 +4269,9 @@ class Handler(BaseHTTPRequestHandler):
                 post_id = int(request_data["post_id"])
                 if post_id <= 0:
                     raise ValueError
+                provider = str(request_data.get("provider", AI_PROVIDER)).strip().lower()
+                if provider not in {"gemini", "qwen"}:
+                    raise ValueError
                 target = ai_analysis_target(post_id)
             except (UnicodeDecodeError, ValueError, TypeError, KeyError, json.JSONDecodeError):
                 log_action(actor, "AI analysis request", target)
@@ -4262,10 +4280,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             log_action(actor, "AI analysis request", target)
-            provider_ready = bool(HF_TOKEN) if AI_PROVIDER in {"huggingface", "hf", "qwen"} else bool(GEMINI_API_KEY)
+            provider_ready = bool(HF_TOKEN) if provider == "qwen" else bool(GEMINI_API_KEY)
             if not provider_ready:
                 log_action(actor, "AI analysis error", f"{target}:configuration")
-                required_key = "HF_TOKEN" if AI_PROVIDER in {"huggingface", "hf", "qwen"} else "GEMINI_API_KEY"
+                required_key = "HF_TOKEN" if provider == "qwen" else "GEMINI_API_KEY"
                 send_ai_json({"error": f"ИИ-анализ временно недоступен: не настроен {required_key}."}, 503)
                 return
 
@@ -4296,13 +4314,15 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
                 cached = cached_ai_analysis(row_value(post, "ai_analysis", 3), text_hash)
+                if cached and cached.get("provider", "gemini") != provider:
+                    cached = None
                 if cached:
                     log_action(actor, "AI analysis success (cached)", target)
                     cached["analyzed_at"] = int(row_value(post, "ai_analyzed_at", 4) or 0)
                     send_ai_json({"ok": True, "analysis": cached})
                     return
                 try:
-                    if AI_PROVIDER in {"huggingface", "hf", "qwen"}:
+                    if provider == "qwen":
                         analysis = request_huggingface_analysis(text)
                     else:
                         analysis = request_gemini_analysis(text)
@@ -4310,13 +4330,21 @@ class Handler(BaseHTTPRequestHandler):
                     log_action(actor, "AI analysis error", f"{target}:timeout")
                     send_ai_json({"error": "Сервис ИИ не ответил вовремя."}, 504)
                     return
-                except RuntimeError:
+                except RuntimeError as exc:
                     log_action(actor, "AI analysis error", f"{target}:upstream")
-                    send_ai_json({"error": "Сервис ИИ вернул ошибку. Попробуйте позже."}, 502)
+                    if str(exc) == "hf_forbidden":
+                        error_message = (
+                            "Hugging Face отклонил запрос (403): проверьте Read-токен "
+                            "и доступ модели через Inference Providers."
+                        )
+                    else:
+                        error_message = "Сервис ИИ вернул ошибку. Попробуйте позже."
+                    send_ai_json({"error": error_message}, 502)
                     return
                 analyzed_at = int(time.time())
                 stored = dict(analysis)
                 stored["text_sha256"] = text_hash
+                stored["provider"] = provider
                 try:
                     with db_connect() as conn:
                         conn.execute(
