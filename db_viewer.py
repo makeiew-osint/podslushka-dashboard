@@ -2101,6 +2101,7 @@ body{{padding:0!important;overflow:hidden!important;background:#050607!important
 <label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Минимум 8 символов" required minlength="8" autocomplete="new-password"><button type="button" class="toggle">◉</button></div><button class="submit" type="submit">Создать аккаунт →</button></form>{oauth_links}
 <p class="hint">Доступ только для авторизованных пользователей · заявки подтверждает владелец</p></section></div>
 <script>
+window.__podslushkaOsintReady = true;
 const authPanel = document.getElementById('auth-panel');
 const authBackdrop = document.getElementById('auth-backdrop');
 function openAuth(tabName) {{
@@ -3833,8 +3834,8 @@ function bindOsintSearch() {{
   }}
   }};
   const submitButton = osintForm.querySelector('.submit');
-  if (submitButton) submitButton.addEventListener('click', launchSearch);
   osintForm.addEventListener('submit', launchSearch);
+  window.__podslushkaLaunchOsint = launchSearch;
 }}
 function resumeOsintSearch() {{
   const savedOsintJob = sessionStorage.getItem('podslushka-osint-job');
@@ -3845,6 +3846,13 @@ function resumeOsintSearch() {{
 }}
 bindOsintSearch();
 resumeOsintSearch();
+document.addEventListener('click', event => {{
+  const button = event.target.closest('#osint-search-form .submit');
+  if (button && typeof window.__podslushkaLaunchOsint === 'function') {{
+    event.preventDefault();
+    window.__podslushkaLaunchOsint(event);
+  }}
+}});
 async function requestAiAnalysis(button) {{
   const postId = button.dataset.postId;
   if (!postId || button.disabled) return;
