@@ -1925,9 +1925,13 @@ body:after{{display:block!important;content:"";position:fixed!important;z-index:
 @media(max-width:900px){{body{{padding:12px!important}}.shell{{grid-template-columns:1fr!important;max-width:600px!important;min-height:0!important}}.intro{{min-height:420px!important;padding:34px 30px!important}}.signal-core{{top:38%!important;transform:translate(-50%,-50%) scale(.82) rotateX(58deg) rotateZ(-18deg)!important}}.intro h1{{font-size:44px!important}}.auth{{padding:40px 34px 46px!important}}}}
 @media(max-width:520px){{.intro{{min-height:390px!important;padding:26px 22px!important}}.intro h1{{font-size:37px!important;letter-spacing:-2px!important}}.intro p{{font-size:14px!important}}.features{{grid-template-columns:1fr!important;gap:7px!important;margin-top:24px!important}}.feature{{padding:8px 0 0!important}}.check{{display:inline!important;margin-right:5px!important}}.auth{{padding:30px 22px 36px!important}}.auth h2{{font-size:30px!important}}}}
 @media(prefers-reduced-motion:reduce){{*,*:before,*:after{{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important}}}}
+.sylva-hero-frame{{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;border:0!important;z-index:1!important;opacity:.82!important;mix-blend-mode:screen!important;pointer-events:auto!important;background:#0b2417!important}}
+.intro .brand,.intro h1,.intro p,.intro .features{{z-index:3!important;text-shadow:0 2px 18px #06150dcc!important}}
+.intro h1,.intro p,.intro .features{{pointer-events:none!important}}
+@media(max-width:900px){{.sylva-hero-frame{{opacity:.5!important}}}}
 </style></head><body><div class="shell">
 <section class="intro"><div class="brand"><img class="brand-logo" src="/assets/podslushka-logo.png" alt="Podslushka DB"><span>Podslushka DB</span></div>
-<div class="signal-scene" aria-hidden="true"><div class="signal-core"><div class="core-face"></div><div class="core-ring"></div><div class="core-ring ring-two"></div></div><i class="signal-dot dot-one"></i><i class="signal-dot dot-two"></i><i class="signal-dot dot-three"></i></div>
+<iframe class="sylva-hero-frame" src="/assets/inner-green-3d.html" title="Sylva living green 3D scene"></iframe>
 <h1>Ваша панель<br>под контролем.</h1><p>Управляйте заявками, пользователями и модерацией в одном защищённом рабочем пространстве.</p>
 <div class="features"><div class="feature"><span class="check">✓</span> Локальная защищённая база</div>
 <div class="feature"><span class="check">✓</span> Быстрый поиск и фильтры</div>
@@ -3736,6 +3740,27 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        static_assets = {
+            "/assets/inner-green-3d.html": ("assets/inner-green-3d.html", "text/html; charset=utf-8"),
+            "/assets/inner-green-assets/three.min.js": ("assets/inner-green-assets/three.min.js", "text/javascript"),
+            "/assets/inner-green-assets/card-ecostove.jpg": ("assets/inner-green-assets/card-ecostove.jpg", "image/jpeg"),
+            "/assets/inner-green-assets/card-ethos.jpg": ("assets/inner-green-assets/card-ethos.jpg", "image/jpeg"),
+            "/assets/inner-green-assets/lexend-latin.woff2": ("assets/inner-green-assets/lexend-latin.woff2", "font/woff2"),
+        }
+        if path in static_assets:
+            relative_path, content_type = static_assets[path]
+            asset = Path(__file__).resolve().parent / relative_path
+            if not asset.is_file():
+                self.send_error(404)
+                return
+            body = asset.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path == "/assets/podslushka-logo.png":
             asset = Path(__file__).resolve().parent / "assets" / "podslushka-logo.png"
             if not asset.is_file():
