@@ -87,5 +87,7 @@ services:
         value: "45"
       - key: OSINT_MAIGRET_TIMEOUT
         value: "75"
+      - key: OSINT_MAIGRET_TOP_SITES
+        value: "300"
       - key: OSINT_SHERLOCK_TIMEOUT
         value: "60"

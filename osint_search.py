@@ -27,6 +27,7 @@ ALLOWED_TOOLS = {"blackbird", "maigret", "sherlock"}
 MAX_ACTIVE_JOBS = 2
 JOB_TIMEOUT = max(20, min(int(os.getenv("OSINT_JOB_TIMEOUT", "120")), 120))
 REQUEST_TIMEOUT = max(4, min(int(os.getenv("OSINT_REQUEST_TIMEOUT", "6")), 20))
+MAIGRET_TOP_SITES = max(50, min(int(os.getenv("OSINT_MAIGRET_TOP_SITES", "300")), 1000))
 TOOL_TIMEOUTS = {
     "blackbird": max(20, min(int(os.getenv("OSINT_BLACKBIRD_TIMEOUT", "45")), JOB_TIMEOUT)),
     "maigret": max(20, min(int(os.getenv("OSINT_MAIGRET_TIMEOUT", "75")), JOB_TIMEOUT)),
@@ -140,6 +141,9 @@ def _run_tool(tool: str, username: str, workdir: Path) -> dict:
             "--folderoutput", str(workdir),
             "--timeout", str(REQUEST_TIMEOUT),
             "--no-progressbar",
+            "--top-sites", str(MAIGRET_TOP_SITES),
+            "--no-recursion",
+            "--no-extracting",
         ]
     else:
         repo = _repo("sherlock")
