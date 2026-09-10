@@ -27,6 +27,7 @@ JOB_TTL = 30 * 60
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 EXECUTOR = ThreadPoolExecutor(max_workers=MAX_ACTIVE_JOBS, thread_name_prefix="osint-search")
+ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
 
 def _repo(name: str) -> Path:
@@ -77,6 +78,7 @@ def _collect_files(folder: Path) -> list[dict]:
 
 
 def _normalise(tool: str, stdout: str, files: list[dict]) -> list[dict]:
+    stdout = ANSI_RE.sub("", stdout)
     found = []
     seen = set()
 
@@ -111,23 +113,32 @@ def _run_tool(tool: str, username: str, workdir: Path) -> dict:
         repo = _repo("blackbird")
         bootstrap = (
             "import runpy,sys,types; "
+            "sys.argv[0]='blackbird.py'; "
             "sys.path.insert(0,'src'); sys.path.insert(0,'src/modules'); "
             "utils=types.ModuleType('utils'); utils.__path__=['src/modules/utils']; sys.modules['utils']=utils; "
             "runpy.run_path('blackbird.py', run_name='__main__')"
         )
         command = [
-            python, "-c", bootstrap, "blackbird.py",
+            python, "-c", bootstrap,
             "--username", username, "--json", "--no-nsfw",
         ]
     elif tool == "maigret":
         repo = _repo("maigret")
-        command = [python, "-m", "maigret", username, "--json", "simple"]
+        command = [
+            python, "-m", "maigret", username, "--json", "simple",
+            "--folderoutput", str(workdir),
+        ]
     else:
         repo = _repo("sherlock")
         command = [python, "-m", "sherlock_project", username, "--print-found", "--no-color"]
     if not repo.is_dir():
         return {"tool": tool, "status": "unavailable", "error": "Инструмент не скачан."}
-    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    env = {
+        **os.environ,
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
+    }
     if tool == "blackbird":
         env["PYTHONPATH"] = os.pathsep.join(
             [str(repo / "src"), str(repo / "src" / "modules"), env.get("PYTHONPATH", "")]
@@ -154,7 +165,10 @@ def _run_tool(tool: str, username: str, workdir: Path) -> dict:
         "exit_code": completed.returncode,
         "results": _normalise(tool, output, _collect_files(workdir)),
         "log": output[-4000:],
-        "error": "" if completed.returncode == 0 else "Инструмент завершился с ошибкой.",
+        "error": "" if completed.returncode == 0 else (
+            output.strip().splitlines()[-1][:500]
+            if output.strip() else "Инструмент завершился с ошибкой."
+        ),
     }
 
 

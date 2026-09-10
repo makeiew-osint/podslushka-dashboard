@@ -14,6 +14,7 @@ services:
       typing-extensions networkx pyvis reportlab flask platformdirs curl-cffi
       tomli requests-futures stem pandas openpyxl pycares python-socks urllib3
       pillow beautifulsoup4 chardet charset-normalizer
+      about-time==4.2.1 graphemeu==0.7.2
     startCommand: python db_viewer.py
     plan: free
     envVars:

@@ -3506,6 +3506,9 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 .osint-result ul{{margin:0;padding-left:20px;display:grid;gap:5px}}
 .osint-result a{{color:var(--accent);overflow-wrap:anywhere}}
 .osint-summary{{grid-column:1/-1;border-color:#f08c6c88;background:#f08c6c12}}
+.osint-downloads{{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}}
+.osint-downloads strong{{margin-right:auto;font-size:13px}}
+.osint-downloads button{{min-height:34px;padding:7px 11px}}
 .osint-notice{{margin-top:16px;color:var(--muted);font-size:12px}}
 @media(max-width:1100px){{.osint-search-form{{grid-template-columns:1fr 1fr}}.osint-search-form>.submit{{grid-column:1/-1}}.osint-results{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 @media(max-width:680px){{.osint-search-form{{grid-template-columns:1fr}}.osint-search-form fieldset{{flex-wrap:wrap;height:auto}}.osint-search-form>.submit{{grid-column:auto;width:100%}}.osint-results{{grid-template-columns:1fr}}}}
@@ -3693,6 +3696,49 @@ function escapeHtml(value) {{
   node.textContent = value == null ? '' : String(value);
   return node.innerHTML;
 }}
+function downloadOsintResult(job, format) {{
+  const username = String(job.username || 'username').replace(/[^A-Za-z0-9_.-]+/g, '_');
+  const results = (job.results || []).flatMap(group => (group.results || []).map(item => ({{
+    tool: group.tool, status: group.status, site: item.site, url: item.url
+  }})));
+  let content = '';
+  let mime = 'text/plain;charset=utf-8';
+  let extension = format;
+  if (format === 'txt') {{
+    const lines = [
+      `Podslushka DB — результат поиска @${{job.username || username}}`,
+      `Дата: ${{new Date().toLocaleString('ru-RU')}}`,
+      '',
+      ...((job.results || []).flatMap(group => [
+        `[${{group.tool}}] статус: ${{group.status}}`,
+        ...(group.error ? [`Ошибка: ${{group.error}}`] : []),
+        ...(group.results || []).map(item => `- ${{item.site || 'Источник'}}: ${{item.url}}`),
+        ''
+      ])),
+      ...(job.ai_summary ? ['Резюме ИИ:', job.ai_summary, ''] : [])
+    ];
+    content = lines.join('\n');
+  }} else if (format === 'js') {{
+    mime = 'text/javascript;charset=utf-8';
+    content = `const osintResult = ${{JSON.stringify({{username: job.username, results: job.results || [], ai_summary: job.ai_summary || ''}}, null, 2)}};\n\nexport default osintResult;\n`;
+  }} else {{
+    extension = 'html';
+    mime = 'text/html;charset=utf-8';
+    const rows = results.length
+      ? results.map(item => `<tr><td>${{escapeHtml(item.tool)}}</td><td>${{escapeHtml(item.site || 'Источник')}}</td><td><a href="${{escapeHtml(item.url)}}" rel="noopener noreferrer">${{escapeHtml(item.url)}}</a></td></tr>`).join('')
+      : '<tr><td colspan="3">Совпадений не найдено</td></tr>';
+    const summary = job.ai_summary ? `<section><h2>Резюме ИИ</h2><p>${{escapeHtml(job.ai_summary)}}</p></section>` : '';
+    content = `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OSINT @${{escapeHtml(job.username || username)}}</title><style>body{{margin:0;padding:32px;background:#101923;color:#e8eef7;font:15px system-ui,sans-serif}}main{{max-width:1100px;margin:auto}}h1{{margin-top:0}}section,table{{background:#182333;border:1px solid #334155;border-radius:12px}}section{{padding:18px;margin:18px 0}}table{{width:100%;border-collapse:collapse;overflow:hidden}}th,td{{padding:11px;text-align:left;border-bottom:1px solid #334155;vertical-align:top}}a{{color:#ff9d80;overflow-wrap:anywhere}}@media(max-width:680px){{body{{padding:16px}}table{{font-size:13px}}th,td{{padding:8px}}}}</style></head><body><main><h1>OSINT-поиск @${{escapeHtml(job.username || username)}}</h1><p>Сформировано: ${{escapeHtml(new Date().toLocaleString('ru-RU'))}}</p>${{summary}}<table><thead><tr><th>Инструмент</th><th>Источник</th><th>Ссылка</th></tr></thead><tbody>${{rows}}</tbody></table></main></body></html>`;
+  }}
+  const blob = new Blob([content], {{type: mime}});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `osint-${{username}}.${{extension}}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}}
 function renderOsint(job) {{
   if (!osintResults) return;
   if (job.status === 'running') {{
@@ -3708,7 +3754,10 @@ function renderOsint(job) {{
     return `<article class="osint-result"><header><b>${{escapeHtml(group.tool)}}</b><span class="status">${{escapeHtml(group.status)}}</span></header>${{rows ? `<ul>${{rows}}</ul>` : '<p class="muted">Совпадений не найдено.</p>'}}${{group.error ? `<p class="all-info-error">${{escapeHtml(group.error)}}</p>` : ''}}</article>`;
   }}).join('');
   osintStatus.textContent = `Проверка @${{escapeHtml(job.username)}} завершена.`;
-  osintResults.innerHTML = `${{job.ai_summary ? `<div class="osint-summary"><b>Резюме ИИ</b><p>${{escapeHtml(job.ai_summary)}}</p></div>` : ''}}${{groups || '<p class="muted">Результатов нет.</p>'}}`;
+  osintResults.innerHTML = `${{job.ai_summary ? `<div class="osint-summary"><b>Резюме ИИ</b><p>${{escapeHtml(job.ai_summary)}}</p></div>` : ''}}<div class="osint-downloads"><strong>Скачать результат</strong><button type="button" data-osint-download="txt">TXT</button><button type="button" data-osint-download="js">JavaScript</button><button type="button" data-osint-download="html">HTML</button></div>${{groups || '<p class="muted">Результатов нет.</p>'}}`;
+  osintResults.querySelectorAll('[data-osint-download]').forEach(button => {{
+    button.addEventListener('click', () => downloadOsintResult(job, button.dataset.osintDownload));
+  }});
 }}
 async function pollOsint(jobId) {{
   if (osintPollingJob === jobId) return;
