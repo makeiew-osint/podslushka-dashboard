@@ -2014,9 +2014,9 @@ body{{padding:0!important;overflow:hidden!important;background:#050607!important
 .auth.auth-open .sub,.auth.auth-open .hint{{opacity:.78}}
 .auth.auth-open .tabs{{background:#171a20!important;border-color:#3d424b!important}}
 .auth.auth-open .tab{{color:#b9c0cb!important}}
-.auth.auth-open .tab.active{{background:#e8795f!important;color:#fff!important}}
-.auth.auth-open .submit{{background:#e8795f!important;border-color:#f29476!important;box-shadow:0 4px 0 #8c3c42,0 10px 22px #e8795f40!important}}
-.auth.auth-open .submit:hover{{background:#f29476!important;transform:translateY(-2px)!important}}
+.auth.auth-open .tab.active{{background:#e8796d!important;color:#fff!important}}
+.auth.auth-open .submit{{background:#e8796d!important;border-color:#ff9b8e!important;box-shadow:0 4px 0 #9e4c51,0 10px 22px #e8796d40!important}}
+.auth.auth-open .submit:hover{{background:#ff9b8e!important;transform:translateY(-2px)!important}}
 .auth.auth-open .auth-close{{background:#15181d!important;border-color:#3d424b!important;color:#fff!important;box-shadow:none!important}}
 .auth.auth-open .auth-mark img{{background:#050505!important;border-radius:14px!important;box-shadow:0 0 0 1px #fff3,0 8px 18px #0008!important}}
 .auth-backdrop{{display:none;position:fixed;z-index:25;inset:0;background:#0009;backdrop-filter:blur(5px)}}.auth-backdrop.open{{display:block}}
@@ -2025,10 +2025,10 @@ body{{padding:0!important;overflow:hidden!important;background:#050607!important
 .auth-close{{position:absolute;right:20px;top:16px;border:1px solid #ffffff24;background:#142237;color:#dce7f6;border-radius:8px;padding:7px 10px;cursor:pointer}}
 .public-nav{{left:50%!important;right:auto!important;transform:translateX(-50%)!important;top:22px!important;width:max-content!important;max-width:calc(100vw - 28px)!important;padding:6px!important;border:1px solid #31343b!important;border-radius:16px!important;background:#070809!important;box-shadow:0 10px 26px #000b!important;backdrop-filter:blur(14px)!important;justify-content:center!important;flex-wrap:nowrap!important}}
 .public-nav a{{display:inline-flex!important;align-items:center!important;justify-content:center!important;height:38px!important;padding:0 16px!important;border:0!important;border-radius:9px!important;background:transparent!important;box-shadow:none!important;color:#fff8ef!important;white-space:nowrap!important;transition:background .18s,transform .18s,color .18s!important}}
-.public-nav a:hover,.public-nav a:focus-visible{{background:#754d67!important;color:#fff8ef!important;transform:translateY(-1px)!important;outline:none!important}}
+.public-nav a:hover,.public-nav a:focus-visible{{background:#6d3f4a!important;color:#fff8ef!important;transform:translateY(-1px)!important;outline:none!important}}
 .public-nav .nav-links{{display:flex;gap:3px!important}}
-.public-nav #open-auth{{display:inline-flex!important;min-width:82px!important;background:#e8795f!important;color:#fff!important;box-shadow:0 3px 0 #8c3c42!important;font-weight:850!important}}
-.public-nav #open-auth:hover{{background:#f29476!important;color:#fff!important;transform:translateY(-2px)!important}}
+.public-nav #open-auth{{display:inline-flex!important;min-width:82px!important;background:#e8796d!important;color:#fff!important;box-shadow:0 3px 0 #9e4c51!important;font-weight:850!important}}
+.public-nav #open-auth:hover{{background:#ff9b8e!important;color:#fff!important;transform:translateY(-2px)!important}}
 .auth-visible .public-nav{{display:none!important}}
 .auth.auth-open{{background:rgba(10,14,22,.98)!important;border:1px solid #26364b!important;box-shadow:0 28px 90px #000e,0 0 0 1px #5576a322!important;backdrop-filter:blur(24px)!important}}
 .auth.auth-open h2{{color:#f2f7f5!important;letter-spacing:-.04em!important}}
