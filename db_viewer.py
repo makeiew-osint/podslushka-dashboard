@@ -3734,6 +3734,9 @@ class Handler(BaseHTTPRequestHandler):
                 log_action(f"telegram:{telegram_id or 'unknown'}", "OAuth telegram failed", str(exc)[:240])
                 self.send_html(auth_page("Telegram sign-in failed. Try again."), 400)
             return
+        if path != "/" and not auth_user(self):
+            self.send_error(404)
+            return
         if not auth_user(self):
             telegram_state = (
                 oauth_state("telegram")
