@@ -18,6 +18,28 @@ Podslushka DB — панель управления Telegram-ботами, за�
 Проект включает веб-панель, Telegram worker, поддержку нескольких managed-ботов,
 изоляцию данных между ботами и публикацию одобренных материалов в канал.
 
+## Онлайн-превью
+
+- [Главная и вход](https://podslushka-dashboard.onrender.com/)
+- [О проекте](https://podslushka-dashboard.onrender.com/about)
+- [Почему мы](https://podslushka-dashboard.onrender.com/why)
+- [Поддержка и FAQ](https://podslushka-dashboard.onrender.com/support)
+- [Все страницы ошибок](https://podslushka-dashboard.onrender.com/errors)
+- [Пример ошибки 404](https://podslushka-dashboard.onrender.com/errors/404)
+
+Основные публичные страницы также проверены локальными браузерными скриншотами:
+главная, «О проекте», поддержка и ошибка `404`.
+
+### Скриншоты
+
+| Главная | О проекте |
+| --- | --- |
+| ![Главная Podslushka](assets/screenshots/home.png) | ![О проекте](assets/screenshots/about.png) |
+
+| Поддержка | Ошибка 404 |
+| --- | --- |
+| ![Поддержка](assets/screenshots/support.png) | ![Ошибка 404](assets/screenshots/error-404.png) |
+
 ## Как устроен проект
 
 ```mermaid
@@ -66,6 +88,8 @@ sequenceDiagram
 - Публикация одобренных материалов в Telegram-канал.
 - Мониторинг worker-процессов, Telegram-соединения и состояния базы.
 - Профиль с темами, аватаром, языком, сессиями, журналом входов и 2FA QR.
+- Расширенная галерея тем dashboard: `Obsidian`, `Coral Night`, `Amber Desk`,
+  `Arctic Blue` и прозрачная тема с `backdrop-filter`.
 - Резервное копирование, CSV-экспорт и журнал действий.
 - Branded-страницы ошибок `400/401/403/404/500/502/503` в стиле GitHub.
 - Локальный запуск через SQLite или production-запуск через PostgreSQL.
@@ -226,6 +250,18 @@ https://podslushka-dashboard.onrender.com/nonexistent-page
 приложения показать невозможно: в этом случае Render отображает собственную
 страницу `502`. Сначала восстановите статус сервиса `Live`.
 
+Для визуальной проверки доступны отдельные маршруты:
+
+```text
+/errors/400
+/errors/401
+/errors/403
+/errors/404
+/errors/500
+/errors/502
+/errors/503
+```
+
 ## Telegram-бот и администраторы
 
 1. Создайте бота через `@BotFather`.
@@ -252,7 +288,7 @@ AI включается отдельно для managed-бота. Автопуб
 В профиле доступны:
 
 - имя, email, язык и URL аватара;
-- выбор темы интерфейса;
+- выбор темы интерфейса и прозрачный режим панелей;
 - активные сессии и выход с других устройств;
 - журнал входов;
 - настройка и отключение 2FA через QR-код;
