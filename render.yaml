@@ -76,3 +76,7 @@ services:
         value: "-10042000444335"
       - key: SITE_MAINTENANCE_MODE
         value: "false"
+      - key: OSINT_JOB_TIMEOUT
+        value: "120"
+      - key: OSINT_REQUEST_TIMEOUT
+        value: "6"
