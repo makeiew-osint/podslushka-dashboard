@@ -24,6 +24,12 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3-flash-preview
+      - key: HF_TOKEN
+        sync: false
+      - key: HF_MODEL
+        value: Qwen/Qwen3.8-27B
+      - key: AI_PROVIDER
+        value: gemini
       - key: TELEGRAM_BOT_USERNAME
         value: schoolmboy202648_bot_bot
       - key: GOOGLE_CLIENT_ID

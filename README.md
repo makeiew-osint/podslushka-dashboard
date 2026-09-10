@@ -148,10 +148,34 @@ start: python db_viewer.py
 | `DASHBOARD_SYNC_SECRET` | Секрет синхронизации worker с dashboard |
 | `DASHBOARD_SYNC_URL` | URL dashboard, например `https://podslushka-dashboard.onrender.com` |
 
-Дополнительные настройки: `GEMINI_API_KEY`, `GEMINI_MODEL`,
+Дополнительные настройки: `GEMINI_API_KEY`, `GEMINI_MODEL`, `HF_TOKEN`,
+`HF_MODEL` и `AI_PROVIDER`,
 `TELEGRAM_BOT_USERNAME`, `TELEGRAM_UPDATES_CHAT_ID`, `OAUTH_BASE_URL`,
 `OAUTH_SIGNING_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 `OWNER_2FA_SECRET`, `OWNER_2FA_REQUIRED` и `SITE_MAINTENANCE_MODE`.
+
+### AI-провайдеры
+
+По умолчанию используется Gemini:
+
+```env
+AI_PROVIDER=gemini
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-3-flash-preview
+```
+
+Для Qwen через Hugging Face Inference API укажите в Render:
+
+```env
+AI_PROVIDER=qwen
+HF_TOKEN=hf_...
+HF_MODEL=Qwen/Qwen3.8-27B
+```
+
+`HF_TOKEN` создаётся в настройках Hugging Face с правом `Read`. Токен нельзя
+добавлять в Git, README или отправлять в чат. Модель не клонируется на Render:
+запросы идут через Hugging Face Router, поэтому не требуется скачивать десятки
+гигабайт весов на бесплатный web-service.
 
 Для получения сообщений от всех managed-ботов укажите числовой Telegram ID
 владельца в `OWNER_TELEGRAM_ID`. Бот отправляет владельцу те же уведомления,
