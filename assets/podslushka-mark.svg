@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
+  <title id="title">Podslushka DB</title>
+  <desc id="desc">Abstract speech bubble and signal mark</desc>
+  <defs>
+    <linearGradient id="bg" x1="8" y1="8" x2="88" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffca82"/>
+      <stop offset=".52" stop-color="#d783a7"/>
+      <stop offset="1" stop-color="#7450a7"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="26" y1="20" x2="70" y2="76" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff8ef" stop-opacity=".98"/>
+      <stop offset="1" stop-color="#fff8ef" stop-opacity=".68"/>
+    </linearGradient>
+  </defs>
+  <rect x="3" y="3" width="90" height="90" rx="26" fill="#21162b" stroke="#ffca82" stroke-width="2"/>
+  <circle cx="48" cy="43" r="27" fill="url(#bg)" opacity=".92"/>
+  <path d="M27 39.5C27 31.5 33.5 25 41.5 25h13C62.5 25 69 31.5 69 39.5v8C69 55.5 62.5 62 54.5 62H46l-11 9v-11.8c-4.8-3.1-8-8.5-8-14.7v-5Z" fill="url(#glass)"/>
+  <path d="M38 43h20M43 50h10" stroke="#7b4e75" stroke-width="4" stroke-linecap="round"/>
+  <path d="M72 28.5c4.8 4.3 7.7 10.5 7.7 17.5M77.5 23.5C85 30.2 89 39.7 89 49" fill="none" stroke="#ffca82" stroke-width="2.5" stroke-linecap="round" opacity=".8"/>
+</svg>
