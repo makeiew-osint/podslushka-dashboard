@@ -3837,10 +3837,10 @@ function downloadOsintResult(job, format) {{
       ])),
       ...(job.ai_summary ? ['Резюме ИИ:', job.ai_summary, ''] : [])
     ];
-    content = lines.join('\n');
+    content = lines.join('\\n');
   }} else if (format === 'js') {{
     mime = 'text/javascript;charset=utf-8';
-    content = `const osintResult = ${{JSON.stringify({{username: job.username, results: job.results || [], ai_summary: job.ai_summary || ''}}, null, 2)}};\n\nexport default osintResult;\n`;
+    content = `const osintResult = ${{JSON.stringify({{username: job.username, results: job.results || [], ai_summary: job.ai_summary || ''}}, null, 2)}};\\n\\nexport default osintResult;\\n`;
   }} else {{
     extension = 'html';
     mime = 'text/html;charset=utf-8';
