@@ -42,9 +42,7 @@ passwords.
 
 ### OSINT interface
 
-![OSINT username search](assets/screenshots/osint-search-latest.png)
-
-The interface contains:
+The OSINT interface contains:
 
 1. Username input.
 2. Independent source selection for Blackbird, Maigret and Sherlock.
@@ -60,17 +58,13 @@ specific person.
 
 ## Screenshots
 
-| Public landing page | Dashboard |
+| Public landing page | About page |
 | --- | --- |
-| ![Landing page](assets/screenshots/home.png) | ![Dashboard](assets/screenshots/osint-search-latest.png) |
+| ![Landing page](assets/screenshots/home.png) | ![About](assets/screenshots/about.png) |
 
-| About page | Support page |
+| Support page | Error page |
 | --- | --- |
-| ![About](assets/screenshots/about.png) | ![Support](assets/screenshots/support.png) |
-
-| Error page |
-| --- |
-| ![Error 404](assets/screenshots/error-404.png) |
+| ![Support](assets/screenshots/support.png) | ![Error 404](assets/screenshots/error-404.png) |
 
 ## Architecture
 
