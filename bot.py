@@ -827,6 +827,35 @@ async def _process_submission(
             await _notify_admins_simple(post_id, user_id, text, file_id, kind, from_user)
     except Exception:
         logging.exception("Could not process user submission")
+        await _notify_admins_fallback(user_id, text, from_user)
+
+
+async def _notify_admins_fallback(user_id: int, text: Optional[str], from_user: Any):
+    """Notify admins even when the database is temporarily unavailable."""
+    name = html.escape(getattr(from_user, "full_name", "—"))
+    username = html.escape(getattr(from_user, "username", None) or "—")
+    content = (
+        "⚠️ <b>Новая заявка</b>\n\n"
+        f"Имя: <b>{name}</b>\n"
+        f"Username: @{username}\n"
+        f"Telegram ID: <code>{user_id}</code>\n"
+        f"Текст: {html.escape(text or '—')}"
+    )
+    plain_content = html.unescape(re.sub(r"<[^>]+>", "", content))
+    for admin_id in await _admin_ids():
+        try:
+            await bot.send_message(admin_id, content, parse_mode="HTML")
+        except Exception:
+            try:
+                await bot.send_message(admin_id, plain_content)
+            except Exception:
+                logging.exception("Fallback admin message failed for %s", admin_id)
+        try:
+            await _send_info_file(
+                admin_id, content, f"unprocessed-user-{user_id}.txt"
+            )
+        except Exception:
+            logging.exception("Fallback admin file failed for %s", admin_id)
 
 
 async def _notify_admins_simple(post_id: int, user_id: int, text: Optional[str], file_id: Optional[str], kind: str, from_user: Any):
