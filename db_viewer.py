@@ -1566,7 +1566,6 @@ def destroy_session(handler: BaseHTTPRequestHandler) -> str | None:
                      handler.client_address[0] if handler.client_address else "",
                      handler.headers.get("User-Agent", "")[:500], int(time.time())),
                 )
-            conn.commit()
         SESSIONS.pop(token, None)
     return token
 
@@ -4004,13 +4003,17 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if path == "/logout":
-            actor = auth_user(self)
-            token = destroy_session(self)
-            if actor:
-                log_action(actor, "Logout", "")
+            # Revoke and audit the session in one database transaction. Avoid a
+            # second auth lookup and action insert so logout is not delayed by
+            # extra database round trips.
+            destroy_session(self)
             self.send_response(302)
             self.send_header("Location", "/")
-            self.send_header("Set-Cookie", "session=; Max-Age=0; HttpOnly; SameSite=Strict")
+            self.send_header(
+                "Set-Cookie",
+                "session=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict"
+            )
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             return
         if path == "/impersonation/exit":
