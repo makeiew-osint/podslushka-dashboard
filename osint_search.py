@@ -22,7 +22,8 @@ TOOLS_ROOT = Path(os.getenv("OSINT_TOOLS_DIR", ROOT / "tools")).resolve()
 USERNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,31}$")
 ALLOWED_TOOLS = {"blackbird", "maigret", "sherlock"}
 MAX_ACTIVE_JOBS = 2
-JOB_TIMEOUT = max(30, min(int(os.getenv("OSINT_JOB_TIMEOUT", "180")), 600))
+JOB_TIMEOUT = max(30, min(int(os.getenv("OSINT_JOB_TIMEOUT", "60")), 180))
+REQUEST_TIMEOUT = max(5, min(int(os.getenv("OSINT_REQUEST_TIMEOUT", "10")), 30))
 JOB_TTL = 30 * 60
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
@@ -122,16 +123,22 @@ def _run_tool(tool: str, username: str, workdir: Path) -> dict:
         command = [
             python, "-c", bootstrap,
             "--username", username, "--json", "--no-nsfw",
+            "--timeout", str(REQUEST_TIMEOUT),
         ]
     elif tool == "maigret":
         repo = _repo("maigret")
         command = [
             python, "-m", "maigret", username, "--json", "simple",
             "--folderoutput", str(workdir),
+            "--timeout", str(REQUEST_TIMEOUT),
+            "--no-progressbar",
         ]
     else:
         repo = _repo("sherlock")
-        command = [python, "-m", "sherlock_project", username, "--print-found", "--no-color"]
+        command = [
+            python, "-m", "sherlock_project", username, "--print-found",
+            "--no-color", "--timeout", str(REQUEST_TIMEOUT),
+        ]
     if not repo.is_dir():
         return {"tool": tool, "status": "unavailable", "error": "Инструмент не скачан."}
     env = {
@@ -191,7 +198,14 @@ def _worker(job_id: str, username: str, tools: list[str], ai: bool) -> None:
             }
             completed = {}
             for future in as_completed(futures):
-                completed[futures[future]] = future.result()
+                index = futures[future]
+                completed[index] = future.result()
+                with JOBS_LOCK:
+                    JOBS[job_id].update(
+                        results=[completed[item] for item in sorted(completed)],
+                        completed_tools=len(completed),
+                        updated_at=time.time(),
+                    )
             results = [completed[index] for index in range(len(tools))]
         summary = summarize_results(username, results) if ai else ""
         with JOBS_LOCK:
@@ -228,6 +242,7 @@ def start_job(username: str, tools: list[str], ai: bool = False) -> dict:
             "status": "running",
             "created_at": time.time(),
             "updated_at": time.time(),
+            "results": [],
         }
     EXECUTOR.submit(_worker, job_id, username, tools, ai)
     return get_job(job_id)
