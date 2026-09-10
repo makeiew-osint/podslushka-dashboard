@@ -1,8 +1,56 @@
 # Podslushka DB
 
+<p align="center">
+  <img src="assets/podslushka-logo.png" alt="Podslushka DB" width="180">
+</p>
+
+<p align="center">
+  Панель управления Telegram-ботами, заявками и модерацией
+</p>
+
+<p align="center">
+  <a href="https://podslushka-dashboard.onrender.com/">Открыть панель</a>
+  ·
+  <a href="https://github.com/makeiew-osint/podslushka-dashboard/issues">Сообщить о проблеме</a>
+</p>
+
 Podslushka DB — панель управления Telegram-ботами, заявками и модерацией.
 Проект включает веб-панель, Telegram worker, поддержку нескольких managed-ботов,
 изоляцию данных между ботами и публикацию одобренных материалов в канал.
+
+## Как устроен проект
+
+```mermaid
+flowchart LR
+    U[Пользователь Telegram] --> B[Telegram Bot]
+    B --> W[bot.py<br/>Worker]
+    W --> D[(SQLite / PostgreSQL)]
+    W --> A[Администратор]
+    W --> C[Канал публикаций]
+    P[Веб-панель] --> D
+    P --> M[Модерация и управление]
+    M --> W
+```
+
+## Основной сценарий
+
+```mermaid
+sequenceDiagram
+    participant User as Пользователь
+    participant Bot as Telegram-бот
+    participant Worker as Worker
+    participant Admin as Администратор
+    participant DB as База данных
+
+    User->>Bot: Отправляет сообщение
+    Bot-->>User: Быстрый ответ
+    Bot->>Worker: Передаёт заявку в фон
+    Worker->>DB: Сохраняет заявку
+    Worker->>Admin: Информация о пользователе
+    Worker->>Admin: TXT-файл с данными
+    Admin->>Worker: Одобрить или отклонить
+    Worker->>DB: Сохраняет решение
+```
 
 ## Возможности
 
@@ -34,6 +82,23 @@ Podslushka DB — панель управления Telegram-ботами, за�
 | `render.yaml` | Конфигурация Render |
 | `site_monitor.py` | Проверка доступности сайта |
 | `.github/workflows/site-monitor.yml` | Мониторинг сайта каждые 5 минут |
+
+## Архитектура деплоя
+
+```mermaid
+flowchart TB
+    G[GitHub master] --> R[Render Web Service]
+    R --> S[db_viewer.py]
+    S --> DB[(Render PostgreSQL)]
+    S --> T[Telegram API]
+    T --> B[Основной и managed-боты]
+    G --> A[GitHub Actions]
+    A --> H[Проверка доступности сайта]
+```
+
+<p align="center">
+  <img src="assets/podslushka-logo.png" alt="Логотип проекта" width="96">
+</p>
 
 ## Локальный запуск Windows
 
