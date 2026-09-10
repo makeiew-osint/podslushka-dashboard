@@ -1752,7 +1752,7 @@ def public_info_page(section: str = "about") -> str:
       <div class="flow"><span>Сообщение</span><i>→</i><span>Проверка</span><i>→</i><span>Решение</span><i>→</i><span>Публикация</span></div></div>
     """ if section == "about" else ""
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{esc(title)} · Podslushka DB</title><style>
+<title>{esc(title)} · Podslushka DB</title><link rel="icon" type="image/svg+xml" href="/assets/podslushka-favicon.svg"><style>
 :root{{--ink:#fff8ef;--muted:#c6b7c8;--line:#5a405f;--panel:#21162b;--accent:#ffb86b;--blue:#f19a73;--plum:#9d6bc7}}
 *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:#050607;color:var(--ink);font:16px Inter,Segoe UI,Arial,sans-serif;overflow-x:hidden}}
 .flow-bg{{position:fixed;inset:0;z-index:-1;opacity:.34;pointer-events:none}}.flow-bg iframe{{width:100%;height:100%;border:0}}
@@ -1780,7 +1780,7 @@ def auth_page(message: str = "", message_is_html: bool = False) -> str:
     oauth_links = f'<div class="oauth"><div class="oauth-title">Безопасный вход</div>{google_link}{telegram_link}<p class="hint">Новая учётная запись сначала ожидает одобрения владельца.</p></div>'
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Вход · Podslushka</title><style>
+<title>Вход · Podslushka</title><link rel="icon" type="image/svg+xml" href="/assets/podslushka-favicon.svg"><style>
 :root{{--bg:#0d1117;--panel:#161b22;--line:#30363d;--text:#f0f6fc;--muted:#8b949e;--blue:#58a6ff;--blue2:#3fb950;--pink:#bc8cff}}
 *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;
 background:radial-gradient(circle at 8% 8%,#30363d88 0,transparent 28%),radial-gradient(circle at 92% 88%,#1f6feb33 0,transparent 30%),linear-gradient(135deg,#0d1117,#161b22 55%,#0d1117);
@@ -2260,7 +2260,7 @@ def user_detail_page(current_user: str, user_id: int,
     role = dashboard_role(current_user)
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Пользователь {esc(user_id)} · Podslushka</title><style>
+<title>Пользователь {esc(user_id)} · Podslushka</title><link rel="icon" type="image/svg+xml" href="/assets/podslushka-favicon.svg"><style>
 body{{margin:0;background:#090b1c;color:#f5f4ff;font:14px Segoe UI,Arial,sans-serif;padding:28px}}
 main{{max-width:1200px;margin:auto}}a,button{{display:inline-block;color:#fff;text-decoration:none;
 border:0;border-radius:10px;padding:10px 15px;font-weight:700;background:linear-gradient(135deg,#7b61ff,#3e6fe8);
@@ -2364,7 +2364,7 @@ def profile_page(current_user: str) -> str:
         if role == "owner" else ""
     )
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>Профиль · Podslushka DB</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" type="image/svg+xml" href="/assets/podslushka-favicon.svg"><title>Профиль · Podslushka DB</title>
 <style>
 *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;padding:28px;background:radial-gradient(circle at 12% 0,#286dff66,transparent 27%),radial-gradient(circle at 88% 95%,#00d8d033,transparent 30%),#060b19;color:#f3f7ff;font:15px Segoe UI,Arial,sans-serif;overflow-x:hidden}}body:before,body:after{{content:"";position:fixed;pointer-events:none;border:1px solid #308cff55;filter:drop-shadow(0 0 18px #1686ff66);transform:rotate(35deg);animation:orbit 11s ease-in-out infinite}}body:before{{width:210px;height:210px;right:4%;top:11%;border-radius:38px}}body:after{{width:90px;height:90px;left:7%;bottom:13%;border-radius:50%;animation-delay:-4s}}main{{position:relative;z-index:1;max-width:1080px;margin:auto}}a,button{{display:inline-block;color:#fff;text-decoration:none;border:0;border-radius:11px;padding:11px 15px;font-weight:700;background:linear-gradient(135deg,#2686ff,#735cf3);box-shadow:5px 6px 0 #0b1733;cursor:pointer;transition:.2s}}a:hover,button:hover{{transform:translateY(-3px);filter:brightness(1.12)}}.profile-head{{display:flex;align-items:center;gap:20px;margin:32px 0 28px;padding:25px;border:1px solid #3a65a7;border-radius:24px;background:linear-gradient(110deg,#132b57dd,#111a36dd);box-shadow:12px 14px 0 #050914,0 0 55px #167bff22;backdrop-filter:blur(12px)}}.avatar{{width:92px;height:92px;display:grid;place-items:center;border-radius:28px;background:linear-gradient(145deg,#2a8cff,#6958ef);font-size:40px;box-shadow:9px 10px 0 #0a1630,0 0 35px #2787ff88;animation:float 4s ease-in-out infinite;overflow:hidden}}.avatar-image{{width:100%;height:100%;object-fit:cover}}.profile-head h1{{margin:0 0 7px;font-size:32px}}.muted{{color:#a9bddf}}section{{margin-top:20px;padding:24px;border:1px solid #314a7e;border-radius:20px;background:linear-gradient(145deg,#15264aee,#101a34ee);box-shadow:9px 10px 0 #060b18,0 20px 45px #0006;animation:rise .5s both}}.metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}.metric{{padding:16px;border:1px solid #38558e;border-radius:15px;background:linear-gradient(145deg,#203766,#172744);box-shadow:4px 5px 0 #0c1730}}.metric small,.profile-bot span,.profile-bot small{{display:block;color:#a9bddf}}.metric b{{display:block;font-size:22px;margin-top:7px}}.profile-bot{{display:grid;gap:6px;padding:17px;margin-top:12px;border:1px solid #3e67a2;border-radius:15px;background:linear-gradient(145deg,#17345d,#11203d);box-shadow:5px 6px 0 #09152b;transition:.25s}}.profile-bot:hover{{transform:translateY(-4px);box-shadow:8px 10px 0 #09152b,0 0 30px #167bff22}}.profile-bot-link{{width:max-content;padding:7px 10px;font-size:12px;box-shadow:3px 4px 0 #0b1733}}.profile-actions{{display:flex;flex-wrap:wrap;gap:10px}}.profile-actions a{{font-size:13px}}.worker-state{{display:inline-block;padding:3px 8px;border-radius:99px;background:#24385c;color:#c8dcff;font-size:11px}}.worker-state.running,.worker-state.online,.worker-state.started{{background:#123f48;color:#7ff3d4}}.worker-state.stopped,.worker-state.error{{background:#4c2638;color:#ffb2c8}}.profile-health{{display:flex;align-items:center;gap:12px;margin-top:16px;padding:13px 15px;border:1px solid #34578f;border-radius:14px;background:#0e1a32}}.health-dot{{width:11px;height:11px;border-radius:50%;background:#6cf0c5;box-shadow:0 0 16px #4de5bd;animation:pulse 1.8s infinite}}.health-dot.warning{{background:#ffc46b;box-shadow:0 0 16px #ff9d4d}}.profile-health b{{display:block}}.profile-health small{{display:block;color:#9fb7dc;margin-top:3px}}.profile-scene{{position:relative;min-height:190px;margin-top:20px;overflow:hidden;border:1px solid #416ca9;border-radius:20px;background:radial-gradient(circle at 50% 48%,#377cff55,transparent 25%),linear-gradient(145deg,#132d59,#091328);perspective:900px;isolation:isolate}}.profile-scene:before{{content:"";position:absolute;inset:18px;border:1px solid #5b9bff4d;border-radius:50%;transform:rotateX(68deg);animation:sceneRing 10s linear infinite;box-shadow:0 0 25px #3d8dff2e}}.profile-scene:after{{content:"";position:absolute;width:200px;height:200px;left:50%;top:50%;transform:translate(-50%,-50%);border:1px solid #67e9d966;border-radius:50%;animation:sceneRingReverse 8s linear infinite}}.scene-orb{{position:absolute;left:50%;top:50%;width:65px;height:65px;margin:-32px;border-radius:50%;background:radial-gradient(circle at 30% 25%,#d8ffff,#58d9ff 18%,#3878f0 58%,#4736b8);box-shadow:0 0 28px #4ba5ff,0 0 70px #3275ff99;animation:sceneOrb 4.5s ease-in-out infinite;transform-style:preserve-3d;z-index:2}}.scene-orb:after{{content:"";position:absolute;inset:-12px;border:2px solid #9bffff77;border-radius:50%;transform:rotateX(70deg);animation:sceneRingReverse 4s linear infinite}}.scene-particle{{position:absolute;width:5px;height:5px;border-radius:50%;background:#9cf8e9;box-shadow:0 0 12px #65f5df;animation:particleDrift 5s ease-in-out infinite}}.scene-particle.one{{left:18%;top:27%}}.scene-particle.two{{right:19%;top:64%;animation-delay:-1.6s;background:#91baff}}.scene-particle.three{{left:31%;bottom:20%;animation-delay:-3s}}.scene-caption{{position:absolute;left:18px;bottom:14px;z-index:3;color:#cce1ff;font-size:11px;letter-spacing:1.4px;text-transform:uppercase}}.detail-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}}.detail-card{{padding:14px;border:1px solid #38588e;border-radius:14px;background:linear-gradient(145deg,#1c335d,#12203d);box-shadow:4px 5px 0 #09152b}}.detail-card small{{display:block;color:#9fb7dc}}.detail-card b{{display:block;margin-top:6px;font-size:16px;color:#e8f1ff}}@keyframes float{{50%{{transform:translateY(-7px) rotate(2deg)}}}}@keyframes orbit{{50%{{transform:rotate(62deg) translateY(-18px)}}}}@keyframes rise{{from{{opacity:0;transform:translateY(14px)}}to{{opacity:1;transform:none}}}}@keyframes pulse{{50%{{transform:scale(1.35);opacity:.65}}}}@keyframes sceneRing{{to{{transform:rotateX(68deg) rotateZ(360deg)}}}}@keyframes sceneRingReverse{{to{{transform:rotateY(360deg) rotateZ(-360deg)}}}}@keyframes sceneOrb{{50%{{transform:translate3d(-10px,-10px,30px) scale(1.12)}}}}@keyframes particleDrift{{50%{{transform:translate3d(18px,-23px,30px);opacity:.35}}}}@media(max-width:700px){{body{{padding:16px}}.profile-head{{padding:18px;gap:13px}}.profile-head h1{{font-size:25px}}.avatar{{width:70px;height:70px;font-size:30px}}.metrics{{grid-template-columns:1fr 1fr}}.detail-grid{{grid-template-columns:1fr}}section{{padding:18px}}}}
 .profile-theme-bar{{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px;position:sticky;top:12px;z-index:10;padding:10px 12px;border:1px solid #496da8aa;border-radius:16px;background:#0b1730cc;backdrop-filter:blur(16px);box-shadow:0 10px 28px #0005}}
@@ -2567,7 +2567,7 @@ def project_created_page(current_user: str, project_name: str, join_token: str) 
     """Show a project token without replacing the authenticated dashboard session."""
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Проект создан · Podslushka DB</title><style>
+<title>Проект создан · Podslushka DB</title><link rel="icon" type="image/svg+xml" href="/assets/podslushka-favicon.svg"><style>
 *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;padding:28px;background:radial-gradient(circle at 12% 0,#286dff66,transparent 28%),radial-gradient(circle at 88% 95%,#00d8d033,transparent 30%),#060b19;color:#f3f7ff;font:15px Segoe UI,Arial,sans-serif}}main{{max-width:720px;margin:8vh auto}}.card{{padding:32px;border:1px solid #4268a8;border-radius:24px;background:linear-gradient(145deg,#172d56ee,#101a34ee);box-shadow:12px 14px 0 #050914,0 20px 60px #167bff22}}h1{{margin-top:0}}.muted{{color:#a9bddf}}.success{{color:#8ff4d7}}.token{{display:flex;gap:10px;align-items:center;margin:22px 0;padding:10px;border:1px solid #5d7fca;border-radius:13px;background:#0b1730}}code{{flex:1;overflow:auto;padding:10px;color:#fff;white-space:nowrap;font:13px Consolas,monospace}}button,a{{display:inline-block;padding:11px 15px;border:0;border-radius:10px;color:#fff;text-decoration:none;font-weight:700;background:linear-gradient(135deg,#318dff,#7c59f5);box-shadow:4px 5px 0 #172d68;cursor:pointer}}button.copied{{background:linear-gradient(135deg,#13a68b,#2acbb1)}}.actions{{display:flex;gap:10px;flex-wrap:wrap}}</style></head><body><main><section class="card">
 <h1 class="success">Проект создан</h1><p>Проект «<b>{esc(project_name)}</b>» успешно создан.</p>
 <p class="muted">Сохраните токен подключения. Он нужен участникам для присоединения к проекту и больше не будет показан автоматически.</p>
@@ -3246,7 +3246,7 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
     )
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
-<title>Podslushka DB</title><style>
+<title>Podslushka DB</title><link rel="icon" type="image/svg+xml" href="/assets/podslushka-favicon.svg"><style>
 :root{{--bg:#0d1117;--sidebar:#161b22;--panel:#161b22;--panel2:#21262d;--line:#30363d;--text:#f0f6fc;--muted:#8b949e;--blue:#58a6ff;--blue2:#3fb950;--danger:#f85149;--shadow:#010409;--input:#0d1117}}
 body.light{{--bg:#f6f8fa;--sidebar:#ffffff;--panel:#ffffff;--panel2:#f6f8fa;--line:#d0d7de;--text:#1f2328;--muted:#656d76;--blue:#0969da;--blue2:#1a7f37;--danger:#cf222e;--shadow:#afb8c133;--input:#ffffff}}
 *{{box-sizing:border-box}}html{{scroll-behavior:smooth;overflow-x:hidden;width:100%;max-width:100%}}body{{margin:0;background:radial-gradient(circle at 78% 0,#714dff2b,transparent 30%),radial-gradient(circle at 20% 100%,#17d6c51d,transparent 28%),var(--bg);color:var(--text);font:14px Inter,Segoe UI,Arial,sans-serif;transition:background .25s,color .25s;overflow-x:hidden;width:100%;max-width:100%;perspective:1600px}}
@@ -3860,7 +3860,7 @@ def error_page(status: int, message: str = "") -> str:
     }.get(status, "Произошла ошибка")
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{status} · Podslushka DB</title><style>
+<title>{status} · Podslushka DB</title><link rel="icon" type="image/svg+xml" href="/assets/podslushka-favicon.svg"><style>
 *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:radial-gradient(circle at 18% 18%,#8b5cf633,transparent 30%),radial-gradient(circle at 84% 78%,#ef476f22,transparent 28%),#090a10;color:#f4f7fb;font:15px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:grid;place-items:center;padding:24px;overflow:hidden}}
 .error-flow{{position:fixed;inset:0;width:100%;height:100%;border:0;opacity:.19;pointer-events:none;z-index:0;filter:hue-rotate(270deg) saturate(1.4) brightness(.68);mix-blend-mode:screen}}
 .error-card{{position:relative;z-index:1;width:min(760px,100%);text-align:center;padding:48px 34px 42px;background:#12141dE8;border:1px solid #3a4055;border-radius:24px;box-shadow:0 24px 80px #000b,0 0 0 1px #9a7bff22;backdrop-filter:blur(18px)}}
@@ -3898,7 +3898,7 @@ def error_preview_page() -> str:
     )
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Предпросмотр ошибок · Podslushka DB</title><style>
+<title>Предпросмотр ошибок · Podslushka DB</title><link rel="icon" type="image/svg+xml" href="/assets/podslushka-favicon.svg"><style>
 *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:#080b12;color:#edf3fb;font:15px Inter,Segoe UI,Arial,sans-serif;padding:clamp(24px,6vw,72px);overflow-x:hidden}}
 body:before{{content:"";position:fixed;inset:0;background:radial-gradient(circle at 14% 10%,#6d4aff2a,transparent 30%),radial-gradient(circle at 88% 82%,#d94f8920,transparent 32%);pointer-events:none}}
 main{{position:relative;width:min(900px,100%);margin:0 auto}}.back{{display:inline-flex;margin-bottom:30px;color:#aebbd0;text-decoration:none}}.back:hover{{color:#fff}}
@@ -3931,6 +3931,7 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         static_assets = {
             "/assets/structure-flow.html": ("assets/structure-flow.html", "text/html; charset=utf-8"),
+            "/assets/podslushka-favicon.svg": ("assets/podslushka-favicon.svg", "image/svg+xml"),
             "/assets/podslushka-mark.svg": ("assets/podslushka-mark.svg", "image/svg+xml"),
             "/assets/podslushka-avatar-bg.svg": ("assets/podslushka-avatar-bg.svg", "image/svg+xml"),
             "/assets/podslushka-avatar.svg": ("assets/podslushka-avatar.svg", "image/svg+xml"),
