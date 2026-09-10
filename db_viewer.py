@@ -1996,6 +1996,21 @@ body{{padding:0!important;overflow:hidden!important}}
 .public-nav{{position:fixed;z-index:20;top:24px;left:34px;right:34px;display:flex;justify-content:space-between;align-items:center;gap:18px}}
 .public-nav a{{color:#d9e6f4;text-decoration:none;font-size:13px;font-weight:700;padding:10px 13px;border:1px solid #ffffff20;border-radius:9px;background:#07111dcc;backdrop-filter:blur(10px)}}
 .public-nav .nav-links{{display:flex;gap:7px;flex-wrap:wrap}}.public-nav a:hover{{border-color:#83f3d2aa;color:#83f3d2}}
+/* Full-screen landing: the scene owns the viewport; auth is opened on demand. */
+body{{padding:0!important;overflow:hidden!important;background:#050607!important}}
+.shell{{display:block!important;width:100vw!important;height:100vh!important;min-height:100vh!important;border:0!important;border-radius:0!important;background:#050607!important;box-shadow:none!important;overflow:hidden!important}}
+.intro{{display:flex!important;width:100%!important;height:100%!important;min-height:100vh!important;padding:clamp(110px,16vh,180px) clamp(28px,8vw,140px) 72px!important;background:#050607!important}}
+.intro h1{{font-size:clamp(52px,8vw,126px)!important;max-width:760px!important;margin:auto 0 18px!important;letter-spacing:-.075em!important}}
+.intro p{{font-size:clamp(16px,1.5vw,22px)!important;max-width:470px!important}}
+.features{{max-width:650px!important;grid-template-columns:repeat(3,1fr)!important;gap:20px!important;margin-top:38px!important}}
+.feature{{border-top:1px solid #ffffff2b;padding-top:14px!important;font-size:13px!important;color:#dbe8f5!important;align-items:flex-start!important}}
+.auth{{display:none!important;position:fixed!important;z-index:30!important;inset:50% auto auto 50%!important;width:min(520px,calc(100% - 32px))!important;max-height:calc(100vh - 32px)!important;overflow:auto!important;transform:translate(-50%,-50%)!important;padding:32px!important;border:1px solid #314461!important;border-radius:18px!important;background:#0a1322f5!important;box-shadow:0 30px 90px #000b!important;backdrop-filter:blur(22px)!important}}
+.auth.auth-open{{display:flex!important}}
+.auth-backdrop{{display:none;position:fixed;z-index:25;inset:0;background:#0009;backdrop-filter:blur(5px)}}.auth-backdrop.open{{display:block}}
+.auth .auth-mark{{display:block!important;text-align:left!important}}.auth .auth-mark img{{width:48px!important;height:48px!important;border-radius:12px!important}}
+.auth h2{{font-size:30px!important;text-shadow:none!important}}.auth .form.active{{padding-top:12px!important}}
+.auth-close{{position:absolute;right:20px;top:16px;border:1px solid #ffffff24;background:#142237;color:#dce7f6;border-radius:8px;padding:7px 10px;cursor:pointer}}
+@media(max-width:700px){{.intro{{padding:94px 24px 36px!important}}.intro h1{{font-size:54px!important}}.features{{grid-template-columns:1fr!important;gap:10px!important;margin-top:22px!important}}.feature{{border-top:0;padding-top:0!important}}.auth{{padding:25px 20px!important}}}}
 </style></head><body><nav class="public-nav"><a href="/about">О проекте</a><div class="nav-links"><a href="/why">Почему мы</a><a href="/support">Поддержка</a></div></nav><div class="shell">
 <section class="intro"><div class="brand"><img class="brand-logo" src="/assets/podslushka-logo.png" alt="Podslushka DB"><span>Podslushka DB</span></div>
 <iframe class="structure-flow-frame" src="/assets/structure-flow.html" title="Structure Flow particle background"></iframe>
@@ -2003,7 +2018,7 @@ body{{padding:0!important;overflow:hidden!important}}
 <div class="features"><div class="feature"><span class="check">✓</span> Локальная защищённая база</div>
 <div class="feature"><span class="check">✓</span> Быстрый поиск и фильтры</div>
 <div class="feature"><span class="check">✓</span> Резервные копии в один клик</div></div></section>
-<section class="auth"><div class="auth-mark"><img src="/assets/podslushka-logo.png" alt=""></div><h2 id="title">Добро пожаловать</h2><p class="sub" id="subtitle">Войдите, чтобы продолжить работу.</p>
+<div class="auth-backdrop" id="auth-backdrop"></div><section class="auth" id="auth-panel"><button class="auth-close" type="button" id="auth-close">Закрыть</button><div class="auth-mark"><img src="/assets/podslushka-logo.png" alt=""></div><h2 id="title">Добро пожаловать</h2><p class="sub" id="subtitle">Войдите, чтобы продолжить работу.</p>
 {message_markup}<div class="tabs"><button class="tab active" data-tab="login">Войти</button><button class="tab" data-tab="register">Регистрация</button></div>
 <form class="form active" id="login" method="post" action="/login"><label class="field">Логин</label><input name="username" placeholder="Введите логин" required autocomplete="username">
 <label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Введите пароль" required autocomplete="current-password"><button type="button" class="toggle">◉</button></div>
@@ -2013,6 +2028,18 @@ body{{padding:0!important;overflow:hidden!important}}
 <label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Минимум 8 символов" required minlength="8" autocomplete="new-password"><button type="button" class="toggle">◉</button></div><button class="submit" type="submit">Создать аккаунт →</button></form>{oauth_links}
 <p class="hint">Доступ только для авторизованных пользователей · заявки подтверждает владелец</p></section></div>
 <script>
+const authPanel = document.getElementById('auth-panel');
+const authBackdrop = document.getElementById('auth-backdrop');
+function openAuth(tabName) {{
+  authPanel.classList.add('auth-open'); authBackdrop.classList.add('open');
+  const tab = document.querySelector(`.tab[data-tab="${{tabName || 'login'}}"]`) || document.querySelector('.tab[data-tab="login"]');
+  if (tab) tab.click();
+}}
+function closeAuth() {{ authPanel.classList.remove('auth-open'); authBackdrop.classList.remove('open'); }}
+document.getElementById('auth-close').addEventListener('click', closeAuth);
+authBackdrop.addEventListener('click', closeAuth);
+document.querySelector('.public-nav').insertAdjacentHTML('beforeend', '<a href="#login" id="open-auth">Войти</a>');
+document.getElementById('open-auth').addEventListener('click', event => {{ event.preventDefault(); openAuth('login'); }});
 document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {{
  document.querySelectorAll('.tab,.form').forEach(el => el.classList.remove('active'));
  tab.classList.add('active'); document.getElementById(tab.dataset.tab).classList.add('active');
@@ -2041,6 +2068,8 @@ window.addEventListener('message', event => {{
     window.setTimeout(() => target.focus(), 180);
   }}
 }});
+if (window.location.hash === '#login') openAuth('login');
+if (window.location.hash === '#register') openAuth('register');
 </script></body></html>"""
 
 
