@@ -3903,6 +3903,7 @@ function bindOsintSearch() {{
   }};
   const submitButton = osintForm.querySelector('.submit');
   osintForm.addEventListener('submit', launchSearch);
+  if (submitButton) submitButton.addEventListener('click', launchSearch);
   window.__podslushkaLaunchOsint = launchSearch;
 }}
 function resumeOsintSearch() {{
@@ -3914,13 +3915,6 @@ function resumeOsintSearch() {{
 }}
 bindOsintSearch();
 resumeOsintSearch();
-document.addEventListener('click', event => {{
-  const button = event.target.closest('#osint-search-form .submit');
-  if (button && typeof window.__podslushkaLaunchOsint === 'function') {{
-    event.preventDefault();
-    window.__podslushkaLaunchOsint(event);
-  }}
-}});
 async function requestAiAnalysis(button) {{
   const postId = button.dataset.postId;
   if (!postId || button.disabled) return;
@@ -4142,56 +4136,6 @@ if (refreshSelect) {{
   refreshSelect.addEventListener('change', applyRefreshInterval);
 }}
 applyRefreshInterval();
-</script>
-<script>
-(function () {{
-  const form = document.getElementById('osint-search-form');
-  const button = form && form.querySelector('.submit');
-  if (!form || !button) return;
-  if (button.dataset.osintFallbackBound === '1') return;
-  button.dataset.osintFallbackBound = '1';
-  button.addEventListener('click', async function (event) {{
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    const status = document.getElementById('osint-status');
-    const results = document.getElementById('osint-results');
-    const username = document.getElementById('osint-username');
-    const tools = Array.from(form.querySelectorAll('input[name="tool"]:checked')).map(item => item.value);
-    const aiInput = form.querySelector('input[name="ai"]:checked');
-    if (!username || !username.value.trim()) {{
-      if (status) status.textContent = 'Введите username для поиска.';
-      username && username.focus();
-      return;
-    }}
-    if (!tools.length) {{
-      if (status) status.textContent = 'Выберите хотя бы один инструмент поиска.';
-      return;
-    }}
-    button.disabled = true;
-    button.textContent = 'Запускаем поиск…';
-    if (status) status.textContent = 'Подключаем инструменты поиска…';
-    try {{
-      const response = await fetch('/api/osint-search', {{
-        method: 'POST',
-        headers: {{'Content-Type': 'application/json'}},
-        credentials: 'same-origin',
-        body: JSON.stringify({{username: username.value, tools: tools, ai: aiInput && aiInput.value === '1'}})
-      }});
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || `Ошибка запуска: ${{response.status}}`);
-      if (status) status.textContent = 'Поиск запущен. Ожидайте результаты ниже…';
-      if (window.__podslushkaLaunchOsint && window.__podslushkaLaunchOsint !== this) {{
-        sessionStorage.setItem('podslushka-osint-job', payload.id);
-      }}
-      if (typeof pollOsint === 'function') pollOsint(payload.id);
-    }} catch (error) {{
-      if (status) status.textContent = error.message || 'Не удалось запустить поиск.';
-    }} finally {{
-      button.disabled = false;
-      button.textContent = 'Запустить поиск';
-    }}
-  }}, true);
-}})();
 </script>
 </body></html>"""
 
