@@ -46,6 +46,8 @@ services:
         sync: false
       - key: ADMIN_IDS
         sync: false
+      - key: OWNER_TELEGRAM_ID
+        sync: false
       - key: CHANNEL_ID
         sync: false
       - key: TELEGRAM_UPDATES_CHAT_ID

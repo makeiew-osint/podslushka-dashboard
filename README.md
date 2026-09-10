@@ -142,6 +142,7 @@ start: python db_viewer.py
 | `OWNER_PASSWORD` | Пароль владельца |
 | `BOT_TOKEN` | Токен основного Telegram-бота |
 | `ADMIN_IDS` | Telegram ID глобальных администраторов через запятую |
+| `OWNER_TELEGRAM_ID` | Telegram ID владельца для получения уведомлений от всех ботов |
 | `CHANNEL_ID` | `@username` канала или числовой ID `-100...` |
 | `MULTIBOT_ENCRYPTION_KEY` | Fernet-ключ для токенов managed-ботов |
 | `DASHBOARD_SYNC_SECRET` | Секрет синхронизации worker с dashboard |
@@ -151,6 +152,11 @@ start: python db_viewer.py
 `TELEGRAM_BOT_USERNAME`, `TELEGRAM_UPDATES_CHAT_ID`, `OAUTH_BASE_URL`,
 `OAUTH_SIGNING_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 `OWNER_2FA_SECRET`, `OWNER_2FA_REQUIRED` и `SITE_MAINTENANCE_MODE`.
+
+Для получения сообщений от всех managed-ботов укажите числовой Telegram ID
+владельца в `OWNER_TELEGRAM_ID`. Бот отправляет владельцу те же уведомления,
+что и назначенным администраторам, а доступ к этим отправкам остаётся виден в
+операционном журнале.
 
 ### Важно про `DATABASE_URL`
 

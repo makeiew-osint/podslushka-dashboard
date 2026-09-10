@@ -103,7 +103,7 @@ SESSION_TTL = 60 * 60 * 12
 LOGIN_WINDOW = 15 * 60
 LOGIN_MAX_ATTEMPTS = 8
 ROLE_PERMISSIONS = {
-    "owner": {"overview", "users", "posts", "user-search", "access", "owners", "actions", "health", "monitoring", "bots", "group", "export"},
+    "owner": {"overview", "all-info", "users", "posts", "user-search", "access", "owners", "actions", "health", "monitoring", "bots", "group", "export"},
     "admin": {"overview", "users", "posts", "user-search", "actions", "health", "monitoring", "bots", "export"},
     "moderator": {"overview", "users", "posts", "user-search", "actions", "health", "monitoring", "export"},
     "read-only": {"overview", "users", "posts", "user-search", "health", "monitoring", "export"},
@@ -2244,7 +2244,7 @@ const themeModal = document.getElementById('theme-modal');
 const themeGrid = document.getElementById('theme-grid');
 function applyProfileTheme(theme) {{
   const valid = themeCatalog.some(item => item[0] === theme) ? theme : 'dark';
-  document.body.className = document.body.className.split(/\s+/).filter(item => item !== 'light' && !item.startsWith('theme-')).join(' ');
+  document.body.className = document.body.className.split(/\\s+/).filter(item => item !== 'light' && !item.startsWith('theme-')).join(' ');
   if (valid === 'light') document.body.classList.add('theme-light');
   else if (valid !== 'dark') document.body.classList.add(`theme-${{valid}}`);
   document.querySelectorAll('.theme-card').forEach(card => card.classList.toggle('selected', card.dataset.theme === valid));
@@ -2519,6 +2519,70 @@ def page(current_user: str = "", section: str = "overview", history_post_id: str
         for row in user_details
     )
     managed_bots = managed_bot_rows(current_user) if section == "bots" else []
+    all_info_rows = []
+    if owner and section == "all-info":
+        all_info_rows = optional_rows(
+            """SELECT b.id, b.name, b.bot_username, b.channel_id, b.state,
+                      b.last_error, b.last_response_at, b.last_update_at,
+                      COUNT(DISTINCT p.user_id) AS users_count,
+                      COUNT(p.id) AS posts_count,
+                      SUM(CASE WHEN p.status='pending' THEN 1 ELSE 0 END) AS pending_count,
+                      SUM(CASE WHEN p.status='published' THEN 1 ELSE 0 END) AS published_count
+               FROM managed_bots b
+               LEFT JOIN posts p ON p.bot_id=b.id
+               GROUP BY b.id, b.name, b.bot_username, b.channel_id, b.state,
+                        b.last_error, b.last_response_at, b.last_update_at
+               ORDER BY b.name"""
+        )
+        if legacy_bot_configured():
+            all_info_rows.append({
+                "id": 0,
+                "name": TELEGRAM_BOT_USERNAME or "Основной бот",
+                "bot_username": TELEGRAM_BOT_USERNAME,
+                "channel_id": os.getenv("CHANNEL_ID", "—"),
+                "state": BOT_STATUS.get("state", "unknown"),
+                "last_error": BOT_STATUS.get("error", ""),
+                "last_response_at": 0,
+                "last_update_at": 0,
+                "users_count": scalar("SELECT COUNT(*) FROM users"),
+                "posts_count": scalar("SELECT COUNT(*) FROM posts"),
+                "pending_count": scalar("SELECT COUNT(*) FROM posts WHERE status='pending'"),
+                "published_count": scalar("SELECT COUNT(*) FROM posts WHERE status='published'"),
+            })
+    all_info_total = {
+        "bots": len(all_info_rows),
+        "users": sum(int(row_value(row, "users_count", 8) or 0) for row in all_info_rows),
+        "posts": sum(int(row_value(row, "posts_count", 9) or 0) for row in all_info_rows),
+        "pending": sum(int(row_value(row, "pending_count", 10) or 0) for row in all_info_rows),
+        "published": sum(int(row_value(row, "published_count", 11) or 0) for row in all_info_rows),
+    }
+    all_info_cards = "".join(
+        f"<article class='all-info-card'><div class='all-info-card-head'><div>"
+        f"<span class='status-dot {'online' if str(row_value(row, 'state', 4) or '').lower() in {'running', 'online', 'started'} else 'offline'}'></span>"
+        f"<b>{esc(row_value(row, 'name', 1))}</b></div><span class='status'>{esc(row_value(row, 'state', 4) or 'unknown')}</span></div>"
+        f"<p class='muted'>@{esc(row_value(row, 'bot_username', 2) or '—')} · канал {esc(row_value(row, 'channel_id', 3) or '—')}</p>"
+        f"<div class='all-info-stats'><span><b>{int(row_value(row, 'users_count', 8) or 0)}</b> пользователей</span>"
+        f"<span><b>{int(row_value(row, 'posts_count', 9) or 0)}</b> сообщений</span>"
+        f"<span><b>{int(row_value(row, 'pending_count', 10) or 0)}</b> на модерации</span>"
+        f"<span><b>{int(row_value(row, 'published_count', 11) or 0)}</b> опубликовано</span></div>"
+        f"<small class='muted'>Ответ: {esc(fmt_time(row_value(row, 'last_response_at', 6), True))} · "
+        f"Обновление: {esc(fmt_time(row_value(row, 'last_update_at', 7), True))}</small>"
+        f"{('<div class=\"all-info-error\">' + esc(row_value(row, 'last_error', 5)) + '</div>') if row_value(row, 'last_error', 5) else ''}"
+        f"</article>"
+        for row in all_info_rows
+    ) or "<p class='muted'>Подключённых ботов пока нет.</p>"
+    all_info_section = (
+        f"<section id='all-info'><div class='section-heading'><div><h2>Информация о всех</h2>"
+        f"<p class='muted'>Единая сводка по каждому боту и его входящим сообщениям.</p></div>"
+        f"<span class='live-pill'><i></i> owner view</span></div>"
+        f"<div class='cards all-info-total'><div class='card'><b>Ботов</b><strong>{all_info_total['bots']}</strong></div>"
+        f"<div class='card'><b>Пользователи</b><strong>{all_info_total['users']}</strong></div>"
+        f"<div class='card'><b>Сообщения</b><strong>{all_info_total['posts']}</strong></div>"
+        f"<div class='card'><b>На модерации</b><strong>{all_info_total['pending']}</strong></div>"
+        f"<div class='card'><b>Опубликовано</b><strong>{all_info_total['published']}</strong></div></div>"
+        f"<div class='all-info-grid'>{all_info_cards}</div></section>"
+        if owner and section == "all-info" else ""
+    )
     bot_status_center = (
         "<div class='bot-center'><div class='bot-center-head'><div><h3>Центр состояния ботов</h3>"
         "<p class='muted'>Состояние обновляется автоматически каждые 5 секунд.</p></div>"
@@ -3070,11 +3134,22 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 @media(max-width:700px){{.bot-center-head{{display:block}}.bot-center-controls{{margin-top:12px}}.bot-center-controls select,.bot-center-controls button{{flex:1;min-width:0}}.bot-status-grid{{grid-template-columns:1fr}}}}
 @keyframes botPanelSweep{{50%{{transform:translateX(100%)}}}}
 @keyframes botPrismFloat{{0%,100%{{transform:rotateX(-20deg) rotateY(0deg) translateY(0)}}50%{{transform:rotateX(18deg) rotateY(180deg) translateY(-12px)}}}}
+.all-info-total{{grid-template-columns:repeat(5,1fr);margin:18px 0 22px}}
+.all-info-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}}
+.all-info-card{{padding:18px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(145deg,var(--panel2),var(--panel));box-shadow:6px 7px 0 var(--shadow);transition:transform .2s,box-shadow .2s}}
+.all-info-card:hover{{transform:translateY(-4px);box-shadow:8px 11px 0 var(--shadow),0 16px 30px #0004}}
+.all-info-card-head{{display:flex;align-items:center;justify-content:space-between;gap:10px}}
+.all-info-card-head>div{{display:flex;align-items:center;gap:9px}}
+.all-info-stats{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}}
+.all-info-stats span{{padding:10px;border:1px solid var(--line);border-radius:10px;color:var(--muted);font-size:12px}}
+.all-info-stats b{{display:block;color:var(--text);font-size:20px;margin-bottom:3px}}
+.all-info-error{{margin-top:12px;padding:9px 10px;border-radius:9px;background:#5a1f2b;color:#ffb7c5;font-size:12px}}
+@media(max-width:900px){{.all-info-total{{grid-template-columns:repeat(2,1fr)}}}}
 </style></head><body data-monitoring-owner="{'1' if owner else '0'}"><div class="ambient-scene" aria-hidden="true"><div class="ambient-orbit orbit-one"></div><div class="ambient-orbit orbit-two"></div><div class="ambient-sphere"></div><div class="ambient-cube"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="ambient-particle particle-one"></span><span class="ambient-particle particle-two"></span></div><div class="layout">
 <aside class="sidebar"><div class="brand"><img class="brand-logo" src="/assets/podslushka-logo.png" alt="Podslushka DB"><span>Podslushka DB</span></div><div class="theme-menu"><label for="theme-select">Тема интерфейса</label><select id="theme-select"><option value="dark">GitHub Dark</option><option value="light">GitHub Light</option><option value="midnight">Midnight Blue</option><option value="nord">Nord</option><option value="purple">Purple Night</option><option value="emerald">Emerald Forest</option><option value="rose">Rose Pine</option><option value="cyan">Cyber Cyan</option><option value="forest">Forest Green</option><option value="coffee">A Cup of Coffee</option><option value="ocean">Ocean Blue</option><option value="mono">Monochrome</option><option value="sunset">Sunset Red</option><option value="dracula">Dracula</option><option value="solarized">Solarized</option><option value="onedark">One Dark</option><option value="catppuccin">Catppuccin</option><option value="gruvbox">Gruvbox</option><option value="tokyo">Tokyo Night</option><option value="matrix">Matrix</option><option value="amethyst">Amethyst</option><option value="slate">Slate</option><option value="sand">Sandstone</option><option value="cherry">Cherry</option><option value="aqua">Aqua</option><option value="github-dimmed">GitHub Dimmed</option><option value="github-high">GitHub High Contrast</option><option value="ayu">Ayu</option><option value="ayu-mirage">Ayu Mirage</option><option value="ayu-light">Ayu Light</option><option value="vscode-dark">VS Code Dark</option><option value="vscode-light">VS Code Light</option><option value="monokai">Monokai</option><option value="material">Material</option><option value="material-ocean">Material Ocean</option><option value="solarized-light">Solarized Light</option><option value="rose-pine">Rosé Pine</option><option value="everforest">Everforest</option><option value="kanagawa">Kanagawa</option><option value="palenight">Palenight</option><option value="night-owl">Night Owl</option><option value="cobalt">Cobalt</option><option value="cyberpunk">Cyberpunk</option><option value="synthwave">Synthwave</option><option value="horizon">Horizon</option><option value="paper">Paper</option><option value="mint">Mint</option><option value="lavender">Lavender</option><option value="terminal">Terminal</option></select><button type="button" class="theme-picker-button" id="dashboard-theme-open">🎨 Все темы и примеры</button></div><div class="menu-title">Навигация</div><nav class="nav">
 <a class="{'active' if section == 'overview' else ''}" href="/"><span class="icon">⌂</span>Обзор</a><a class="{'active' if section in ('users', 'user-search') else ''}" href="/?view=users"><span class="icon">♙</span>Пользователи</a><a class="{'active' if section == 'posts' else ''}" href="/?view=posts"><span class="icon">▤</span>Заявки</a><a class="{'active' if section == 'health' else ''}" href="/?view=health"><span class="icon">♥</span>Здоровье системы</a><a class="{'active' if section == 'monitoring' else ''}" href="/?view=monitoring"><span class="icon">◉</span>Мониторинг</a>
 <a class="{'active' if section == 'user-search' else ''}" href="/?view=user-search"><span class="icon">⌕</span>Поиск пользователей</a>
-{('<a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Боты</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'group' else '') + '" href="/?view=group"><span class="icon">✦</span>Группа</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else ('<a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Мой бот</a>' if can_access(current_user, 'bots') else ''))}
+{('<a class="' + ('active' if section == 'all-info' else '') + '" href="/?view=all-info"><span class="icon">✹</span>Информация о всех</a><a class="' + ('active' if section == 'access' else '') + '" href="/?view=access"><span class="icon">✓</span>Доступ</a><a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Боты</a><a class="' + ('active' if section == 'actions' else '') + '" href="/?view=actions"><span class="icon">◷</span>Журнал действий</a><a class="' + ('active' if section == 'group' else '') + '" href="/?view=group"><span class="icon">✦</span>Группа</a><a class="' + ('active' if section == 'owners' else '') + '" href="/?view=owners"><span class="icon">♛</span>Владельцы</a>' if owner else ('<a class="' + ('active' if section == 'bots' else '') + '" href="/?view=bots"><span class="icon">◈</span>Мой бот</a>' if can_access(current_user, 'bots') else ''))}
 </nav><div class="sidebar-footer">Защищённая панель управления<br>Автообновление каждые 30 секунд</div></aside>
 <div class="theme-modal" id="dashboard-theme-modal" aria-hidden="true"><div class="theme-modal-card" role="dialog" aria-modal="true" aria-labelledby="dashboard-theme-title"><div class="theme-modal-head"><div><h2 id="dashboard-theme-title">Галерея тем</h2><p class="muted">Выберите оформление по живому примеру.</p></div><button type="button" class="theme-close" id="dashboard-theme-close">Закрыть</button></div><div class="theme-grid" id="dashboard-theme-grid"></div></div></div>
 <main class="content">{impersonation_notice}<div class="topbar"><div class="topbar-title"><button type="button" class="mobile-menu-button" id="mobile-menu-button" aria-label="Открыть меню">☰</button><div><h1>Панель управления</h1><div class="muted">Мониторинг базы данных и модерации · роль: <b>{esc(role)}</b></div></div></div><div class="topbar-actions"><select id="refresh-interval" aria-label="Частота обновления"><option value="5">Обновление: 5 сек</option><option value="15">Обновление: 15 сек</option><option value="30">Обновление: 30 сек</option><option value="60">Обновление: 1 мин</option><option value="0">Обновление выключено</option></select><select id="interface-language" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="en">English</option></select><button type="button" id="compact-mode-button">Компактный режим</button><a class="button-link" href="/profile">◉ Профиль</a><a class="button-link" href="/export/users.csv">↓ CSV</a><a class="button-link danger" href="/logout">Выйти</a></div></div>
@@ -3084,7 +3159,7 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 {('<section id="users"><h2>Все пользователи</h2><div class="toolbar"><input id="detail-search" placeholder="Поиск по ID, имени, username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'users' else '')}
 {('<section id="posts"><h2>Все заявки</h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table></div></section>' if section == 'posts' else '')}
 {('<section id="user-search"><h2>Поиск пользователя</h2><div class="toolbar"><input id="detail-search" placeholder="Введите ID, имя или username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'user-search' else '')}
-{bot_switcher}{approval}{bots_section}{project_join_section}{leave_project_section}{system_section}{monitoring_section}{group_section}
+{all_info_section}{bot_switcher}{approval}{bots_section}{project_join_section}{leave_project_section}{system_section}{monitoring_section}{group_section}
 </main></div><div class="mobile-menu-overlay" id="mobile-menu-overlay"></div><div class="help-toast" id="help-toast" role="status" aria-live="polite"><b>Подсказка</b><span id="help-toast-text"></span></div><div class="ai-card" id="ai-card" aria-hidden="true"><div class="ai-card-panel" role="dialog" aria-modal="true" aria-labelledby="ai-card-title"><div class="ai-card-head"><h2 id="ai-card-title">ИИ-анализ заявки</h2><button type="button" class="ai-close" id="ai-close">Закрыть</button></div><div id="ai-card-body"></div></div></div><script>
 const themeSelect = document.getElementById('theme-select');
 const helpToast = document.getElementById('help-toast');

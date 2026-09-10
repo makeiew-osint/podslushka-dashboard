@@ -72,6 +72,8 @@ async def _lang(user_id: int) -> str:
 async def _admin_ids() -> set[int]:
     """Use per-managed-bot administrators, while retaining global admins."""
     ids = {int(value) for value in cfg.admin_ids}
+    if cfg.owner_telegram_id:
+        ids.add(int(cfg.owner_telegram_id))
     if MANAGED_BOT_ID:
         try:
             ids.update(await db.list_bot_admin_ids(MANAGED_BOT_ID))
@@ -860,12 +862,7 @@ async def _notify_admins_fallback(user_id: int, text: Optional[str], from_user: 
 
 async def _notify_admins_simple(post_id: int, user_id: int, text: Optional[str], file_id: Optional[str], kind: str, from_user: Any):
     for admin_id in await _admin_ids():
-        caption = (
-            f"Пользователь: {html.escape(message.from_user.full_name)}\n"
-            f"Username: @{html.escape(message.from_user.username or '—')}\n"
-            f"Telegram ID: {message.from_user.id}\n"
-            f"Заявка: {post_id}"
-        )
+        caption = ""
         try:
             lang = await _lang(admin_id)
             try:
@@ -885,7 +882,13 @@ async def _notify_admins_simple(post_id: int, user_id: int, text: Optional[str],
                 f"Тип: {_esc(kind)}",
                 f"Символов: {len(txt)}, слов: {len(txt.split()) if txt else 0}",
             ])
-            header = t(lang, "admin_new_post", post_id=post_id) + chr(10) + t(lang, "admin_not_published")
+            header = (
+                "👂 <b>Подслушка · новое сообщение</b>"
+                + chr(10)
+                + t(lang, "admin_new_post", post_id=post_id)
+                + chr(10)
+                + t(lang, "admin_not_published")
+            )
             caption = header + chr(10) + chr(10) + user_card + chr(10) + chr(10) + msg_card
             kb = _admin_kb(post_id, user_id, lang)
             if kind == "text" or not file_id:

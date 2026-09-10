@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     backup_chat_id: Optional[int] = None
     dashboard_sync_url: Optional[str] = None
     dashboard_sync_secret: Optional[str] = None
+    owner_telegram_id: Optional[int] = None
 
     @field_validator("admin_ids", mode="before")
     @classmethod
