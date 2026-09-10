@@ -9,8 +9,7 @@ services:
       git clone --depth 1 https://github.com/soxoj/maigret.git tools/maigret &&
       git clone --depth 1 https://github.com/sherlock-project/sherlock.git tools/sherlock &&
       mkdir -p tools/maigret/maigret/resources &&
-      curl -fsSL https://raw.githubusercontent.com/soxoj/maigret/main/maigret/resources/settings.json
-      -o tools/maigret/maigret/resources/settings.json &&
+      cp maigret_settings.json tools/maigret/maigret/resources/settings.json &&
       test -s tools/maigret/maigret/resources/settings.json &&
       pip install -q -e tools/maigret --no-deps -e tools/sherlock --no-deps &&
       pip install -q rich python-dotenv aiodns aiohttp-socks colorama html5lib lxml pycountry
