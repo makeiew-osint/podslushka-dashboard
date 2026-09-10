@@ -3790,6 +3790,7 @@ let osintStatus = document.getElementById('osint-status');
 let osintResults = document.getElementById('osint-results');
 let osintPollingJob = '';
 let osintSearchActive = false;
+const OSINT_RESULT_CACHE_KEY = 'podslushka-osint-result';
 const aiCard = document.getElementById('ai-card');
 const aiCardBody = document.getElementById('ai-card-body');
 function closeAiCard() {{
@@ -3903,16 +3904,29 @@ async function pollOsint(jobId) {{
       const response = await fetch(`/api/osint-search?id=${{encodeURIComponent(jobId)}}`, {{cache: 'no-store'}});
       if (!response.ok) {{
         if (response.status === 404) {{
-          sessionStorage.removeItem('podslushka-osint-job');
+          const cached = sessionStorage.getItem(OSINT_RESULT_CACHE_KEY);
+          if (cached) {{
+            try {{
+              const cachedJob = JSON.parse(cached);
+              renderOsint(cachedJob);
+              if (osintStatus) osintStatus.textContent = 'Сервер перезапустился. Показаны последние полученные результаты.';
+              sessionStorage.removeItem('podslushka-osint-job');
+              osintPollingJob = '';
+              osintSearchActive = false;
+              return;
+            }} catch (_) {{
+              sessionStorage.removeItem(OSINT_RESULT_CACHE_KEY);
+            }}
+          }}
           osintPollingJob = '';
           osintSearchActive = false;
-          if (osintStatus) osintStatus.textContent = 'Предыдущий поиск устарел. Запустите новый поиск.';
-          if (osintResults) osintResults.innerHTML = '<div class="osint-results-empty"><div><div class="empty-icon">⌕</div></div><div><h3>Результаты появятся здесь</h3><p>Запустите новый поиск, чтобы получить актуальные данные.</p></div></div>';
+          if (osintStatus) osintStatus.textContent = 'Сервер перезапустился до получения результатов. Запустите новый поиск.';
           return;
         }}
         throw new Error(`Сервер вернул ошибку ${{response.status}}.`);
       }}
       const job = await response.json();
+      sessionStorage.setItem(OSINT_RESULT_CACHE_KEY, JSON.stringify(job));
       renderOsint(job);
       if (job.status !== 'running') {{
         sessionStorage.removeItem('podslushka-osint-job');
@@ -3963,6 +3977,7 @@ function bindOsintSearch() {{
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || 'Не удалось запустить поиск.');
     sessionStorage.setItem('podslushka-osint-job', payload.id);
+    sessionStorage.removeItem(OSINT_RESULT_CACHE_KEY);
     await pollOsint(payload.id);
   }} catch (error) {{
     osintStatus.textContent = error.message || 'Не удалось запустить поиск.';
@@ -3984,6 +3999,16 @@ function resumeOsintSearch() {{
   if (savedOsintJob && osintForm) {{
     osintStatus.textContent = 'Восстанавливаем активный поиск после обновления…';
     pollOsint(savedOsintJob);
+  }} else {{
+    const cached = sessionStorage.getItem(OSINT_RESULT_CACHE_KEY);
+    if (cached && osintResults) {{
+      try {{
+        renderOsint(JSON.parse(cached));
+        if (osintStatus) osintStatus.textContent = 'Показаны последние полученные результаты.';
+      }} catch (_) {{
+        sessionStorage.removeItem(OSINT_RESULT_CACHE_KEY);
+      }}
+    }}
   }}
 }}
 bindOsintSearch();
