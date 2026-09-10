@@ -3528,7 +3528,7 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 {('<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_rows + '</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section><section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>' if section == 'overview' else '')}
 {('<section id="users"><h2>Все пользователи</h2><div class="toolbar"><input id="detail-search" placeholder="Поиск по ID, имени, username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'users' else '')}
 {('<section id="posts"><h2>Все заявки</h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table></div></section>' if section == 'posts' else '')}
-{('<section id="user-search"><div class="section-heading"><div><h2>Поиск пользователя</h2><p class="muted">Проверка username только по открытым веб-источникам. Не вводите пароли, email или закрытые данные.</p></div><span class="status">Публичные данные</span></div><form class="osint-search-form" id="osint-search-form" action="javascript:void(0)" method="post" onsubmit="return false" novalidate><label>Username<input id="osint-username" name="username" placeholder="@username" maxlength="32" autocomplete="off" required><small class="muted">Например: @username или username</small></label><fieldset><legend>Источники поиска</legend><label><input type="checkbox" name="tool" value="blackbird" checked> Blackbird</label><label><input type="checkbox" name="tool" value="maigret" checked> Maigret</label><label><input type="checkbox" name="tool" value="sherlock" checked> Sherlock</label></fieldset><fieldset><legend>Обработка результата</legend><label><input type="radio" name="ai" value="0" checked> Без ИИ</label><label><input type="radio" name="ai" value="1"> С ИИ — краткое резюме ссылок</label></fieldset><button class="submit" type="submit">Запустить поиск</button></form><div id="osint-status" class="osint-status" role="status" aria-live="polite"></div><div id="osint-results" class="osint-results"></div><details class="osint-notice"><summary>Условия использования</summary><p>Результаты могут быть неполными и не подтверждают личность владельца username. Используйте инструменты только законно, с разрешением и с учётом правил сайтов.</p></details></section>' if section == 'user-search' else '')}
+{('<section id="user-search"><div class="section-heading"><div><h2>Поиск пользователя</h2><p class="muted">Проверка username только по открытым веб-источникам. Не вводите пароли, email или закрытые данные.</p></div><span class="status">Публичные данные</span></div><form class="osint-search-form" id="osint-search-form" onsubmit="return false" novalidate><label>Username<input id="osint-username" name="username" placeholder="@username" maxlength="32" autocomplete="off" required><small class="muted">Например: @username или username</small></label><fieldset><legend>Источники поиска</legend><label><input type="checkbox" name="tool" value="blackbird" checked> Blackbird</label><label><input type="checkbox" name="tool" value="maigret" checked> Maigret</label><label><input type="checkbox" name="tool" value="sherlock" checked> Sherlock</label></fieldset><fieldset><legend>Обработка результата</legend><label><input type="radio" name="ai" value="0" checked> Без ИИ</label><label><input type="radio" name="ai" value="1"> С ИИ — краткое резюме ссылок</label></fieldset><button class="submit" type="button">Запустить поиск</button></form><div id="osint-status" class="osint-status" role="status" aria-live="polite"></div><div id="osint-results" class="osint-results"></div><details class="osint-notice"><summary>Условия использования</summary><p>Результаты могут быть неполными и не подтверждают личность владельца username. Используйте инструменты только законно, с разрешением и с учётом правил сайтов.</p></details></section>' if section == 'user-search' else '')}
 {all_info_section}{bot_switcher}{approval}{bots_section}{project_join_section}{leave_project_section}{system_section}{monitoring_section}{group_section}
 </main></div><div class="mobile-menu-overlay" id="mobile-menu-overlay"></div><div class="help-toast" id="help-toast" role="status" aria-live="polite"><b>Подсказка</b><span id="help-toast-text"></span></div><div class="ai-card" id="ai-card" aria-hidden="true"><div class="ai-card-panel" role="dialog" aria-modal="true" aria-labelledby="ai-card-title"><div class="ai-card-head"><h2 id="ai-card-title">ИИ-анализ заявки</h2><button type="button" class="ai-close" id="ai-close">Закрыть</button></div><div id="ai-card-body"></div></div></div><script>
 const themeSelect = document.getElementById('theme-select');
@@ -3793,9 +3793,11 @@ function bindOsintSearch() {{
   osintResults = document.getElementById('osint-results');
   if (!osintForm || osintForm.dataset.bound === '1') return;
   osintForm.dataset.bound = '1';
-  osintForm.addEventListener('submit', async event => {{
-  event.preventDefault();
-  event.stopPropagation();
+  const launchSearch = async event => {{
+  if (event) {{
+    event.preventDefault();
+    event.stopPropagation();
+  }}
   const submitButton = osintForm.querySelector('.submit');
   const tools = [...osintForm.querySelectorAll('input[name="tool"]:checked')].map(item => item.value);
   const ai = osintForm.querySelector('input[name="ai"]:checked')?.value === '1';
@@ -3829,7 +3831,10 @@ function bindOsintSearch() {{
       submitButton.textContent = 'Запустить поиск';
     }}
   }}
-  }});
+  }};
+  const submitButton = osintForm.querySelector('.submit');
+  if (submitButton) submitButton.addEventListener('click', launchSearch);
+  osintForm.addEventListener('submit', launchSearch);
 }}
 function resumeOsintSearch() {{
   const savedOsintJob = sessionStorage.getItem('podslushka-osint-job');
