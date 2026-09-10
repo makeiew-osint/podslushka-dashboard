@@ -82,7 +82,15 @@ def main() -> int:
         else:
             title = "Сайт на технических работах"
             body = f"Панель недоступна. Проверка: {details}."
-        send_message(token, chat_id, f"📢 <b>Podslushka DB</b>\n{title}\n{body}")
+        heading = "Сайт снова работает" if available else "Сбой системы"
+        message = (
+            f"<b>Podslushka DB</b>\n"
+            f"<b>{heading}</b>\n"
+            f"<code>{time.strftime('%d.%m.%Y · %H:%M')}</code>\n\n"
+            f"{body}\n\n"
+            f"<code>Podslushka DB · system monitor</code>"
+        )
+        send_message(token, chat_id, message)
 
     state_path.write_text(
         json.dumps(

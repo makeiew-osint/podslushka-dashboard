@@ -1113,15 +1113,16 @@ def _notify_updates_group(actor: str, action: str, target: str) -> None:
     if NOTIFICATION_LAST_EVENTS.get(event_key) == str(int(time.time()) // 300):
         return
     NOTIFICATION_LAST_EVENTS[event_key] = str(int(time.time()) // 300)
-    heading = "⚠️ <b>Сбой системы</b>" if any(
+    heading = "Сбой системы" if any(
         word in str(action).lower() for word in ("error", "failed", "stopped", "offline", "unavailable")
-    ) else "📢 <b>Обновление Podslushka</b>"
+    ) else "Событие Podslushka DB"
     stamp = datetime.now().strftime("%d.%m.%Y · %H:%M")
     text = (
-        f"{heading}\n"
-        f"<i>{stamp}</i>\n\n"
-        f"▫️ <b>Событие:</b> {html.escape(str(action)[:180])}\n"
-        f"▫️ <b>Объект:</b> {html.escape(str(target)[:220])}\n\n"
+        f"<b>Podslushka DB</b>\n"
+        f"<b>{heading}</b>\n"
+        f"<code>{stamp}</code>\n\n"
+        f"<b>Событие</b>\n{html.escape(str(action)[:180])}\n\n"
+        f"<b>Объект</b>\n{html.escape(str(target)[:220])}\n\n"
         f"<code>Podslushka DB · system monitor</code>"
     )
 
@@ -2005,7 +2006,7 @@ body{{padding:0!important;overflow:hidden!important;background:#050607!important
 .features{{max-width:650px!important;grid-template-columns:repeat(3,1fr)!important;gap:20px!important;margin-top:38px!important}}
 .feature{{border-top:1px solid #ffffff2b;padding-top:14px!important;font-size:13px!important;color:#dbe8f5!important;align-items:flex-start!important}}
 .auth{{display:none!important;position:fixed!important;z-index:30!important;inset:50% auto auto 50%!important;width:min(520px,calc(100% - 32px))!important;max-height:calc(100vh - 32px)!important;overflow:auto!important;transform:translate(-50%,-50%)!important;padding:32px!important;border:1px solid #314461!important;border-radius:18px!important;background:#0a1322f5!important;box-shadow:0 30px 90px #000b!important;backdrop-filter:blur(22px)!important}}
-.auth.auth-open{{display:flex!important;color:#fff8ef!important}}
+.auth.auth-open{{display:flex!important;min-height:0!important;height:auto!important;max-height:calc(100vh - 32px)!important;color:#fff8ef!important}}
 .auth.auth-open h2,.auth.auth-open .sub,.auth.auth-open .field,.auth.auth-open .oauth-title,.auth.auth-open .hint{{color:#fff8ef!important}}
 .auth.auth-open .sub,.auth.auth-open .hint{{opacity:.78}}
 .auth.auth-open .tabs{{background:#171a20!important;border-color:#3d424b!important}}
@@ -2043,6 +2044,15 @@ body{{padding:0!important;overflow:hidden!important;background:#050607!important
 .auth.auth-open .oauth-button,.auth.auth-open .telegram-button{{background:#111a27!important;border-color:#2c4059!important;color:#e5ebf3!important;box-shadow:0 3px 0 #080c12!important}}
 .auth.auth-open .auth-mark img{{background:#0a111b!important;border-color:#5576a366!important}}
 @media(max-width:700px){{.public-nav{{top:12px!important;width:calc(100% - 20px)!important;max-width:430px!important;flex-wrap:wrap!important;gap:3px!important;padding:5px!important}}.public-nav a{{height:34px!important;padding:0 10px!important;font-size:11px!important}}.public-nav .nav-links{{gap:1px!important}}.public-nav #open-auth{{min-width:70px!important}}.intro{{padding:94px 24px 36px!important}}.intro h1{{font-size:54px!important}}.features{{grid-template-columns:1fr!important;gap:10px!important;margin-top:22px!important}}.feature{{border-top:0;padding-top:0!important}}.auth{{padding:25px 20px!important}}}}
+.auth.auth-open{{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:0!important}}
+.auth.auth-open .auth-mark{{display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:12px!important;margin:0 48px 28px 0!important;min-height:48px!important}}
+.auth.auth-open .auth-mark img{{display:block!important;flex:0 0 48px!important;width:48px!important;height:48px!important}}
+.auth-brand-name{{display:block!important;color:#edf3fb!important;font-size:16px!important;font-weight:800!important;letter-spacing:-.25px!important;line-height:1.2!important}}
+.auth.auth-open .auth-mark:after{{display:none!important;content:none!important}}
+.auth-close{{display:grid!important;place-items:center!important;position:absolute!important;top:16px!important;right:16px!important;width:40px!important;height:40px!important;padding:0!important;border:1px solid #3a4d66!important;border-radius:50%!important;background:#111d2d!important;color:#dce8f5!important;font-size:25px!important;font-weight:300!important;line-height:1!important;cursor:pointer!important;box-shadow:0 8px 20px #0007!important;transition:background .18s,border-color .18s,color .18s,transform .18s!important;z-index:2!important}}
+.auth-close:hover{{background:#263b56!important;border-color:#7196c1!important;color:#fff!important;transform:translateY(-1px)!important}}
+.auth-close:active{{transform:translateY(1px)!important}}
+.auth-close:focus-visible{{outline:2px solid #8ab8e8!important;outline-offset:3px!important}}
 </style></head><body><nav class="public-nav"><a href="/about">О проекте</a><div class="nav-links"><a href="/why">Почему мы</a><a href="/support">Поддержка</a></div></nav><div class="shell">
 <section class="intro"><div class="brand"><img class="brand-logo" src="/assets/podslushka-avatar-bg.svg" alt="Podslushka DB"><span>Podslushka DB</span></div>
 <iframe class="structure-flow-frame" src="/assets/structure-flow.html" title="Structure Flow particle background"></iframe>
@@ -2050,7 +2060,7 @@ body{{padding:0!important;overflow:hidden!important;background:#050607!important
 <div class="features"><div class="feature"><span class="check">✓</span> Локальная защищённая база</div>
 <div class="feature"><span class="check">✓</span> Быстрый поиск и фильтры</div>
 <div class="feature"><span class="check">✓</span> Резервные копии в один клик</div></div></section>
-<div class="auth-backdrop" id="auth-backdrop"></div><section class="auth" id="auth-panel"><button class="auth-close" type="button" id="auth-close">Закрыть</button><div class="auth-mark"><img src="/assets/podslushka-avatar.svg" alt=""></div><h2 id="title">Добро пожаловать</h2><p class="sub" id="subtitle">Войдите, чтобы продолжить работу.</p>
+<div class="auth-backdrop" id="auth-backdrop"></div><section class="auth" id="auth-panel" aria-labelledby="title"><button class="auth-close" type="button" id="auth-close" aria-label="Закрыть окно входа" title="Закрыть"><span aria-hidden="true">×</span></button><div class="auth-mark"><img src="/assets/podslushka-avatar.svg" alt="Подслушка"><span class="auth-brand-name">Podslushka DB</span></div><h2 id="title">Добро пожаловать</h2><p class="sub" id="subtitle">Войдите, чтобы продолжить работу.</p>
 {message_markup}<div class="tabs"><button class="tab active" data-tab="login">Войти</button><button class="tab" data-tab="register">Регистрация</button></div>
 <form class="form active" id="login" method="post" action="/login"><label class="field">Логин</label><input name="username" placeholder="Введите логин" required autocomplete="username">
 <label class="field">Пароль</label><div class="input-wrap"><input name="password" type="password" placeholder="Введите пароль" required autocomplete="current-password"><button type="button" class="toggle">◉</button></div>
@@ -3865,9 +3875,38 @@ a.primary,button{{background:#b8a8ff;color:#11121a;border-color:#c8bdff;box-shad
 <path d="M41 9v12h11M25 33h20M25 42h14" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
 <circle cx="46" cy="48" r="9" fill="#cf222e" stroke="#fff" stroke-width="3"/><path d="M46 44v5M46 52h.01" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>
 </div><p class="code">ERROR {status}</p><h1>{esc(title)}</h1><p>{esc(details)}</p>
-<div class="actions"><button onclick="location.reload()">Повторить</button><a class="secondary" href="/">На главную</a></div>
+<div class="actions"><button onclick="location.reload()">Повторить</button><a class="secondary" href="/">На главную</a><a class="secondary" href="/errors">Все ошибки</a></div>
 <div class="foot">Podslushka DB · если проблема повторяется, проверьте логи Render</div>
 </main></body></html>"""
+
+
+def error_preview_page() -> str:
+    """Provide shareable links for reviewing every branded error state."""
+    statuses = (
+        (400, "Неверный запрос", "Проверьте данные формы или параметры запроса."),
+        (401, "Требуется вход", "Нужно войти в панель управления."),
+        (403, "Доступ запрещён", "У вас нет доступа к этому действию."),
+        (404, "Страница не найдена", "Такой страницы не существует или она была перемещена."),
+        (500, "Что-то пошло не так", "Внутренняя ошибка сервера."),
+        (502, "Сервис не отвечает", "Сервис временно не отвечает."),
+        (503, "Сервис недоступен", "Попробуйте открыть страницу через минуту."),
+    )
+    links = "".join(
+        f'<a class="error-link" href="/errors/{code}"><strong>{code}</strong>'
+        f'<span>{esc(title)}</span><small>{esc(description)}</small><i>→</i></a>'
+        for code, title, description in statuses
+    )
+    return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Предпросмотр ошибок · Podslushka DB</title><style>
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:#080b12;color:#edf3fb;font:15px Inter,Segoe UI,Arial,sans-serif;padding:clamp(24px,6vw,72px);overflow-x:hidden}}
+body:before{{content:"";position:fixed;inset:0;background:radial-gradient(circle at 14% 10%,#6d4aff2a,transparent 30%),radial-gradient(circle at 88% 82%,#d94f8920,transparent 32%);pointer-events:none}}
+main{{position:relative;width:min(900px,100%);margin:0 auto}}.back{{display:inline-flex;margin-bottom:30px;color:#aebbd0;text-decoration:none}}.back:hover{{color:#fff}}
+h1{{margin:0 0 10px;font-size:clamp(30px,5vw,54px);letter-spacing:-.05em}}.lead{{margin:0 0 34px;color:#93a2b8;line-height:1.6;max-width:620px}}
+.grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}}.error-link{{position:relative;display:grid;grid-template-columns:58px 1fr 24px;column-gap:14px;align-items:center;padding:18px 20px;border:1px solid #27334a;border-radius:16px;background:#101722e8;color:#edf3fb;text-decoration:none;box-shadow:0 14px 35px #0005;transition:transform .18s,border-color .18s,background .18s}}
+.error-link:hover{{transform:translateY(-3px);border-color:#8d79ff;background:#151d2d}}.error-link strong{{grid-row:span 2;font-size:24px;color:#b9aaff}}.error-link span{{font-weight:750}}.error-link small{{grid-column:2;color:#8796ad;margin-top:4px;line-height:1.35}}.error-link i{{grid-column:3;grid-row:1 / span 2;color:#b9aaff;font-size:20px;font-style:normal}}
+@media(max-width:640px){{.grid{{grid-template-columns:1fr}}}}
+</style></head><body><main><a class="back" href="/">← Вернуться на главную</a><h1>Состояния ошибок</h1><p class="lead">Откройте любую ссылку, чтобы посмотреть, как выглядит соответствующая страница ошибки с фоном и действиями восстановления.</p><section class="grid">{links}</section></main></body></html>"""
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -3913,6 +3952,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path in {"/about", "/why", "/support"}:
             self.send_html(public_info_page(path.lstrip("/")))
+            return
+        if path == "/errors":
+            self.send_html(error_preview_page())
+            return
+        if path.startswith("/errors/"):
+            raw_status = path.rsplit("/", 1)[-1]
+            try:
+                preview_status = int(raw_status)
+            except ValueError:
+                self.send_error(404)
+                return
+            if preview_status not in {400, 401, 403, 404, 500, 502, 503}:
+                self.send_error(404)
+                return
+            self.send_html(error_page(preview_status), preview_status)
             return
         if path == "/assets/podslushka-logo.png":
             asset = Path(__file__).resolve().parent / "assets" / "podslushka-logo.png"

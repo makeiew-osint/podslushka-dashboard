@@ -36,6 +36,7 @@ db = Database(cfg.db_path, cfg.database_url)
 MANAGED_BOT_ID = int(os.getenv("MANAGED_BOT_ID", "0") or 0)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview").strip()
+PUBLIC_CHANNEL_TITLE = os.getenv("PUBLIC_CHANNEL_TITLE", "Подслушка").strip() or "Подслушка"
 
 bot = Bot(token=cfg.bot_token)
 storage = MemoryStorage()
@@ -45,6 +46,19 @@ def _esc(text: Any) -> str:
     if text is None:
         return "—"
     return html.escape(str(text))
+
+
+def _publication_text(public_id: int, raw_text: Any, max_length: int = 4096) -> str:
+    """Build the branded public post while keeping user content inert."""
+    body = str(raw_text or "").strip()
+    footer = "\n\n<code>Подслушка · анонимные истории</code>"
+    header = f"<b>{_esc(PUBLIC_CHANNEL_TITLE)}</b>\n<code>#{public_id}</code>"
+    if body:
+        # Escape user input because channel posts are sent in HTML mode.
+        available = max_length - len(header) - len(footer) - 12
+        body = _esc(body[:max(0, available)]).strip()
+        return f"{header}\n\n<b>Анонимная публикация</b>\n\n{body}{footer}"
+    return f"{header}{footer}"
 
 
 def _yn(value: Any) -> str:
@@ -166,25 +180,24 @@ async def _publish_pending_post(post: Any, admin_id: int) -> int:
     channel_id = cfg.channel_id
     if not str(channel_id).startswith(("@", "-100")):
         channel_id = "@" + str(channel_id)
-    text = post["text"] or ""
-    pub_text = f"#{public_id}" + chr(10) + chr(10) + text if text else f"#{public_id}"
     fid = post["file_id"]
     kind = post["kind"]
+    pub_text = _publication_text(public_id, post["text"], 1024 if kind != "text" else 4096)
     msg = None
     if kind == "text":
-        msg = await bot.send_message(channel_id, pub_text)
+        msg = await bot.send_message(channel_id, pub_text, parse_mode="HTML", disable_web_page_preview=True)
     elif kind == "photo":
-        msg = await bot.send_photo(channel_id, fid, caption=pub_text)
+        msg = await bot.send_photo(channel_id, fid, caption=pub_text, parse_mode="HTML")
     elif kind == "video":
-        msg = await bot.send_video(channel_id, fid, caption=pub_text)
+        msg = await bot.send_video(channel_id, fid, caption=pub_text, parse_mode="HTML")
     elif kind == "voice":
-        msg = await bot.send_voice(channel_id, fid, caption=pub_text)
+        msg = await bot.send_voice(channel_id, fid, caption=pub_text, parse_mode="HTML")
     elif kind == "audio":
-        msg = await bot.send_audio(channel_id, fid, caption=pub_text)
+        msg = await bot.send_audio(channel_id, fid, caption=pub_text, parse_mode="HTML")
     elif kind == "document":
-        msg = await bot.send_document(channel_id, fid, caption=pub_text)
+        msg = await bot.send_document(channel_id, fid, caption=pub_text, parse_mode="HTML")
     elif kind == "animation":
-        msg = await bot.send_animation(channel_id, fid, caption=pub_text)
+        msg = await bot.send_animation(channel_id, fid, caption=pub_text, parse_mode="HTML")
     elif kind == "media_group":
         items = await db.get_media_group_items(post_id, MANAGED_BOT_ID or None)
         media = []
@@ -192,17 +205,17 @@ async def _publish_pending_post(post: Any, admin_id: int) -> int:
             caption = pub_text if index == 0 else None
             media_kind = item["kind"]
             if media_kind == "photo":
-                media.append(InputMediaPhoto(media=item["file_id"], caption=caption))
+                media.append(InputMediaPhoto(media=item["file_id"], caption=caption, parse_mode="HTML"))
             elif media_kind == "video":
-                media.append(InputMediaVideo(media=item["file_id"], caption=caption))
+                media.append(InputMediaVideo(media=item["file_id"], caption=caption, parse_mode="HTML"))
             elif media_kind == "audio":
-                media.append(InputMediaAudio(media=item["file_id"], caption=caption))
+                media.append(InputMediaAudio(media=item["file_id"], caption=caption, parse_mode="HTML"))
             elif media_kind == "document":
-                media.append(InputMediaDocument(media=item["file_id"], caption=caption))
+                media.append(InputMediaDocument(media=item["file_id"], caption=caption, parse_mode="HTML"))
         messages = await bot.send_media_group(channel_id, media=media)
         msg = messages[0] if messages else None
     else:
-        msg = await bot.send_message(channel_id, pub_text)
+        msg = await bot.send_message(channel_id, pub_text, parse_mode="HTML", disable_web_page_preview=True)
     if not msg:
         raise RuntimeError(f"Telegram did not return a message for post {post_id}")
     await db.approve(post_id, public_id, MANAGED_BOT_ID or None)
