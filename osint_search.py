@@ -11,7 +11,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 import urllib.error
 import urllib.request
@@ -27,6 +27,7 @@ JOB_TTL = 30 * 60
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 EXECUTOR = ThreadPoolExecutor(max_workers=MAX_ACTIVE_JOBS, thread_name_prefix="osint-search")
+TOOL_EXECUTOR = ThreadPoolExecutor(max_workers=3, thread_name_prefix="osint-tool")
 ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
 
@@ -184,7 +185,14 @@ def _worker(job_id: str, username: str, tools: list[str], ai: bool) -> None:
     try:
         with tempfile.TemporaryDirectory(prefix="podslushka-osint-") as temp:
             workdir = Path(temp)
-            results = [_run_tool(tool, username, workdir) for tool in tools]
+            futures = {
+                TOOL_EXECUTOR.submit(_run_tool, tool, username, workdir): index
+                for index, tool in enumerate(tools)
+            }
+            completed = {}
+            for future in as_completed(futures):
+                completed[futures[future]] = future.result()
+            results = [completed[index] for index in range(len(tools))]
         summary = summarize_results(username, results) if ai else ""
         with JOBS_LOCK:
             JOBS[job_id].update(
