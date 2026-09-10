@@ -2032,6 +2032,7 @@ body{{padding:0!important;overflow:hidden!important}}
 body{{padding:0!important;overflow:hidden!important;background:#050607!important}}
 .shell{{display:block!important;width:100vw!important;height:100vh!important;min-height:100vh!important;border:0!important;border-radius:0!important;background:#050607!important;box-shadow:none!important;overflow:hidden!important}}
 .intro{{display:flex!important;width:100%!important;height:100%!important;min-height:100vh!important;padding:clamp(110px,16vh,180px) clamp(28px,8vw,140px) 72px!important;background:#050607!important}}
+.intro .brand{{position:absolute!important;top:clamp(54px,8vh,96px)!important;left:clamp(28px,8vw,140px)!important;margin:0!important}}
 .intro h1{{font-size:clamp(52px,8vw,126px)!important;max-width:760px!important;margin:auto 0 18px!important;letter-spacing:-.075em!important}}
 .intro p{{font-size:clamp(16px,1.5vw,22px)!important;max-width:470px!important}}
 .features{{max-width:650px!important;grid-template-columns:repeat(3,1fr)!important;gap:20px!important;margin-top:38px!important}}
