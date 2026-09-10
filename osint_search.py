@@ -19,6 +19,8 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent
 TOOLS_ROOT = Path(os.getenv("OSINT_TOOLS_DIR", ROOT / "tools")).resolve()
+_local_python = ROOT / ("venv\\Scripts\\python.exe" if os.name == "nt" else "venv/bin/python")
+PYTHON_EXECUTABLE = str(_local_python) if _local_python.is_file() else sys.executable
 USERNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,31}$")
 ALLOWED_TOOLS = {"blackbird", "maigret", "sherlock"}
 MAX_ACTIVE_JOBS = 2
@@ -110,7 +112,7 @@ def _normalise(tool: str, stdout: str, files: list[dict]) -> list[dict]:
 
 
 def _run_tool(tool: str, username: str, workdir: Path) -> dict:
-    python = sys.executable
+    python = PYTHON_EXECUTABLE
     if tool == "blackbird":
         repo = _repo("blackbird")
         bootstrap = (
@@ -128,7 +130,7 @@ def _run_tool(tool: str, username: str, workdir: Path) -> dict:
     elif tool == "maigret":
         repo = _repo("maigret")
         command = [
-            python, "-m", "maigret", username, "--json", "simple",
+            python, "-m", "maigret.maigret", username, "--json", "simple",
             "--folderoutput", str(workdir),
             "--timeout", str(REQUEST_TIMEOUT),
             "--no-progressbar",
