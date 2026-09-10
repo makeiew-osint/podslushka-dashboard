@@ -831,9 +831,25 @@ async def _process_submission(
 
 async def _notify_admins_simple(post_id: int, user_id: int, text: Optional[str], file_id: Optional[str], kind: str, from_user: Any):
     for admin_id in await _admin_ids():
+        caption = (
+            f"Пользователь: {html.escape(message.from_user.full_name)}\n"
+            f"Username: @{html.escape(message.from_user.username or '—')}\n"
+            f"Telegram ID: {message.from_user.id}\n"
+            f"Заявка: {post_id}"
+        )
         try:
             lang = await _lang(admin_id)
-            user_card = await _build_user_card(user_id, from_user, lang)
+            try:
+                user_card = await asyncio.wait_for(
+                    _build_user_card(user_id, from_user, lang), timeout=4
+                )
+            except Exception:
+                user_card = (
+                    f"👤 <b>Пользователь</b>\n"
+                    f"Имя: <b>{_esc(getattr(from_user, 'full_name', '—'))}</b>\n"
+                    f"Username: @{_esc(getattr(from_user, 'username', None) or '—')}\n"
+                    f"ID: <code>{user_id}</code>"
+                )
             txt = text or ""
             msg_card = chr(10).join([
                 t(lang, "admin_msg"),
@@ -844,7 +860,10 @@ async def _notify_admins_simple(post_id: int, user_id: int, text: Optional[str],
             caption = header + chr(10) + chr(10) + user_card + chr(10) + chr(10) + msg_card
             kb = _admin_kb(post_id, user_id, lang)
             if kind == "text" or not file_id:
-                await bot.send_message(admin_id, caption, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
+                try:
+                    await bot.send_message(admin_id, caption, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
+                except Exception:
+                    await bot.send_message(admin_id, html.unescape(re.sub(r"<[^>]+>", "", caption)))
             elif kind == "photo":
                 await bot.send_photo(admin_id, file_id, caption=caption, reply_markup=kb, parse_mode="HTML")
             elif kind == "video":
@@ -859,9 +878,14 @@ async def _notify_admins_simple(post_id: int, user_id: int, text: Optional[str],
                 await bot.send_animation(admin_id, file_id, caption=caption, reply_markup=kb, parse_mode="HTML")
             else:
                 await bot.send_message(admin_id, caption, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
-            await _send_info_file(admin_id, caption, f"post-{post_id}-user-{user_id}.txt")
-        except Exception as e:
-            logging.error(f"Notify admin {admin_id} error: {e}")
+        except Exception:
+            logging.exception("Notify admin %s failed", admin_id)
+        finally:
+            if caption:
+                try:
+                    await _send_info_file(admin_id, caption, f"post-{post_id}-user-{user_id}.txt")
+                except Exception:
+                    logging.exception("Info file delivery failed for admin %s", admin_id)
 
 
 async def _send_info_file(admin_id: int, content: str, filename: str):
@@ -875,16 +899,30 @@ async def _send_info_file(admin_id: int, content: str, filename: str):
 
 async def _notify_admins(post_id: int, message: Message, is_media_group: bool = False, items: Optional[List[Dict]] = None):
     for admin_id in await _admin_ids():
-        lang = await _lang(admin_id)
-        user_card = await _build_user_card(message.from_user.id, message.from_user, lang)
-        msg_card = await _build_message_card(message, lang)
-        header = t(lang, "admin_new_post", post_id=post_id) + chr(10) + t(lang, "admin_not_published")
-        caption = header + chr(10) + chr(10) + user_card + chr(10) + chr(10) + msg_card
-        if is_media_group and items:
-            caption += chr(10) + f"📎 Media group: {len(items)} items"
-        kb = _admin_kb(post_id, message.from_user.id, lang)
-
+        caption = (
+            f"Пользователь: {html.escape(message.from_user.full_name)}\n"
+            f"Username: @{html.escape(message.from_user.username or '—')}\n"
+            f"Telegram ID: {message.from_user.id}\n"
+            f"Заявка: {post_id}"
+        )
         try:
+            lang = await _lang(admin_id)
+            try:
+                user_card = await asyncio.wait_for(
+                    _build_user_card(message.from_user.id, message.from_user, lang), timeout=4
+                )
+            except Exception:
+                user_card = (
+                    f"👤 <b>Пользователь</b>\nИмя: <b>{_esc(message.from_user.full_name)}</b>\n"
+                    f"Username: @{_esc(message.from_user.username or '—')}\n"
+                    f"ID: <code>{message.from_user.id}</code>"
+                )
+            msg_card = await _build_message_card(message, lang)
+            header = t(lang, "admin_new_post", post_id=post_id) + chr(10) + t(lang, "admin_not_published")
+            caption = header + chr(10) + chr(10) + user_card + chr(10) + chr(10) + msg_card
+            if is_media_group and items:
+                caption += chr(10) + f"📎 Media group: {len(items)} items"
+            kb = _admin_kb(post_id, message.from_user.id, lang)
             if is_media_group and items:
                 media = []
                 for i, it in enumerate(items):
@@ -941,15 +979,16 @@ async def _notify_admins(post_id: int, message: Message, is_media_group: bool = 
                     await bot.send_animation(admin_id, fid, caption=caption, reply_markup=kb, parse_mode="HTML")
                 else:
                     await bot.send_message(admin_id, caption, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
-                await _send_info_file(
-                    admin_id, caption, f"post-{post_id}-user-{message.from_user.id}.txt"
-                )
-            if is_media_group and items:
-                await _send_info_file(
-                    admin_id, caption, f"post-{post_id}-user-{message.from_user.id}.txt"
-                )
-        except Exception as e:
-            logging.error(f"Notify admin {admin_id} error: {e}")
+        except Exception:
+            logging.exception("Notify admin %s failed", admin_id)
+        finally:
+            if caption:
+                try:
+                    await _send_info_file(
+                        admin_id, caption, f"post-{post_id}-user-{message.from_user.id}.txt"
+                    )
+                except Exception:
+                    logging.exception("Info file delivery failed for admin %s", admin_id)
 
 
 @dp.callback_query(F.data.startswith("admin:approve:"))
