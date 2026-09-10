@@ -3652,19 +3652,34 @@ const themePreviewColors = [
   ['#171108','#29200f','#725520','#f59e0b'],['#08141c','#102733','#376477','#67e8f9'],
   ['#07101a','#17233399','#8bb7d655','#ff9b78']
 ];
-if (dashboardThemeGrid) {{
-  Array.from(themeSelect.options).forEach((option, index) => {{
+function populateDashboardThemeGrid() {{
+  const grid = document.getElementById('dashboard-theme-grid');
+  const select = document.getElementById('theme-select');
+  if (!grid || !select || grid.dataset.ready === '1') return;
+  grid.dataset.ready = '1';
+  Array.from(select.options).forEach((option, index) => {{
     const colors = themePreviewColors[index % themePreviewColors.length];
     const card = document.createElement('button');
     card.type = 'button'; card.className = 'theme-card'; card.dataset.theme = option.value;
     card.innerHTML = `<div class="theme-preview" style="--preview-bg:${{colors[0]}};--preview-panel:${{colors[1]}};--preview-line:${{colors[2]}};--preview-accent:${{colors[3]}}"><i></i><i></i><i></i></div><strong>${{option.textContent}}</strong><small>Панель · карточки · акцент</small>`;
-    card.addEventListener('click', () => {{
-      localStorage.setItem('podslushka-theme', option.value);
-      applyTheme(option.value);
-      dashboardThemeGrid.querySelectorAll('.theme-card').forEach(item => item.classList.toggle('selected', item === card));
-    }});
-    dashboardThemeGrid.appendChild(card);
+    card.addEventListener('click', () => applyTheme(option.value));
+    grid.appendChild(card);
   }});
+}}
+if (dashboardThemeGrid) {{
+  populateDashboardThemeGrid();
+}}
+function rebindDashboardControls() {{
+  themeSelect = document.getElementById('theme-select');
+  if (themeSelect) {{
+    themeSelect.value = localStorage.getItem('podslushka-theme') || 'dark';
+    applyTheme(themeSelect.value);
+  }}
+  populateDashboardThemeGrid();
+  const refresh = document.getElementById('refresh-interval');
+  if (refresh) refresh.value = localStorage.getItem('podslushka-refresh') || '5';
+  const language = document.getElementById('interface-language');
+  if (language) language.value = localStorage.getItem('podslushka-language') || 'ru';
 }}
 const dashboardThemeOpen = document.getElementById('dashboard-theme-open');
 const dashboardThemeClose = document.getElementById('dashboard-theme-close');
@@ -3712,6 +3727,13 @@ document.addEventListener('click', event => {{
   const target = event.target;
   if (target.closest('#dashboard-theme-open')) openDashboardThemes();
   if (target.closest('#dashboard-theme-close')) closeDashboardThemes();
+  const compact = target.closest('#compact-mode-button');
+  if (compact) applyCompactMode(!document.body.classList.contains('compact-mode'));
+  const searchButton = target.closest('#osint-search-form .osint-launch');
+  if (searchButton && !event.defaultPrevented && typeof window.__podslushkaLaunchOsint === 'function' && !searchButton.dataset.delegated) {{
+    searchButton.dataset.delegated = '1';
+    window.__podslushkaLaunchOsint(event);
+  }}
   const help = target.closest('.help-button');
   if (help && helpToast && helpToastText) {{
     event.preventDefault();
@@ -4100,8 +4122,7 @@ async function refreshPage() {{
       bindControls();
       bindOsintSearch();
       resumeOsintSearch();
-      themeSelect = document.getElementById('theme-select');
-      if (themeSelect) themeSelect.value = localStorage.getItem('podslushka-theme') || 'dark';
+      rebindDashboardControls();
       if (focusKey) {{
         const focused = document.getElementById(focusKey) || document.querySelector(`[name="${{CSS.escape(focusKey)}}"]`);
         if (focused) focused.focus({{preventScroll: true}});
