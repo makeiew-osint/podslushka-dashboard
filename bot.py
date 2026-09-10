@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 import urllib.request
 from datetime import datetime
@@ -14,6 +15,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
     InputMediaPhoto, InputMediaVideo, InputMediaAudio, InputMediaDocument,
+    BufferedInputFile,
 )
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
@@ -56,7 +58,14 @@ def _ts(dt: Optional[datetime]) -> str:
 
 
 async def _lang(user_id: int) -> str:
-    l = await db.get_ui_lang(user_id)
+    try:
+        l = await asyncio.wait_for(db.get_ui_lang(user_id), timeout=1.5)
+    except asyncio.TimeoutError:
+        logging.warning("Timed out reading user language")
+        return "ru"
+    except Exception:
+        logging.exception("Could not read user language")
+        return "ru"
     return l or "ru"
 
 
@@ -343,60 +352,8 @@ async def _build_user_card(user_id: int, user: Any, lang: str) -> str:
     personal_chat = "—"
     max_reactions = "—"
 
-    try:
-        chat = await bot.get_chat(user_id)
-        bio = chat.bio or "—"
-
-        try:
-            photos = await bot.get_user_profile_photos(user_id, limit=100)
-            photos_count = photos.total_count if photos else 0
-            has_photo = _yn(photos_count > 0)
-        except Exception:
-            photos_count = "?"
-            has_photo = "?"
-
-        au = getattr(chat, "active_usernames", None)
-        if au:
-            extra_usernames = ", ".join(f"@{u}" for u in au)
-
-        has_private_forwards = _yn(getattr(chat, "has_private_forwards", None))
-        has_restricted_media = _yn(getattr(chat, "has_restricted_voice_and_video_messages", None))
-
-        bd = getattr(chat, "birthdate", None)
-        if bd:
-            year = getattr(bd, "year", None)
-            birthdate = f"{bd.day:02d}.{bd.month:02d}.{year}" if year else f"{bd.day:02d}.{bd.month:02d}"
-
-        es = getattr(chat, "emoji_status_custom_emoji_id", None)
-        if es:
-            emoji_status = f"<code>{es}</code>"
-
-        ac = getattr(chat, "accent_color_id", None)
-        if ac is not None:
-            accent_color = str(ac)
-
-        pac = getattr(chat, "profile_accent_color_id", None)
-        if pac is not None:
-            profile_accent = str(pac)
-
-        be = getattr(chat, "background_custom_emoji_id", None)
-        if be:
-            background_emoji = f"<code>{be}</code>"
-
-        pbe = getattr(chat, "profile_background_custom_emoji_id", None)
-        if pbe:
-            background_emoji += f" / профиль: <code>{pbe}</code>"
-
-        pc = getattr(chat, "personal_chat", None)
-        if pc:
-            personal_chat = f"<code>{pc.id}</code>"
-
-        mr = getattr(chat, "max_reaction_count", None)
-        if mr is not None:
-            max_reactions = str(mr)
-
-    except Exception:
-        pass
+    # Do not call Telegram getChat/getUserProfilePhotos here. Those requests can
+    # block the moderation notification and make the bot appear unresponsive.
 
     first_seen = "—"
     last_seen = "—"
@@ -513,7 +470,10 @@ async def _build_message_card(msg: Message, lang: str) -> str:
 async def cmd_start(message: Message, state: FSMContext):
     u = message.from_user
     try:
-        ui_lang = await db.get_ui_lang(u.id)
+        ui_lang = await asyncio.wait_for(db.get_ui_lang(u.id), timeout=1.5)
+    except asyncio.TimeoutError:
+        logging.warning("Timed out reading Telegram user language")
+        ui_lang = None
     except Exception:
         logging.exception("Could not read Telegram user language")
         ui_lang = None
@@ -845,37 +805,44 @@ async def cb_preview_send(callback: CallbackQuery, state: FSMContext):
     kind = data.get("preview_kind")
     message_meta = data.get("preview_message_meta")
 
-    post_id = await db.add_post(
-        user_id=uid, kind=kind or "text", text=text, file_id=file_id,
-        message_meta=message_meta,
-        bot_id=MANAGED_BOT_ID or None,
-    )
-    await _audit(uid, "Bot post submitted", post_id)
     await state.clear()
     await callback.message.delete()
     await callback.message.answer(t(lang, "sent"))
-    if not await _ai_auto_publish(post_id, 0):
-        await _notify_admins_simple(post_id, uid, text, file_id, kind, callback.from_user)
+    asyncio.create_task(
+        _process_submission(uid, kind, text, file_id, message_meta, callback.from_user)
+    )
+
+
+async def _process_submission(
+    user_id: int, kind: Optional[str], text: Optional[str], file_id: Optional[str],
+    message_meta: Optional[dict], from_user: Any,
+):
+    try:
+        post_id = await db.add_post(
+            user_id=user_id, kind=kind or "text", text=text, file_id=file_id,
+            message_meta=message_meta, bot_id=MANAGED_BOT_ID or None,
+        )
+        await _audit(user_id, "Bot post submitted", post_id)
+        if not await _ai_auto_publish(post_id, 0):
+            await _notify_admins_simple(post_id, user_id, text, file_id, kind, from_user)
+    except Exception:
+        logging.exception("Could not process user submission")
 
 
 async def _notify_admins_simple(post_id: int, user_id: int, text: Optional[str], file_id: Optional[str], kind: str, from_user: Any):
     for admin_id in await _admin_ids():
-        lang = await _lang(admin_id)
-        user_card = await _build_user_card(user_id, from_user, lang)
-        # Build message card manually (no Message object in preview flow)
-        txt = text or ""
-        chars = len(txt)
-        words = len(txt.split()) if txt else 0
-        msg_parts = [
-            t(lang, "admin_msg"),
-            f"Тип: {_esc(kind)}",
-            f"Символов: {chars}, слов: {words}",
-        ]
-        msg_card = chr(10).join(msg_parts)
-        header = t(lang, "admin_new_post", post_id=post_id) + chr(10) + t(lang, "admin_not_published")
-        caption = header + chr(10) + chr(10) + user_card + chr(10) + chr(10) + msg_card
-        kb = _admin_kb(post_id, user_id, lang)
         try:
+            lang = await _lang(admin_id)
+            user_card = await _build_user_card(user_id, from_user, lang)
+            txt = text or ""
+            msg_card = chr(10).join([
+                t(lang, "admin_msg"),
+                f"Тип: {_esc(kind)}",
+                f"Символов: {len(txt)}, слов: {len(txt.split()) if txt else 0}",
+            ])
+            header = t(lang, "admin_new_post", post_id=post_id) + chr(10) + t(lang, "admin_not_published")
+            caption = header + chr(10) + chr(10) + user_card + chr(10) + chr(10) + msg_card
+            kb = _admin_kb(post_id, user_id, lang)
             if kind == "text" or not file_id:
                 await bot.send_message(admin_id, caption, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
             elif kind == "photo":
@@ -892,8 +859,18 @@ async def _notify_admins_simple(post_id: int, user_id: int, text: Optional[str],
                 await bot.send_animation(admin_id, file_id, caption=caption, reply_markup=kb, parse_mode="HTML")
             else:
                 await bot.send_message(admin_id, caption, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
+            await _send_info_file(admin_id, caption, f"post-{post_id}-user-{user_id}.txt")
         except Exception as e:
             logging.error(f"Notify admin {admin_id} error: {e}")
+
+
+async def _send_info_file(admin_id: int, content: str, filename: str):
+    plain = html.unescape(re.sub(r"<[^>]+>", "", content))
+    await bot.send_document(
+        admin_id,
+        BufferedInputFile(plain.encode("utf-8"), filename=filename),
+        caption="Файл с полной информацией",
+    )
 
 
 async def _notify_admins(post_id: int, message: Message, is_media_group: bool = False, items: Optional[List[Dict]] = None):
@@ -964,6 +941,13 @@ async def _notify_admins(post_id: int, message: Message, is_media_group: bool = 
                     await bot.send_animation(admin_id, fid, caption=caption, reply_markup=kb, parse_mode="HTML")
                 else:
                     await bot.send_message(admin_id, caption, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
+                await _send_info_file(
+                    admin_id, caption, f"post-{post_id}-user-{message.from_user.id}.txt"
+                )
+            if is_media_group and items:
+                await _send_info_file(
+                    admin_id, caption, f"post-{post_id}-user-{message.from_user.id}.txt"
+                )
         except Exception as e:
             logging.error(f"Notify admin {admin_id} error: {e}")
 

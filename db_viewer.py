@@ -3507,7 +3507,17 @@ class Handler(BaseHTTPRequestHandler):
             if not actor:
                 self.send_html(auth_page("Сначала войдите в панель."), 401)
                 return
-            self.send_html(profile_page(actor))
+            try:
+                self.send_html(profile_page(actor))
+            except DB_ERRORS:
+                logging.exception("Profile page database error for %s", actor)
+                self.send_html(
+                    auth_page("Профиль временно недоступен: база данных не отвечает. Повторите через минуту."),
+                    503,
+                )
+            except Exception:
+                logging.exception("Profile page rendering error for %s", actor)
+                self.send_html(auth_page("Профиль временно недоступен. Повторите попытку позже."), 500)
             return
         # OAuth endpoints are deliberately available before a dashboard session.
         # A verified identity is shown to the user, but is not silently converted into
