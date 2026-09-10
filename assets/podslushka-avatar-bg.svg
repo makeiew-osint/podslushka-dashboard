@@ -1,7 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="32" fill="#050505"/>
-  <circle cx="64" cy="55" r="38" fill="none" stroke="#fff" stroke-width="9"/>
-  <path d="M43 48c0-9 7-16 16-16h10c9 0 16 7 16 16v12c0 9-7 16-16 16h-9L50 87V76c-4-3-7-8-7-16V48Z" fill="#fff"/>
-  <path d="M52 48h24M52 58h24M58 68h12" stroke="#050505" stroke-width="5" stroke-linecap="round"/>
-  <path d="M98 30c8 8 12 18 12 29M104 22c12 11 18 25 18 40" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Podslushka DB</title>
+  <desc id="desc">A signal mark shaped like a speech bubble and the letter P.</desc>
+  <defs>
+    <linearGradient id="bg" x1="14" y1="10" x2="116" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#18252a"/>
+      <stop offset="1" stop-color="#091114"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="35" y1="26" x2="99" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a7f3dc"/>
+      <stop offset="1" stop-color="#52c9b0"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="34" fill="url(#bg)"/>
+  <path d="M35 58c0-18 13-31 30-31s30 13 30 31-13 31-30 31H52l-14 12 3-17c-4-7-6-15-6-26Z" fill="none" stroke="url(#signal)" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M54 73V48c0-4 3-7 7-7h9c7 0 12 5 12 12s-5 12-12 12H54m0-12h18" fill="none" stroke="#f3fff9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M101 43c5 6 7 12 7 19M108 34c9 8 13 18 13 28" fill="none" stroke="#f3fff9" stroke-width="4" stroke-linecap="round" opacity=".9"/>
+  <circle cx="22" cy="23" r="3" fill="#a7f3dc"/>
 </svg>
