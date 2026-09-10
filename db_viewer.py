@@ -3492,16 +3492,16 @@ body.light .bot-status-card{{background:#fff;border-color:#c8d8eb}}body.light .b
 .content{{background:rgba(13,17,23,.66)!important}}
 .sidebar{{background:rgba(22,27,34,.9)!important}}
 .card,.insight-card,.toolbar,.table-wrap,.setup-card,.bot-center,.health-item,.group-ai{{background:rgba(22,27,34,.78)!important}}
-.osint-search-form{{display:grid;grid-template-columns:minmax(260px,.85fr) minmax(420px,1.8fr);align-items:stretch;gap:12px;margin:20px 0;padding:14px;border:1px solid #3a4b68;border-radius:20px;background:linear-gradient(135deg,#18263bfa,#101923f2);box-shadow:0 20px 45px #02071355}}
+.osint-search-form{{display:grid;grid-template-columns:minmax(280px,.8fr) minmax(420px,1.8fr);align-items:stretch;gap:14px;margin:20px 0;padding:16px;border:1px solid #49658b;border-radius:22px;background:linear-gradient(135deg,#172942f5 0%,#111d2ff2 52%,#0d1726f5 100%);box-shadow:0 22px 55px #02071366,0 0 0 1px #8fbfff0d inset}}
 .osint-search-form label{{display:grid;gap:7px;color:var(--muted);font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.06em}}
-.osint-search-form>label{{justify-content:center;padding:14px 12px;border:1px solid #344863;border-radius:14px;background:#0b1422aa}}
-.osint-search-form fieldset{{display:flex;align-items:center;gap:8px;min-height:58px;margin:0;border:1px solid #293b56;padding:9px 11px;border-radius:14px;background:#0b1220aa}}
+.osint-search-form>label{{justify-content:center;padding:16px 14px;border:1px solid #46658c;border-radius:16px;background:linear-gradient(160deg,#12243aaa,#0b1422dd)}}
+.osint-search-form fieldset{{display:flex;align-items:center;gap:8px;min-height:58px;margin:0;border:1px solid #304b70;padding:9px 11px;border-radius:14px;background:#0a1423cc}}
 .osint-search-form fieldset legend{{display:block;margin:0 0 6px;color:var(--muted);font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.08em}}
 .osint-search-form fieldset label{{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid transparent;border-radius:9px;color:var(--text);font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;cursor:pointer;transition:background .18s,border-color .18s}}
 .osint-search-form fieldset label:hover{{background:#ffffff0b;border-color:#ffffff20}}
 .osint-search-form input[type=text],.osint-search-form input:not([type]){{width:100%;min-height:42px}}
 .osint-search-form input[type=text],.osint-search-form input:not([type]){{margin-top:2px;border-color:#42648f;background:#111d2d;font-size:15px;font-weight:650}}
-.osint-search-form>.submit{{grid-column:1/-1;min-height:44px;white-space:nowrap;background:linear-gradient(135deg,#ff8d70,#e96551);border:0;box-shadow:0 10px 24px #e9655140}}
+.osint-search-form>.submit{{grid-column:1/-1;min-height:48px;white-space:nowrap;background:linear-gradient(105deg,#ff977c,#eb6655 55%,#cb4f55);border:0;box-shadow:0 12px 28px #e9655150;font-size:14px;font-weight:800;letter-spacing:.01em}}
 .osint-search-form>.submit:hover{{transform:translateY(-1px);box-shadow:0 13px 28px #e9655155}}
 .osint-status{{min-height:24px;margin:14px 0;color:var(--muted);font-size:13px;font-weight:600}}
 .osint-results{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}}
@@ -4074,6 +4074,56 @@ if (refreshSelect) {{
   refreshSelect.addEventListener('change', applyRefreshInterval);
 }}
 applyRefreshInterval();
+</script>
+<script>
+(function () {{
+  const form = document.getElementById('osint-search-form');
+  const button = form && form.querySelector('.submit');
+  if (!form || !button) return;
+  if (button.dataset.osintFallbackBound === '1') return;
+  button.dataset.osintFallbackBound = '1';
+  button.addEventListener('click', async function (event) {{
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const status = document.getElementById('osint-status');
+    const results = document.getElementById('osint-results');
+    const username = document.getElementById('osint-username');
+    const tools = Array.from(form.querySelectorAll('input[name="tool"]:checked')).map(item => item.value);
+    const aiInput = form.querySelector('input[name="ai"]:checked');
+    if (!username || !username.value.trim()) {{
+      if (status) status.textContent = 'Введите username для поиска.';
+      username && username.focus();
+      return;
+    }}
+    if (!tools.length) {{
+      if (status) status.textContent = 'Выберите хотя бы один инструмент поиска.';
+      return;
+    }}
+    button.disabled = true;
+    button.textContent = 'Запускаем поиск…';
+    if (status) status.textContent = 'Подключаем инструменты поиска…';
+    try {{
+      const response = await fetch('/api/osint-search', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        credentials: 'same-origin',
+        body: JSON.stringify({{username: username.value, tools: tools, ai: aiInput && aiInput.value === '1'}})
+      }});
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `Ошибка запуска: ${{response.status}}`);
+      if (status) status.textContent = 'Поиск запущен. Ожидайте результаты ниже…';
+      if (window.__podslushkaLaunchOsint && window.__podslushkaLaunchOsint !== this) {{
+        sessionStorage.setItem('podslushka-osint-job', payload.id);
+      }}
+      if (typeof pollOsint === 'function') pollOsint(payload.id);
+    }} catch (error) {{
+      if (status) status.textContent = error.message || 'Не удалось запустить поиск.';
+    }} finally {{
+      button.disabled = false;
+      button.textContent = 'Запустить поиск';
+    }}
+  }}, true);
+}})();
 </script>
 </body></html>"""
 
