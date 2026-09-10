@@ -1928,7 +1928,12 @@ body:after{{display:block!important;content:"";position:fixed!important;z-index:
 .sylva-hero-frame{{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;border:0!important;z-index:1!important;opacity:.82!important;mix-blend-mode:screen!important;pointer-events:auto!important;background:#0b2417!important}}
 .intro .brand,.intro h1,.intro p,.intro .features{{z-index:3!important;text-shadow:0 2px 18px #06150dcc!important}}
 .intro h1,.intro p,.intro .features{{pointer-events:none!important}}
+body{{padding:0!important;overflow:hidden!important}}
+.shell{{width:100vw!important;height:100vh!important;min-height:100vh!important;border:0!important;border-radius:0!important;grid-template-columns:minmax(0,1.12fr) minmax(430px,.88fr)!important;box-shadow:none!important}}
+.intro{{min-height:100vh!important;padding:52px 6vw!important}}
+.auth{{min-height:100vh!important;padding:64px clamp(38px,6vw,110px)!important}}
 @media(max-width:900px){{.sylva-hero-frame{{opacity:.5!important}}}}
+@media(max-width:900px){{body{{overflow:auto!important}}.shell{{width:100%!important;height:auto!important;min-height:100vh!important;border-radius:0!important;grid-template-columns:1fr!important}}.intro{{min-height:58vh!important;padding:34px 30px!important}}.auth{{min-height:42vh!important;padding:40px 34px 46px!important}}}}
 </style></head><body><div class="shell">
 <section class="intro"><div class="brand"><img class="brand-logo" src="/assets/podslushka-logo.png" alt="Podslushka DB"><span>Podslushka DB</span></div>
 <iframe class="sylva-hero-frame" src="/assets/inner-green-3d.html" title="Sylva living green 3D scene"></iframe>
@@ -1963,6 +1968,17 @@ document.querySelectorAll('.copy-token').forEach(btn => btn.addEventListener('cl
  btn.classList.add('copied');
  setTimeout(() => {{ btn.textContent = 'Копировать'; btn.classList.remove('copied'); }}, 1800);
 }}));
+window.addEventListener('message', event => {{
+  if (event.origin !== window.location.origin || !event.data || event.data.source !== 'sylva-auth') return;
+  const action = event.data.action;
+  const tab = document.querySelector(`.tab[data-tab="${{action === 'register' ? 'register' : 'login'}}"]`);
+  if (tab) tab.click();
+  const target = document.querySelector(action === 'register' ? '#register input[name="username"]' : '#login input[name="username"]');
+  if (target) {{
+    target.scrollIntoView({{behavior: 'smooth', block: 'center'}});
+    window.setTimeout(() => target.focus(), 180);
+  }}
+}});
 </script></body></html>"""
 
 
