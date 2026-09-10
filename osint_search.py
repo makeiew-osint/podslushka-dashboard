@@ -22,8 +22,8 @@ TOOLS_ROOT = Path(os.getenv("OSINT_TOOLS_DIR", ROOT / "tools")).resolve()
 USERNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,31}$")
 ALLOWED_TOOLS = {"blackbird", "maigret", "sherlock"}
 MAX_ACTIVE_JOBS = 2
-JOB_TIMEOUT = max(30, min(int(os.getenv("OSINT_JOB_TIMEOUT", "60")), 180))
-REQUEST_TIMEOUT = max(5, min(int(os.getenv("OSINT_REQUEST_TIMEOUT", "10")), 30))
+JOB_TIMEOUT = max(20, min(int(os.getenv("OSINT_JOB_TIMEOUT", "45")), 120))
+REQUEST_TIMEOUT = max(4, min(int(os.getenv("OSINT_REQUEST_TIMEOUT", "6")), 20))
 JOB_TTL = 30 * 60
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
@@ -199,7 +199,17 @@ def _worker(job_id: str, username: str, tools: list[str], ai: bool) -> None:
             completed = {}
             for future in as_completed(futures):
                 index = futures[future]
-                completed[index] = future.result()
+                try:
+                    completed[index] = future.result()
+                except Exception as exc:
+                    tool = tools[index]
+                    logging.exception("OSINT tool %s failed in job %s", tool, job_id)
+                    completed[index] = {
+                        "tool": tool,
+                        "status": "error",
+                        "results": [],
+                        "error": str(exc)[:300],
+                    }
                 with JOBS_LOCK:
                     JOBS[job_id].update(
                         results=[completed[item] for item in sorted(completed)],
