@@ -93,18 +93,51 @@ def _normalise(tool: str, stdout: str, files: list[dict]) -> list[dict]:
     found = []
     seen = set()
 
-    def add(url: str, site: str = ""):
+    def add(url: str, site: str = "", metadata: dict | None = None):
         url = url.rstrip(").,;")
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc or url in seen:
             return
         seen.add(url)
-        found.append({"site": site or parsed.netloc, "url": url, "status": "found"})
+        metadata = metadata or {}
+        found.append({
+            "site": site or metadata.get("site_name") or parsed.netloc,
+            "url": url,
+            "status": metadata.get("status", "found"),
+            "http_status": metadata.get("http_status"),
+            "rank": metadata.get("rank"),
+            "tags": metadata.get("tags", []),
+            "ids": metadata.get("ids", {}),
+            "url_main": metadata.get("url_main", ""),
+        })
 
     for match in re.findall(r"https?://[^\s<>'\"]+", stdout):
         add(match)
     for report in files:
-        stack = [report["data"]]
+        data = report["data"]
+        if isinstance(data, dict):
+            for site_name, entry in data.items():
+                if not isinstance(entry, dict):
+                    continue
+                status = entry.get("status") if isinstance(entry.get("status"), dict) else {}
+                url = entry.get("url_user") or status.get("url")
+                if url:
+                    add(
+                        url,
+                        site_name,
+                        {
+                            "site_name": site_name,
+                            "status": status.get("status", "found"),
+                            "http_status": entry.get("http_status"),
+                            "rank": entry.get("rank"),
+                            "tags": status.get("tags") or [],
+                            "ids": status.get("ids") or {},
+                            "url_main": entry.get("url_main", ""),
+                        },
+                    )
+            stack = [data]
+        else:
+            stack = [data]
         while stack:
             value = stack.pop()
             if isinstance(value, dict):

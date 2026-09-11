@@ -3896,7 +3896,16 @@ function renderOsint(job) {{
     return;
   }}
   const groups = (job.results || []).map(group => {{
-    const rows = (group.results || []).map(item => `<li><a href="${{escapeHtml(item.url)}}" target="_blank" rel="noopener noreferrer"><span>${{escapeHtml(item.site || 'Открытый источник')}}</span><small>${{escapeHtml(item.url)}}</small></a></li>`).join('');
+    const rows = (group.results || []).map(item => {{
+      const tags = Array.isArray(item.tags) && item.tags.length ? ` · ${{escapeHtml(item.tags.slice(0, 3).join(' · '))}}` : '';
+      const status = item.status && item.status !== 'found' ? ` · ${{escapeHtml(item.status)}}` : '';
+      const http = item.http_status ? ` · HTTP ${{escapeHtml(item.http_status)}}` : '';
+      const rank = item.rank ? ` · #${{escapeHtml(item.rank)}}` : '';
+      const ids = item.ids && Object.keys(item.ids).length
+        ? `<small>Доп. данные: ${{escapeHtml(Object.entries(item.ids).map(([key, value]) => `${{key}}: ${{value}}`).join(' · '))}}</small>`
+        : '';
+      return `<li><a href="${{escapeHtml(item.url)}}" target="_blank" rel="noopener noreferrer"><span>${{escapeHtml(item.site || 'Открытый источник')}}${{status}}${{http}}${{rank}}</span><small>${{escapeHtml(item.url)}}${{tags}}</small>${{ids}}</a></li>`;
+    }}).join('');
     const statusLabel = group.error ? 'Ошибка источника' : (group.status === 'ok' ? 'Найдено' : escapeHtml(group.status));
     return `<article class="osint-result"><header><b>${{escapeHtml(group.tool)}}</b><span class="status">${{statusLabel}}</span></header>${{rows ? `<ul>${{rows}}</ul>` : '<p class="muted">Совпадений не найдено.</p>'}}${{group.error ? `<p class="all-info-error">${{escapeHtml(group.error)}}</p>` : ''}}</article>`;
   }}).join('');
