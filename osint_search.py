@@ -186,10 +186,18 @@ def _run_tool(tool: str, username: str, workdir: Path) -> dict:
             check=False,
             env=env,
         )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        partial_output = "\n".join(
+            part.decode("utf-8", errors="replace") if isinstance(part, bytes) else (part or "")
+            for part in (exc.stdout, exc.stderr)
+        )
+        partial_files = _collect_files(workdir)
+        partial_results = _normalise(tool, partial_output, partial_files)
         return {
             "tool": tool,
             "status": "timeout",
+            "results": partial_results,
+            "log": partial_output[-4000:],
             "error": f"Превышен таймаут {TOOL_TIMEOUTS.get(tool, JOB_TIMEOUT)} секунд.",
         }
     except OSError as exc:
