@@ -83,6 +83,7 @@ TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@
 TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 TELEGRAM_UPDATES_CHAT_ID = os.getenv("TELEGRAM_UPDATES_CHAT_ID", "-1003984598730").strip()
 SITE_MAINTENANCE_MODE = os.getenv("SITE_MAINTENANCE_MODE", "").strip().lower() in {"1", "true", "yes"}
+SITE_URL = os.getenv("SITE_URL", "https://podslushka-dashboard.onrender.com/").strip()
 NOTIFICATION_STATUS = {"state": "configured", "last_error": "", "updated_at": 0}
 NOTIFICATION_LAST_EVENTS: dict[str, str] = {}
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
@@ -1111,24 +1112,34 @@ def notify_site_state() -> None:
 
 
 def _notify_updates_group(actor: str, action: str, target: str) -> None:
-    """Send only a sanitized outage, recovery, or product update."""
+    """Send a compact status card with a direct link to the dashboard."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_UPDATES_CHAT_ID:
         return
     event_key = f"{action}:{target}"
     if NOTIFICATION_LAST_EVENTS.get(event_key) == str(int(time.time()) // 300):
         return
     NOTIFICATION_LAST_EVENTS[event_key] = str(int(time.time()) // 300)
-    heading = "Сбой системы" if any(
-        word in str(action).lower() for word in ("error", "failed", "stopped", "offline", "unavailable")
-    ) else "Событие Podslushka DB"
+    normalized = str(action).lower()
+    is_failure = any(
+        word in normalized for word in ("error", "failed", "stopped", "offline", "unavailable")
+    )
+    is_maintenance = "maintenance" in normalized or "техничес" in normalized
+    heading = "🛠 Технические работы" if is_maintenance else (
+        "⚠️ Сбой системы" if is_failure else "✅ Проект запущен"
+    )
     stamp = datetime.now().strftime("%d.%m.%Y · %H:%M")
+    message = (
+        "Панель временно недоступна."
+        if is_maintenance
+        else "Панель снова доступна."
+        if not is_failure
+        else "Проверьте состояние панели."
+    )
     text = (
         f"<b>Podslushka DB</b>\n"
         f"<b>{heading}</b>\n"
-        f"<code>{stamp}</code>\n\n"
-        f"<b>Событие</b>\n{html.escape(str(action)[:180])}\n\n"
-        f"<b>Объект</b>\n{html.escape(str(target)[:220])}\n\n"
-        f"<code>Podslushka DB · system monitor</code>"
+        f"{message}\n"
+        f"<code>{stamp}</code>"
     )
 
     def send() -> None:
@@ -1138,6 +1149,9 @@ def _notify_updates_group(actor: str, action: str, target: str) -> None:
                 "text": text,
                 "parse_mode": "HTML",
                 "disable_web_page_preview": "true",
+                "reply_markup": json.dumps({
+                    "inline_keyboard": [[{"text": "🌐 Открыть сайт", "url": SITE_URL}]]
+                }, ensure_ascii=False),
             }).encode("utf-8")
             request = urllib.request.Request(
                 f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",

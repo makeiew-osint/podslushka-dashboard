@@ -23,6 +23,11 @@ def send_message(token: str, chat_id: str, text: str) -> None:
             "text": text,
             "parse_mode": "HTML",
             "disable_web_page_preview": "true",
+            "reply_markup": json.dumps({
+                "inline_keyboard": [[{"text": "🌐 Открыть сайт", "url": os.getenv(
+                    "SITE_URL", "https://podslushka-dashboard.onrender.com/"
+                )}]]
+            }, ensure_ascii=False),
         }
     ).encode("utf-8")
     request = urllib.request.Request(
@@ -78,17 +83,16 @@ def main() -> int:
     if current_state != previous_state and not (previous_state is None and available):
         if available:
             title = "Сайт снова работает"
-            body = f"Панель доступна. Проверка: {details}."
+            body = "Панель снова доступна."
         else:
             title = "Сайт на технических работах"
-            body = f"Панель недоступна. Проверка: {details}."
+            body = "Панель временно недоступна."
         heading = "Сайт снова работает" if available else "Сбой системы"
         message = (
             f"<b>Podslushka DB</b>\n"
             f"<b>{heading}</b>\n"
-            f"<code>{time.strftime('%d.%m.%Y · %H:%M')}</code>\n\n"
-            f"{body}\n\n"
-            f"<code>Podslushka DB · system monitor</code>"
+            f"{body}\n"
+            f"<code>{time.strftime('%d.%m.%Y · %H:%M')}</code>"
         )
         send_message(token, chat_id, message)
 
