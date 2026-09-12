@@ -49,6 +49,9 @@ The OSINT interface contains:
 3. Display modes: all results, raw results or AI summary.
 4. Progressive source cards and aggregate statistics.
 5. Export buttons for TXT, JavaScript and HTML.
+6. Persistent search history with repeat, delete and two-snapshot comparison.
+7. Clear source states: found, not found, unavailable, timeout and checking.
+8. Quick actions to open links, copy results and retry failed sources.
 
 ### Legal and privacy notice
 

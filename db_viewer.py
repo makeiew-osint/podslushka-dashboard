@@ -761,6 +761,15 @@ def _init_auth_once() -> None:
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS osint_search_history (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            tools TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            completed_at INTEGER,
+            result_json TEXT NOT NULL
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS admin_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             admin_id BIGINT NOT NULL,
@@ -1171,6 +1180,99 @@ def _notify_updates_group(actor: str, action: str, target: str) -> None:
             logging.exception("Unable to send dashboard update to Telegram")
 
     threading.Thread(target=send, name="telegram-dashboard-update", daemon=True).start()
+
+
+def persist_osint_job(job: dict) -> None:
+    if not job or job.get("status") == "running":
+        return
+    job_id = str(job.get("id") or "")
+    if not job_id:
+        return
+    now = int(time.time())
+    payload = json.dumps(job, ensure_ascii=False)
+    with db_connect() as conn:
+        exists = conn.execute(
+            "SELECT id FROM osint_search_history WHERE id=?", (job_id,)
+        ).fetchone()
+        if exists:
+            conn.execute(
+                "UPDATE osint_search_history SET status=?, completed_at=?, result_json=? WHERE id=?",
+                (str(job.get("status", "completed")), now, payload, job_id),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO osint_search_history "
+                "(id, username, tools, status, created_at, completed_at, result_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    job_id,
+                    str(job.get("username", "")),
+                    json.dumps(job.get("tools", []), ensure_ascii=False),
+                    str(job.get("status", "completed")),
+                    int(job.get("created_at", now)),
+                    now,
+                    payload,
+                ),
+            )
+        conn.commit()
+
+
+def osint_history_rows(limit: int = 50) -> list[dict]:
+    rows = db_rows(
+        "SELECT id, username, tools, status, created_at, completed_at, result_json "
+        "FROM osint_search_history ORDER BY created_at DESC LIMIT ?",
+        (max(1, min(limit, 100)),),
+    )
+    payload = []
+    for row in rows:
+        try:
+            tools = json.loads(row_value(row, "tools", 2) or "[]")
+            job = json.loads(row_value(row, "result_json", 6) or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            tools, job = [], {}
+        results = job.get("results", []) if isinstance(job, dict) else []
+        found = sum(len(group.get("results", [])) for group in results if isinstance(group, dict))
+        payload.append({
+            "id": str(row_value(row, "id", 0)),
+            "username": str(row_value(row, "username", 1) or ""),
+            "tools": tools,
+            "status": str(row_value(row, "status", 3) or ""),
+            "created_at": int(row_value(row, "created_at", 4) or 0),
+            "completed_at": int(row_value(row, "completed_at", 5) or 0),
+            "found": found,
+            "job": job,
+        })
+    return payload
+
+
+def osint_compare(left_id: str, right_id: str) -> dict:
+    snapshots = {}
+    with db_connect(readonly=True) as conn:
+        for item_id in (left_id, right_id):
+            row = conn.execute(
+                "SELECT result_json FROM osint_search_history WHERE id=?", (item_id,)
+            ).fetchone()
+            if not row:
+                raise KeyError(item_id)
+            snapshots[item_id] = json.loads(row_value(row, "result_json", 0) or "{}")
+
+    def urls(job: dict) -> set[str]:
+        return {
+            str(item.get("url"))
+            for group in job.get("results", [])
+            if isinstance(group, dict)
+            for item in group.get("results", [])
+            if isinstance(item, dict) and item.get("url")
+        }
+
+    before, after = urls(snapshots[left_id]), urls(snapshots[right_id])
+    return {
+        "left": snapshots[left_id],
+        "right": snapshots[right_id],
+        "new": sorted(after - before),
+        "removed": sorted(before - after),
+        "unchanged": sorted(before & after),
+    }
 
 
 AI_ANALYSIS_LOCK = threading.Lock()
@@ -3592,6 +3694,14 @@ body[class*="theme-"] .osint-search-form .submit{{background:linear-gradient(105
 .osint-results-empty .empty-icon{{display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:#102b50;color:#7bbcff;font-size:22px}}
 .osint-results-empty h3{{margin:0 0 5px;font-size:16px}}
 .osint-results-empty p{{margin:0;color:#7f9abe;font-size:12px}}
+.osint-history{{margin-top:18px;padding:18px;border:1px solid #1e4d84;border-radius:18px;background:#071426cc}}
+.osint-history-head{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}}
+.osint-history-list{{display:grid;gap:8px}}
+.osint-history-item{{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:11px;border:1px solid #173b68;border-radius:12px;background:#0b1d35}}
+.osint-history-item small{{display:block;color:#84a2c5;margin-top:3px}}
+.osint-history-actions{{display:flex;flex-wrap:wrap;gap:6px}}
+.osint-history-actions button{{min-height:30px;padding:5px 9px;font-size:11px}}
+.osint-compare{{margin-top:12px;padding:12px;border:1px dashed #2d6296;border-radius:12px;background:#081a2e}}
 .osint-statbar{{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}}
 .osint-stat{{padding:8px 11px;border:1px solid #1b4777;border-radius:11px;background:#0a1a2e;color:#8da9cb;font-size:11px}}
 .osint-stat b{{color:#d7eaff;font-size:14px;margin-right:4px}}
@@ -3612,7 +3722,7 @@ body[class*="theme-"] .osint-search-form .submit{{background:linear-gradient(105
 {('<section id="users"><h2>Пользователи <span class="muted" id="user-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_rows + '</table><div class="empty" id="users-empty">Ничего не найдено</div></div></section><section id="posts"><h2>Последние заявки <span class="muted" id="post-count"></span></h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table><div class="empty" id="posts-empty">Ничего не найдено</div></div></section>' if section == 'overview' else '')}
 {('<section id="users"><h2>Все пользователи</h2><div class="toolbar"><input id="detail-search" placeholder="Поиск по ID, имени, username..." autocomplete="off"></div><div class="table-wrap"><table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Язык</th><th>Язык панели</th><th>Premium</th><th>Заявок</th><th>Последний контакт</th></tr>' + user_detail_rows + '</table><div class="empty" id="detail-empty">Пользователи не найдены</div></div></section>' if section == 'users' else '')}
 {('<section id="posts"><h2>Все заявки</h2><div class="table-wrap"><table><tr><th>ID</th><th>User ID</th><th>Автор</th><th>Тип</th><th>Статус</th><th>Текст</th><th>ИИ</th></tr>' + post_rows + '</table></div></section>' if section == 'posts' else '')}
-{('<section id="user-search"><div class="osint-header"><div class="osint-title"><div class="osint-title-icon">⌕</div><div><h2>Поиск <span>пользователя</span></h2><p>Проверьте username только по открытым веб-источникам. Найдите аккаунты, связанные с этим пользователем.</p></div></div><div class="osint-public"><i></i> Публичные данные</div></div><form class="osint-search-form" id="osint-search-form" onsubmit="return false" novalidate><label><div class="osint-card-heading"><span class="glyph">♙</span><span><h3>Username</h3><p>Введите имя пользователя, никнейм или @username</p></span></div><input id="osint-username" name="username" placeholder="@username" maxlength="32" autocomplete="off" required><small class="muted">Например: @username или username</small></label><fieldset><legend>⌘ &nbsp; Источники поиска</legend><label class="osint-tool-card"><input type="checkbox" name="tool" value="blackbird" checked><span><b>◉ &nbsp;Blackbird</b><small>400+ сайтов</small></span></label><label class="osint-tool-card"><input type="checkbox" name="tool" value="maigret" checked><span><b>◉ &nbsp;Maigret</b><small>2500+ сайтов</small></span></label><label class="osint-tool-card"><input type="checkbox" name="tool" value="sherlock" checked><span><b>◉ &nbsp;Sherlock</b><small>400+ соцсетей</small></span></label></fieldset><fieldset class="osint-mode"><legend>⚙ &nbsp; Настройки отображения результатов</legend><label class="osint-mode-card"><input type="radio" name="ai" value="0" checked><span><b>Все</b><small>Полный поиск</small></span></label><label class="osint-mode-card"><input type="radio" name="ai" value="0"><span><b>Без ИИ</b><small>Только сырые данные</small></span></label><label class="osint-mode-card"><input type="radio" name="ai" value="1"><span><b>С ИИ</b><small>Краткое резюме и анализ</small></span></label></fieldset><button class="submit osint-launch" type="button">⌕ &nbsp; Запустить поиск <b>→</b></button></form><div id="osint-status" class="osint-status" role="status" aria-live="polite"></div><div class="osint-results-shell"><div class="osint-card-heading"><span class="glyph">⌘</span><span><h3>Результаты поиска</h3><p>Найденные публичные аккаунты и источники</p></span></div><div id="osint-results" class="osint-results"><div class="osint-results-empty"><div><div class="empty-icon">⌕</div></div><div><h3>Результаты появятся здесь</h3><p>Введите username и запустите поиск, чтобы увидеть найденные аккаунты и информацию.</p></div></div></div></div><details class="osint-notice"><summary>Условия использования</summary><p>Результаты могут быть неполными и не подтверждают личность владельца username. Используйте инструменты только законно, с разрешением и с учётом правил сайтов.</p></details></section>' if section == 'user-search' else '')}
+{('<section id="user-search"><div class="osint-header"><div class="osint-title"><div class="osint-title-icon">⌕</div><div><h2>Поиск <span>пользователя</span></h2><p>Проверьте username только по открытым веб-источникам. Найдите аккаунты, связанные с этим пользователем.</p></div></div><div class="osint-public"><i></i> Публичные данные</div></div><form class="osint-search-form" id="osint-search-form" onsubmit="return false" novalidate><label><div class="osint-card-heading"><span class="glyph">♙</span><span><h3>Username</h3><p>Введите имя пользователя, никнейм или @username</p></span></div><input id="osint-username" name="username" placeholder="@username" maxlength="32" autocomplete="off" required><small class="muted">Например: @username или username</small></label><fieldset><legend>⌘ &nbsp; Источники поиска</legend><label class="osint-tool-card"><input type="checkbox" name="tool" value="blackbird" checked><span><b>◉ &nbsp;Blackbird</b><small>400+ сайтов</small></span></label><label class="osint-tool-card"><input type="checkbox" name="tool" value="maigret" checked><span><b>◉ &nbsp;Maigret</b><small>2500+ сайтов</small></span></label><label class="osint-tool-card"><input type="checkbox" name="tool" value="sherlock" checked><span><b>◉ &nbsp;Sherlock</b><small>400+ соцсетей</small></span></label></fieldset><fieldset class="osint-mode"><legend>⚙ &nbsp; Настройки отображения результатов</legend><label class="osint-mode-card"><input type="radio" name="ai" value="0" checked><span><b>Все</b><small>Полный поиск</small></span></label><label class="osint-mode-card"><input type="radio" name="ai" value="0"><span><b>Без ИИ</b><small>Только сырые данные</small></span></label><label class="osint-mode-card"><input type="radio" name="ai" value="1"><span><b>С ИИ</b><small>Краткое резюме и анализ</small></span></label></fieldset><button class="submit osint-launch" type="button">⌕ &nbsp; Запустить поиск <b>→</b></button></form><div id="osint-status" class="osint-status" role="status" aria-live="polite"></div><div class="osint-results-shell"><div class="osint-card-heading"><span class="glyph">⌘</span><span><h3>Результаты поиска</h3><p>Найденные публичные аккаунты и источники</p></span></div><div id="osint-results" class="osint-results"><div class="osint-results-empty"><div><div class="empty-icon">⌕</div></div><div><h3>Результаты появятся здесь</h3><p>Введите username и запустите поиск, чтобы увидеть найденные аккаунты и информацию.</p></div></div></div></div><section class="osint-history" id="osint-history"><div class="osint-history-head"><div class="osint-card-heading"><span class="glyph">↺</span><span><h3>История поисков</h3><p>Повторный запуск, удаление и сравнение проверок</p></span></div><button type="button" data-history-refresh>Обновить</button></div><div class="osint-history-list" data-history-list><p class="muted">Загрузка истории…</p></div><div class="osint-compare" data-compare-output hidden></div></section><details class="osint-notice"><summary>Условия использования</summary><p>Результаты могут быть неполными и не подтверждают личность владельца username. Используйте инструменты только законно, с разрешением и с учётом правил сайтов.</p></details></section>' if section == 'user-search' else '')}
 {all_info_section}{bot_switcher}{approval}{bots_section}{project_join_section}{leave_project_section}{system_section}{monitoring_section}{group_section}
 </main></div><div class="mobile-menu-overlay" id="mobile-menu-overlay"></div><div class="help-toast" id="help-toast" role="status" aria-live="polite"><b>Подсказка</b><span id="help-toast-text"></span></div><div class="ai-card" id="ai-card" aria-hidden="true"><div class="ai-card-panel" role="dialog" aria-modal="true" aria-labelledby="ai-card-title"><div class="ai-card-head"><h2 id="ai-card-title">ИИ-анализ заявки</h2><button type="button" class="ai-close" id="ai-close">Закрыть</button></div><div id="ai-card-body"></div></div></div><script>
 let themeSelect = document.getElementById('theme-select');
@@ -3875,6 +3985,72 @@ function downloadOsintResult(job, format) {{
   link.remove();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }}
+function osintAllUrls(job) {{
+  return [...new Set((job.results || []).flatMap(group => (group.results || []).map(item => item.url).filter(Boolean)))];
+}}
+function openAllOsintLinks(job) {{
+  osintAllUrls(job).slice(0, 20).forEach(url => window.open(url, '_blank', 'noopener,noreferrer'));
+}}
+async function copyOsintResult(job) {{
+  const text = osintAllUrls(job).join('\\n');
+  try {{
+    await navigator.clipboard.writeText(text || `@${{job.username || ''}} — ссылок не найдено`);
+    if (osintStatus) osintStatus.textContent = 'Результат скопирован в буфер обмена.';
+  }} catch (_) {{
+    if (osintStatus) osintStatus.textContent = 'Не удалось скопировать результат.';
+  }}
+}}
+async function retryFailedOsint(job) {{
+  const tools = (job.results || []).filter(group => ['timeout', 'error', 'unavailable'].includes(group.status)).map(group => group.tool);
+  if (!tools.length) {{
+    if (osintStatus) osintStatus.textContent = 'Неудачных источников нет.';
+    return;
+  }}
+  return startOsintTools(job.username, tools);
+}}
+async function startOsintTools(username, tools) {{
+  const response = await fetch('/api/osint-search', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{username, tools, ai: false}})
+  }});
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || 'Не удалось повторить поиск.');
+  await pollOsint(payload.id);
+}}
+async function loadOsintHistory() {{
+  const list = document.querySelector('[data-history-list]');
+  if (!list) return;
+  const response = await fetch('/api/osint-history', {{cache: 'no-store'}});
+  if (!response.ok) {{ list.innerHTML = '<p class="muted">История недоступна.</p>'; return; }}
+  const payload = await response.json();
+  const items = payload.items || [];
+  if (!items.length) {{ list.innerHTML = '<p class="muted">Поисков пока нет.</p>'; return; }}
+  list.innerHTML = items.map((item, index) => {{
+    const stamp = item.created_at ? new Date(item.created_at * 1000).toLocaleString('ru-RU') : '—';
+    const label = item.status === 'completed' ? 'завершён' : (item.status === 'failed' ? 'ошибка' : item.status);
+    return `<article class="osint-history-item"><div><b>@${{escapeHtml(item.username)}}</b><small>${{stamp}} · ${{item.found}} найдено · ${{escapeHtml(label)}}</small></div><div class="osint-history-actions"><button type="button" data-history-run="${{item.id}}">Повторить</button><button type="button" data-history-delete="${{item.id}}">Удалить</button></div><label><input type="checkbox" data-history-compare="${{item.id}}"> Сравнить</label></article>`;
+  }}).join('');
+  list.querySelectorAll('[data-history-run]').forEach(button => button.addEventListener('click', async () => {{
+    const item = items.find(row => row.id === button.dataset.historyRun);
+    if (item && item.job) await startOsintTools(item.job.username, item.job.tools || []);
+  }}));
+  list.querySelectorAll('[data-history-delete]').forEach(button => button.addEventListener('click', async () => {{
+    await fetch('/api/osint-history', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{action: 'delete', id: button.dataset.historyDelete}})}});
+    loadOsintHistory();
+  }}));
+  list.querySelectorAll('[data-history-compare]').forEach(input => input.addEventListener('change', async () => {{
+    const selected = [...list.querySelectorAll('[data-history-compare]:checked')].map(box => box.dataset.historyCompare);
+    const output = document.querySelector('[data-compare-output]');
+    if (selected.length !== 2) {{ if (output) output.hidden = true; return; }}
+    const response = await fetch(`/api/osint-compare?left=${{encodeURIComponent(selected[1])}}&right=${{encodeURIComponent(selected[0])}}`);
+    const diff = await response.json();
+    if (output) {{
+      output.hidden = false;
+      output.innerHTML = `<b>Сравнение проверок</b><p>Новых ссылок: ${{diff.new.length}} · Исчезло: ${{diff.removed.length}} · Без изменений: ${{diff.unchanged.length}}</p>`;
+    }}
+  }}));
+}}
 function renderOsint(job) {{
   if (!osintResults) return;
   const toolLabels = {{blackbird: 'Blackbird', maigret: 'Maigret', sherlock: 'Sherlock'}};
@@ -3913,10 +4089,16 @@ function renderOsint(job) {{
   const flatResults = (job.results || []).flatMap(group => group.results || []);
   const uniqueProfiles = new Set(flatResults.map(item => item.url || item.site).filter(Boolean)).size;
   const stats = `<div class="osint-statbar"><span class="osint-stat"><b>${{flatResults.length}}</b> найдено</span><span class="osint-stat"><b>${{(job.tools || []).length}}</b> источника</span><span class="osint-stat"><b>${{uniqueProfiles}}</b> уникальных профиля</span></div>`;
-  osintResults.innerHTML = `${{stats}}<div class="osint-live-grid">${{liveCards}}</div>${{job.ai_summary ? `<div class="osint-summary"><b>AI-анализ</b><p>${{escapeHtml(job.ai_summary)}}</p></div>` : ''}}<div class="osint-downloads"><strong>Скачать результат</strong><button type="button" data-osint-download="txt">TXT</button><button type="button" data-osint-download="js">JavaScript</button><button type="button" data-osint-download="html">HTML</button></div>${{groups || '<p class="muted">Результатов нет.</p>'}}`;
+  osintResults.innerHTML = `${{stats}}<div class="osint-live-grid">${{liveCards}}</div>${{job.ai_summary ? `<div class="osint-summary"><b>AI-анализ</b><p>${{escapeHtml(job.ai_summary)}}</p></div>` : ''}}<div class="osint-downloads"><strong>Быстрые действия</strong><button type="button" data-osint-open>Открыть ссылки</button><button type="button" data-osint-copy>Копировать</button><button type="button" data-osint-download="txt">TXT</button><button type="button" data-osint-download="js">JavaScript</button><button type="button" data-osint-download="html">HTML</button><button type="button" data-osint-retry>Повторить ошибки</button></div>${{groups || '<p class="muted">Результатов нет.</p>'}}`;
   osintResults.querySelectorAll('[data-osint-download]').forEach(button => {{
     button.addEventListener('click', () => downloadOsintResult(job, button.dataset.osintDownload));
   }});
+  osintResults.querySelector('[data-osint-open]')?.addEventListener('click', () => openAllOsintLinks(job));
+  osintResults.querySelector('[data-osint-copy]')?.addEventListener('click', () => copyOsintResult(job));
+  osintResults.querySelector('[data-osint-retry]')?.addEventListener('click', () => retryFailedOsint(job).catch(error => {{
+    if (osintStatus) osintStatus.textContent = error.message;
+  }}));
+  loadOsintHistory();
 }}
 async function pollOsint(jobId) {{
   if (osintPollingJob === jobId) return;
@@ -4036,6 +4218,8 @@ function resumeOsintSearch() {{
 }}
 bindOsintSearch();
 resumeOsintSearch();
+document.querySelector('[data-history-refresh]')?.addEventListener('click', loadOsintHistory);
+loadOsintHistory();
 async function requestAiAnalysis(button) {{
   const postId = button.dataset.postId;
   if (!postId || button.disabled) return;
@@ -4569,6 +4753,38 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if path == "/api/osint-history":
+            actor = auth_user(self)
+            if not can_access(actor, "user-search"):
+                self.send_error(403)
+                return
+            body = json.dumps({"items": osint_history_rows()}, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/api/osint-compare":
+            actor = auth_user(self)
+            if not can_access(actor, "user-search"):
+                self.send_error(403)
+                return
+            query = parse_qs(parsed.query)
+            try:
+                payload = osint_compare(query.get("left", [""])[0], query.get("right", [""])[0])
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                self.send_error(404, "Снимки поиска не найдены.")
+                return
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path == "/api/osint-search":
             actor = auth_user(self)
             if not can_access(actor, "user-search"):
@@ -4579,8 +4795,16 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 job = osint_search.get_job(job_id)
             except KeyError:
-                self.send_error(404, "Поиск не найден или срок хранения истёк.")
-                return
+                with db_connect(readonly=True) as conn:
+                    row = conn.execute(
+                        "SELECT result_json FROM osint_search_history WHERE id=?", (job_id,)
+                    ).fetchone()
+                if not row:
+                    self.send_error(404, "Поиск не найден или срок хранения истёк.")
+                    return
+                job = json.loads(row_value(row, "result_json", 0) or "{}")
+            if job.get("status") != "running":
+                persist_osint_job(job)
             body = json.dumps(job, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -4932,6 +5156,51 @@ class Handler(BaseHTTPRequestHandler):
         }:
             log_action(auth_user(self) or "unknown", "Impersonation restricted action", path)
             self.send_error(403, "Управляющие действия отключены в режиме проверки")
+            return
+        if path == "/api/osint-history":
+            actor = auth_user(self)
+            if not can_access(actor, "user-search"):
+                self.send_error(403)
+                return
+            try:
+                request_data = json.loads(raw_body.decode("utf-8") or "{}")
+                action = str(request_data.get("action", ""))
+                item_id = str(request_data.get("id", ""))
+                if action == "delete":
+                    with db_connect() as conn:
+                        conn.execute("DELETE FROM osint_search_history WHERE id=?", (item_id,))
+                        conn.commit()
+                    payload = {"ok": True}
+                elif action == "retry":
+                    with db_connect(readonly=True) as conn:
+                        row = conn.execute(
+                            "SELECT result_json FROM osint_search_history WHERE id=?", (item_id,)
+                        ).fetchone()
+                    if not row:
+                        raise KeyError(item_id)
+                    previous = json.loads(row_value(row, "result_json", 0) or "{}")
+                    job = osint_search.start_job(
+                        str(previous.get("username", "")),
+                        list(previous.get("tools", [])),
+                        bool(previous.get("ai_requested", False)),
+                    )
+                    payload = job
+                else:
+                    raise ValueError("Неизвестное действие.")
+                body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except (UnicodeDecodeError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+                body = json.dumps({"error": str(exc) or "Не удалось обработать историю."}, ensure_ascii=False).encode("utf-8")
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
             return
         if path == "/api/osint-search":
             actor = auth_user(self)
