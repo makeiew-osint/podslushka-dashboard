@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from urllib.parse import urlparse
 import urllib.error
 import urllib.request
@@ -267,18 +267,37 @@ def _worker(job_id: str, username: str, tools: list[str], ai: bool) -> None:
                 for index, tool in enumerate(tools)
             }
             completed = {}
-            for future in as_completed(futures):
-                index = futures[future]
-                try:
-                    completed[index] = future.result()
-                except Exception as exc:
-                    tool = tools[index]
-                    logging.exception("OSINT tool %s failed in job %s", tool, job_id)
+            try:
+                for future in as_completed(futures, timeout=JOB_TIMEOUT):
+                    index = futures[future]
+                    try:
+                        completed[index] = future.result()
+                    except Exception as exc:
+                        tool = tools[index]
+                        logging.exception("OSINT tool %s failed in job %s", tool, job_id)
+                        completed[index] = {
+                            "tool": tool,
+                            "status": "error",
+                            "results": [],
+                            "error": str(exc)[:300],
+                        }
+                    with JOBS_LOCK:
+                        JOBS[job_id].update(
+                            results=[completed[item] for item in sorted(completed)],
+                            completed_tools=len(completed),
+                            updated_at=time.time(),
+                        )
+            except FuturesTimeoutError:
+                logging.error("OSINT job %s exceeded the %s second watchdog", job_id, JOB_TIMEOUT)
+                for index, future in futures.items():
+                    if index in completed:
+                        continue
+                    future.cancel()
                     completed[index] = {
-                        "tool": tool,
-                        "status": "error",
+                        "tool": tools[index],
+                        "status": "timeout",
                         "results": [],
-                        "error": str(exc)[:300],
+                        "error": f"Общий таймаут поиска: {JOB_TIMEOUT} секунд.",
                     }
                 with JOBS_LOCK:
                     JOBS[job_id].update(
