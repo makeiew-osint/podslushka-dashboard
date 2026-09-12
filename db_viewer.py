@@ -1266,12 +1266,32 @@ def osint_compare(left_id: str, right_id: str) -> dict:
         }
 
     before, after = urls(snapshots[left_id]), urls(snapshots[right_id])
+    def by_url(job: dict) -> dict[str, dict]:
+        return {
+            str(item.get("url")): item
+            for group in job.get("results", [])
+            if isinstance(group, dict)
+            for item in group.get("results", [])
+            if isinstance(item, dict) and item.get("url")
+        }
+    before_items, after_items = by_url(snapshots[left_id]), by_url(snapshots[right_id])
+    changed = []
+    for url in sorted(before & after):
+        old = before_items[url]
+        new = after_items[url]
+        fields = sorted({
+            key for key in set(old) | set(new)
+            if key != "url" and old.get(key) != new.get(key)
+        })
+        if fields:
+            changed.append({"url": url, "fields": fields})
     return {
         "left": snapshots[left_id],
         "right": snapshots[right_id],
         "new": sorted(after - before),
         "removed": sorted(before - after),
         "unchanged": sorted(before & after),
+        "changed": changed,
     }
 
 
@@ -4047,7 +4067,8 @@ async function loadOsintHistory() {{
     const diff = await response.json();
     if (output) {{
       output.hidden = false;
-      output.innerHTML = `<b>Сравнение проверок</b><p>Новых ссылок: ${{diff.new.length}} · Исчезло: ${{diff.removed.length}} · Без изменений: ${{diff.unchanged.length}}</p>`;
+      const changed = (diff.changed || []).map(item => `<li>${{escapeHtml(item.url)}} — ${{escapeHtml(item.fields.join(', '))}}</li>`).join('');
+      output.innerHTML = `<b>Сравнение проверок</b><p>Новых ссылок: ${{diff.new.length}} · Исчезло: ${{diff.removed.length}} · Без изменений: ${{diff.unchanged.length}} · Изменено профилей: ${{(diff.changed || []).length}}</p>${{changed ? `<details><summary>Показать изменения</summary><ul>${{changed}}</ul></details>` : ''}}`;
     }}
   }}));
 }}
