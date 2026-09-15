@@ -95,7 +95,8 @@ DEEPSEEK_MODEL = os.getenv(
 ).strip() or "deepseek-ai/DeepSeek-V4.1-Flash"
 GLM_MODEL = os.getenv("GLM_MODEL", "zai-org/GLM-5.3").strip() or "zai-org/GLM-5.3"
 AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").strip().lower() or "gemini"
-AI_MAINTENANCE_MODE = os.getenv("AI_MAINTENANCE_MODE", "").strip().lower() in {"1", "true", "yes"}
+# Keep provider-backed controls closed until AI access is explicitly restored.
+AI_MAINTENANCE_MODE = True
 AI_MAINTENANCE_TEXT = "ИИ временно на технических работах: закончился или отклонён доступ провайдера."
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
 NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-v4-pro-0813").strip() or "deepseek-ai/deepseek-v4-pro-0813"
