@@ -9,15 +9,15 @@
 <p>Открывайте готовый сервис — регистрация, установка и самостоятельное развёртывание не требуются.</p>
 
 <p>
-  <a href="https://podslushka-dashboard.onrender.com/">
+  <a href="https://podslushka-dashboard.onrender.com/" target="_blank">
     <strong>Перейти на сайт</strong>
   </a>
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/Service-online-22c55e?style=for-the-badge" alt="Service online">
-  <img src="https://img.shields.io/badge/Telegram-dashboard-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram dashboard">
-  <img src="https://img.shields.io/badge/OSINT-public%20sources-8b5cf6?style=for-the-badge" alt="OSINT public sources">
+  <a href="https://podslushka-dashboard.onrender.com/" target="_blank"><img src="https://img.shields.io/badge/Service-online-22c55e?style=for-the-badge" alt="Открыть сайт"></a>
+  <a href="https://podslushka-dashboard.onrender.com/" target="_blank"><img src="https://img.shields.io/badge/Telegram-dashboard-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Открыть Telegram dashboard"></a>
+  <a href="https://podslushka-dashboard.onrender.com/" target="_blank"><img src="https://img.shields.io/badge/OSINT-public%20sources-8b5cf6?style=for-the-badge" alt="Открыть OSINT"></a>
 </p>
 
 </div>
