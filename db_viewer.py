@@ -3870,10 +3870,23 @@ if (mobileMenuOverlay) mobileMenuOverlay.addEventListener('click', closeMobileMe
 document.querySelectorAll('.sidebar a').forEach(link => link.addEventListener('click', closeMobileMenu));
 document.addEventListener('click', event => {{
   const target = event.target;
+  const mobileMenu = target.closest('#mobile-menu-button');
+  if (mobileMenu) {{
+    event.preventDefault();
+    document.body.classList.toggle('menu-open');
+    return;
+  }}
+  if (target.closest('#mobile-menu-overlay')) {{
+    document.body.classList.remove('menu-open');
+    return;
+  }}
   if (target.closest('#dashboard-theme-open')) openDashboardThemes();
   if (target.closest('#dashboard-theme-close')) closeDashboardThemes();
   const compact = target.closest('#compact-mode-button');
   if (compact) applyCompactMode(!document.body.classList.contains('compact-mode'));
+  if (target.closest('[data-history-refresh]')) {{
+    loadOsintHistory();
+  }}
   const searchButton = target.closest('#osint-search-form .osint-launch');
   if (searchButton && !event.defaultPrevented && typeof window.__podslushkaLaunchOsint === 'function' && !searchButton.dataset.delegated) {{
     searchButton.dataset.delegated = '1';
