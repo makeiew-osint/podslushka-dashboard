@@ -49,6 +49,8 @@ services:
         value: zai-org/GLM-5.3
       - key: AI_PROVIDER
         value: gemini
+      - key: AI_MAINTENANCE_MODE
+        value: "true"
       - key: TELEGRAM_BOT_USERNAME
         value: schoolmboy202648_bot_bot
       - key: GOOGLE_CLIENT_ID
