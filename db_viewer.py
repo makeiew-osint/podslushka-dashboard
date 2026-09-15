@@ -1435,7 +1435,7 @@ def request_gemini_analysis(text: str) -> dict:
                     model, api_version, exc.code, provider_error,
                 )
                 if exc.code != 404:
-                    raise RuntimeError("upstream_http") from exc
+                    raise RuntimeError(f"upstream_http_{exc.code}") from exc
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 logging.warning("Gemini analysis network failure: %s", type(exc).__name__)
                 raise TimeoutError("upstream_network") from exc
@@ -1446,8 +1446,8 @@ def request_gemini_analysis(text: str) -> dict:
             break
     if response_data is None:
         if last_http_error is not None:
-            raise RuntimeError("upstream_http") from last_http_error
-        raise RuntimeError("upstream_http")
+            raise RuntimeError(f"upstream_http_{last_http_error.code}") from last_http_error
+        raise RuntimeError("upstream_http_502")
     try:
         content = response_data["candidates"][0]["content"]["parts"][0]["text"]
         if not isinstance(content, str):
@@ -1517,7 +1517,7 @@ def request_nvidia_analysis(text: str) -> dict:
             response_data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         logging.warning("NVIDIA analysis returned HTTP %s", exc.code)
-        raise RuntimeError("upstream_http") from exc
+        raise RuntimeError(f"upstream_http_{exc.code}") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         logging.warning("NVIDIA analysis network failure: %s", type(exc).__name__)
         raise TimeoutError("upstream_network") from exc
@@ -1596,7 +1596,7 @@ def request_huggingface_analysis(text: str, model: str | None = None) -> dict:
         logging.warning("Hugging Face analysis returned HTTP %s", exc.code)
         if exc.code == 403:
             raise RuntimeError("hf_forbidden") from exc
-        raise RuntimeError("upstream_http") from exc
+        raise RuntimeError(f"upstream_http_{exc.code}") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         logging.warning("Hugging Face analysis network failure: %s", type(exc).__name__)
         raise TimeoutError("upstream_network") from exc
@@ -5380,8 +5380,26 @@ class Handler(BaseHTTPRequestHandler):
                             "Hugging Face отклонил запрос (403): проверьте Read-токен "
                             "и доступ выбранной модели через Inference Providers."
                         )
+                    elif str(exc) == "upstream_http_400":
+                        error_message = (
+                            "ИИ отклонил запрос (400): проверьте выбранную модель "
+                            "и формат ответа JSON."
+                        )
+                    elif str(exc) in {"upstream_http_401", "upstream_http_403"}:
+                        error_message = (
+                            "ИИ отклонил ключ доступа. Проверьте API-ключ выбранного "
+                            "провайдера в настройках Render."
+                        )
+                    elif str(exc) == "upstream_http_404":
+                        error_message = (
+                            "Выбранная модель ИИ недоступна. Укажите актуальную модель "
+                            "в настройках провайдера."
+                        )
                     else:
-                        error_message = "Сервис ИИ вернул ошибку. Попробуйте позже."
+                        error_message = (
+                            "Сервис ИИ временно недоступен. Проверьте настройки "
+                            "провайдера и повторите попытку."
+                        )
                     send_ai_json({"error": error_message}, 502)
                     return
                 analyzed_at = int(time.time())
